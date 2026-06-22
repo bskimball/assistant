@@ -5,8 +5,8 @@
  *
  * All persistent domain objects are defined here.
  * - Use these types for R2 serialization, server functions, and client state.
- * - See .agents/ai/core-domain-model.ts for the agent-consumable mirror.
- * - See .agents/glossary.md for canonical definitions.
+ * - See docs/ai/core-domain-model.ts for the agent-consumable mirror.
+ * - See docs/ai/glossary.md for canonical definitions.
  */
 
 import type { Todo } from './todos'

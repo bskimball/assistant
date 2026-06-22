@@ -178,3 +178,15 @@ h1, .ledger-title {
     transition: none !important;
   }
 }
+
+/* Kanban board polish for life assistant */
+.kanban-board {
+  scrollbar-width: thin;
+}
+.kanban-board::-webkit-scrollbar {
+  height: 4px;
+}
+.kanban-board::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 2px;
+}

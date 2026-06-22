@@ -104,7 +104,7 @@ Adopt the **Core Domain Model v0.3** defined below.
 
 ## Next Steps
 
-- Create glossary in `.agents/glossary.md`
+- Create glossary in `docs/ai/glossary.md`
 - ADR-003: R2 key naming conventions and compaction strategy for daily aggregates
 - ADR-004: Voice interaction pipeline (STT → intent → `AIInteraction` → action)
 - Prototype `WorkoutPlan` generation flow with the single-active invariant enforced
@@ -112,4 +112,4 @@ Adopt the **Core Domain Model v0.3** defined below.
 
 ---
 
-**Glossary terms introduced by this ADR are recorded in `.agents/glossary.md`.**
+**Glossary terms introduced by this ADR are recorded in `docs/ai/glossary.md`.**

@@ -11,6 +11,16 @@
       "preview_bucket_name": "assistant-data"
     }
   ],
+  // D1 backs Better Auth (users / sessions / accounts) only — domain data stays in R2 (ADR-010).
+  // Local dev (vp dev / wrangler dev) emulates this DB under .wrangler/state automatically.
+  // For remote deploy: run `npx wrangler d1 create assistant-db` and paste the returned id below.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "assistant-db",
+      "database_id": "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+    }
+  ],
   "observability": {
     "enabled": true
   }

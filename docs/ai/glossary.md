@@ -34,7 +34,7 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 **DailyFinanceSnapshot**
 
-- Daily roll-up of accounts, positions, and net worth.
+- Daily roll-up of accounts, positions, and net worth. First-class daily aggregate (ADR-012): persisted at `daily-finance/{date}.json`, included in the dashboard payload, with `netWorth` derived server-side from accounts + positions when not explicitly set.
 
 **Transaction**
 
@@ -63,6 +63,34 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 **VoiceTranscript**
 
 - Audio recording + transcription artifact. Audio stored in R2; text, duration, language, and link to parent `AIInteraction` stored in metadata. Created whenever the user speaks to the assistant.
+
+## Coaching & AI (ADR-011)
+
+**Coach Engine**
+
+- The single server module (`src/lib/server/coach.ts`) that acts as the user's advisory board (life coach + strength coach + financial advisor). Produces a `CoachingResult` from the day's real `DaySignals`. Grok-backed with a deterministic, data-grounded fallback that works with no API key.
+
+**CoachingResult**
+
+- Structured coaching output: a data-aware `headline`, 4–6 `CoachSuggestion`s, and a `WorkoutSuggestion`. Persisted into `DailyPlan.aiSuggestions` so reloads are free.
+
+**CoachSuggestion**
+
+- One actionable recommendation tagged with a `domain` (`focus | fitness | nutrition | finance | family | general`) and an optional `action` voice-command hint that feeds back into the voice pipeline (ADR-004).
+
+**WorkoutSuggestion**
+
+- An AI- or rotation-generated session (title, focus, estimated minutes, exercises with sets/reps). Completing it logs a `WorkoutSession`.
+
+**WeeklyNarrativeResult**
+
+- Week-level coaching (`reflection / wins / blockers / nextWeekFocus`) generated from pre-computed `WeeklyStatsInput`. Powers the Weekly Review surface.
+
+## Authentication (ADR-010)
+
+**Auth store (D1)**
+
+- Cloudflare D1 (SQLite) persists Better Auth tables only: `user`, `session`, `account`, `verification` (`DB` binding). Domain data stays in R2 — D1 is never a second source of truth for domain state.
 
 ## Cross-Cutting Concepts
 
@@ -114,7 +142,7 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 ---
 
-**Last updated**: 2026-06-22 (ADR-005 implemented: Unified Daily Improvement Dashboard as default route. Progress rings + headline (focus/protein/recent voice note), date navigation + URL state, TanStack DB collections for daily aggregates, persistent mic FAB + listening overlay, read-only past days, loads daily snapshots + activity from R2, no extra LLM calls. ADR-004 voice fully wired in. AGENTS.md priorities updated.)
+**Last updated**: 2026-06-22 (ADR-010/011/012 implemented: Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
 
 **R2 paths for voice (ADR-004)**:
 - `assistant/brian/ai/transcripts/{id}.json`

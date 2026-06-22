@@ -204,4 +204,4 @@ This is acceptable because:
 
 **R2 key conventions and compaction rules defined in this ADR supersede any prior ad-hoc patterns and the previous duplicate 003 proposal.**
 
-**Glossary and `.agents/ai/` artifacts must be kept in sync with this ADR.**
+**Glossary and `docs/ai/` artifacts must be kept in sync with this ADR.**

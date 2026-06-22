@@ -16,6 +16,7 @@ import { createServerFn } from '@tanstack/react-start'
 import type {
   BaseEntity,
   DailyNutrition,
+  DailyFinanceSnapshot,
   DailyPlan,
   WorkoutPlan,
   WorkoutSession,
@@ -141,6 +142,24 @@ export const saveWorkoutSessions = createServerFn({ method: 'POST' })
     return payload
   })
 
+/** Append a single completed workout session (quick-log from the dashboard). */
+export const appendWorkoutSession = createServerFn({ method: 'POST' })
+  .validator((session: Omit<WorkoutSession, 'id' | 'createdAt'>) => session)
+  .handler(async ({ data }) => {
+    const now = Date.now()
+    assertValidWorkoutSessionDate(data.performedAt ?? now, now)
+    const stored = await getRef<WorkoutSessionsStore>('workout-sessions.json')
+    const session: WorkoutSession = {
+      id: `session-${now}`,
+      createdAt: now,
+      ...data,
+      performedAt: data.performedAt ?? now,
+    }
+    const sessions = [...(stored?.sessions || []), session]
+    await putRef('workout-sessions.json', { sessions, updatedAt: now })
+    return session
+  })
+
 /* =========================================
    DAILY NUTRITION
    ========================================= */
@@ -179,6 +198,53 @@ export const saveDailyNutrition = createServerFn({ method: 'POST' })
     } as DailyNutritionPayload
 
     await putDaily('daily-nutrition', data.date, full)
+    return full
+  })
+
+/* =========================================
+   DAILY FINANCE SNAPSHOT
+   ========================================= */
+
+export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number }
+
+export const loadDailyFinance = createServerFn({ method: 'GET' })
+  .validator((date: ISODate) => date)
+  .handler(async ({ data: date }): Promise<DailyFinancePayload> => {
+    const stored = await getDaily<DailyFinancePayload>('daily-finance', date)
+    if (stored) return stored
+    return {
+      id: `finance-${date}`,
+      date,
+      netWorth: 0,
+      accounts: [],
+      positions: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+  })
+
+export const saveDailyFinance = createServerFn({ method: 'POST' })
+  .validator(
+    (payload: {
+      date: ISODate
+      finance: Omit<DailyFinanceSnapshot, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>
+    }) => payload,
+  )
+  .handler(async ({ data }) => {
+    const now = Date.now()
+    // Derive net worth from accounts + positions when not explicitly provided.
+    const accountsTotal = (data.finance.accounts || []).reduce((s, a) => s + (a.amount || 0), 0)
+    const positionsTotal = (data.finance.positions || []).reduce((s, p) => s + (p.value || 0), 0)
+    const derivedNetWorth = accountsTotal + positionsTotal
+    const full: DailyFinancePayload = {
+      id: `finance-${data.date}`,
+      ...data.finance,
+      date: data.date,
+      netWorth: data.finance.netWorth || derivedNetWorth,
+      createdAt: (data.finance as any).createdAt ?? now,
+      updatedAt: now,
+    }
+    await putDaily('daily-finance', data.date, full)
     return full
   })
 
@@ -293,6 +359,7 @@ async function loadDayLog<T>(domain: string, date: ISODate): Promise<T[]> {
 export type DailyDashboardPayload = {
   date: ISODate
   nutrition: DailyNutritionPayload | null
+  finance: DailyFinancePayload | null
   productivity: ProductivityTasksPayload
   plan: DailyPlanPayload | null
   focus: (DailyFocusScore & { updatedAt: number }) | null
@@ -302,8 +369,9 @@ export type DailyDashboardPayload = {
 export const loadDailyDashboard = createServerFn({ method: 'GET' })
   .validator((date: ISODate) => date)
   .handler(async ({ data: date }): Promise<DailyDashboardPayload> => {
-    const [nutrition, productivity, plan, focus, ai, voice] = await Promise.all([
+    const [nutrition, finance, productivity, plan, focus, ai, voice] = await Promise.all([
       loadDailyNutrition({ data: date }),
+      loadDailyFinance({ data: date }),
       loadProductivityTasksForDay({ data: date }),
       loadDailyPlan({ data: date }),
       loadDailyFocusScore({ data: date }),
@@ -320,6 +388,7 @@ export const loadDailyDashboard = createServerFn({ method: 'GET' })
     return {
       date,
       nutrition: nutrition || null,
+      finance: finance || null,
       productivity: productivity || { tasks: [], updatedAt: Date.now() },
       plan: plan || null,
       focus: focus || null,

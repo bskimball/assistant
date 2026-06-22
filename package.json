@@ -21,6 +21,8 @@
     "@tanstack/ai": "^0.32.0",
     "@tanstack/ai-react": "^0.15.9",
     "@tanstack/db": "^0.6.9",
+    "better-auth": "^1.6.20",
+    "drizzle-orm": "^0.45.2",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-form": "^1.33.0",
     "@tanstack/react-router": "latest",

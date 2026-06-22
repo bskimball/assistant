@@ -1,5 +1,23 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useEffect, useMemo } from 'react'
+import {
+  Mic,
+  Square,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  Dumbbell,
+  Wallet,
+  Utensils,
+  Brain,
+  Users,
+  Target,
+  Droplet,
+  RefreshCw,
+  Plus,
+  Check,
+  ListTodo,
+} from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,10 +26,12 @@ import {
   processVoiceInput,
   loadDailyDashboard,
   saveProductivityTasksForDay,
+  appendWorkoutSession,
+  saveDailyFinance,
   type DailyDashboardPayload,
 } from '@/lib/server/domain'
+import { generateCoaching, type CoachingResult, type CoachDomain } from '@/lib/server/coach'
 import type {
-  ProductivityTask,
   DailyNutrition,
   ISODate,
   DailyFocusScore,
@@ -19,7 +39,6 @@ import type {
 } from '@/lib/domain'
 import {
   createProductivityTask,
-  updateTaskStatus,
   todayISO,
   toISODate,
 } from '@/lib/domain'
@@ -31,7 +50,7 @@ import {
 } from '@/lib/daily'
 
 // Unified Daily Improvement Dashboard (ADR-005)
-// Replaces previous todo-centric view. Uses daily aggregates + TanStack DB for reactivity.
+// Daily aggregates + TanStack DB for reactivity, now with a live AI coach.
 
 type Search = { date?: string }
 
@@ -43,6 +62,15 @@ export const Route = createFileRoute('/')({
   },
   component: UnifiedDailyDashboard,
 })
+
+const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
+  focus: Target,
+  fitness: Dumbbell,
+  nutrition: Utensils,
+  finance: Wallet,
+  family: Users,
+  general: Brain,
+}
 
 function UnifiedDailyDashboard() {
   const search = Route.useSearch()
@@ -57,7 +85,11 @@ function UnifiedDailyDashboard() {
   const [isLoading, setIsLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
-  // Voice state (reused from ADR-004)
+  // Coaching state
+  const [coaching, setCoaching] = useState<CoachingResult | null>(null)
+  const [coachLoading, setCoachLoading] = useState(false)
+
+  // Voice state (ADR-004)
   const [voiceStatus, setVoiceStatus] = useState<string>('')
   const [pendingConfirm, setPendingConfirm] = useState<{ transcript: string; intentText?: string } | null>(null)
   const [isVoiceProcessing, setIsVoiceProcessing] = useState(false)
@@ -70,6 +102,10 @@ function UnifiedDailyDashboard() {
   // Local quick-add for tasks (Focus section)
   const [taskInput, setTaskInput] = useState('')
 
+  // Finance quick-add
+  const [acctName, setAcctName] = useState('')
+  const [acctAmount, setAcctAmount] = useState('')
+
   // Subscribe to productivity collection for instant updates
   const [tasksVersion, setTasksVersion] = useState(0)
   useEffect(() => {
@@ -78,30 +114,20 @@ function UnifiedDailyDashboard() {
   }, [])
 
   const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion])
-  const openTasks = tasks.filter((t) => !t.done && !t.deletedAt)
   const doneTasks = tasks.filter((t) => t.done && !t.deletedAt)
   const focusProgress = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0
 
   // Derived headline signals (no extra LLM)
   const nutrition = dashboard?.nutrition as (DailyNutrition & { updatedAt?: number }) | null
+  const finance = dashboard?.finance ?? null
   const focusScore = (dashboard?.focus || null) as (DailyFocusScore & { updatedAt?: number }) | null
   const dailyPlan = (dashboard?.plan || null) as (DailyPlan & { updatedAt?: number }) | null
 
   const proteinCurrent = nutrition?.totals?.protein ?? 0
   const proteinTarget = dailyPlan?.nutritionTargets?.protein ?? 150
   const proteinPct = Math.min(100, Math.round((proteinCurrent / Math.max(1, proteinTarget)) * 100))
-
+  const waterMl = nutrition?.waterMl ?? 0
   const focusMinutes = focusScore?.focusMinutes ?? 0
-
-  const latestVoiceNote = useMemo(() => {
-    const acts = dashboard?.recent || { interactions: [], transcripts: [] }
-    const fromAI = (acts.interactions || [])
-      .map((i) => ({ t: i.timestamp, text: (i.response || '').toString().slice(0, 140) }))
-    const fromVoice = (acts.transcripts || [])
-      .map((v) => ({ t: v.timestamp, text: (v.transcriptText || '').slice(0, 140) }))
-    const all = [...fromAI, ...fromVoice].sort((a, b) => b.t - a.t)
-    return all[0]?.text || null
-  }, [dashboard])
 
   // Date nav
   function changeDate(deltaOrDate: number | ISODate) {
@@ -117,7 +143,7 @@ function UnifiedDailyDashboard() {
   }
 
   function goToday() {
-    navigate({ search: {} }) // clears date param → today
+    navigate({ search: {} })
   }
 
   // Load data for a date (snapshot + recent activity)
@@ -126,15 +152,13 @@ function UnifiedDailyDashboard() {
     try {
       const data = await loadDailyDashboard({ data: date })
       setDashboard(data)
-
-      // Hydrate TanStack DB collection for this day's tasks
       hydrateProductivityTasks(data.productivity?.tasks || [])
     } catch (e) {
       console.warn('[dashboard] loadDailyDashboard failed for', date, e)
-      // Provide empty shell so UI renders
       setDashboard({
         date,
         nutrition: null,
+        finance: null,
         productivity: { tasks: [], updatedAt: Date.now() },
         plan: null,
         focus: null,
@@ -146,11 +170,32 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Reload when date changes
   useEffect(() => {
     loadForDate(selectedDate)
+    setCoaching(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate])
+
+  // Generate coaching for the current day (free fallback when no API key).
+  async function refreshCoaching() {
+    setCoachLoading(true)
+    try {
+      const result = await generateCoaching({ data: { date: selectedDate } })
+      setCoaching(result)
+    } catch (e) {
+      console.warn('[dashboard] coaching failed', e)
+    } finally {
+      setCoachLoading(false)
+    }
+  }
+
+  // Auto-generate coaching once per day-view after the dashboard loads.
+  useEffect(() => {
+    if (dashboard && !coaching && !coachLoading) {
+      refreshCoaching()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboard])
 
   // Persist current day's productivity tasks (RMW via aggregate)
   async function persistTasks(date: ISODate) {
@@ -165,7 +210,6 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Quick add task (current day only)
   async function handleQuickAdd(e?: React.FormEvent) {
     if (e) e.preventDefault()
     if (!isToday || !taskInput.trim()) return
@@ -175,29 +219,77 @@ function UnifiedDailyDashboard() {
     await persistTasks(selectedDate)
   }
 
-  // Toggle task done (current day only)
-  async function toggleTaskDone(id: string) {
-    if (!isToday) return
-    const existing = productivityTasksCollection.state.get(id) as ProductivityTask | undefined
-    if (!existing) return
-    const nextStatus = existing.done ? 'pending' : 'done'
-    const updated = updateTaskStatus(existing, nextStatus)
-    upsertProductivityTaskClient(updated)
-    await persistTasks(selectedDate)
+  // Log the suggested workout as a completed session.
+  async function logSuggestedWorkout() {
+    if (!coaching || !isToday) return
+    setSyncing(true)
+    try {
+      await appendWorkoutSession({
+        data: {
+          performedAt: Date.now(),
+          notes: coaching.workout.title,
+          exercises: coaching.workout.exercises.map((e) => ({
+            name: e.name,
+            sets: e.sets,
+            reps: e.reps,
+          })),
+        },
+      })
+      setVoiceStatus(`Logged: ${coaching.workout.title}`)
+      speakAssistant(`Nice work. Logged ${coaching.workout.title}.`)
+      setTimeout(() => setVoiceStatus(''), 2200)
+    } catch (e) {
+      console.error('[dashboard] log workout failed', e)
+    } finally {
+      setSyncing(false)
+    }
   }
 
-  // Voice transcript handler (ADR-004 + dashboard reactivity)
+  // Add / update a finance account balance.
+  async function handleAddAccount(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    if (!isToday) return
+    const name = acctName.trim()
+    const amount = parseFloat(acctAmount)
+    if (!name || isNaN(amount)) return
+    setSyncing(true)
+    try {
+      const existing = finance?.accounts || []
+      const idx = existing.findIndex((a) => a.account.toLowerCase() === name.toLowerCase())
+      const nextAccounts =
+        idx >= 0
+          ? existing.map((a, i) => (i === idx ? { ...a, amount } : a))
+          : [...existing, { account: name, amount, currency: 'USD' }]
+      const saved = await saveDailyFinance({
+        data: {
+          date: selectedDate,
+          finance: {
+            date: selectedDate,
+            netWorth: 0, // derived server-side from accounts + positions
+            accounts: nextAccounts,
+            positions: finance?.positions || [],
+          },
+        },
+      })
+      setDashboard((d) => (d ? { ...d, finance: saved } : d))
+      setAcctName('')
+      setAcctAmount('')
+      refreshCoaching()
+    } catch (e) {
+      console.error('[dashboard] save finance failed', e)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  // Voice transcript handler (ADR-004)
   async function handleVoiceTranscript(text: string) {
     setIsVoiceProcessing(true)
     setVoiceStatus('Processing…')
     try {
       const result = await processVoiceInput({ data: { transcriptText: text } })
       setVoiceStatus(result.spokenText || 'Done')
-
-      // Refresh aggregates for the (possibly different) target day the voice acted on
-      // For simplicity we reload the currently viewed date; voice often targets today.
       await loadForDate(selectedDate)
-
       if (result.success) {
         speakAssistant(result.spokenText || 'Done')
       } else if (result.intent?.requiresConfirmation) {
@@ -311,7 +403,7 @@ function UnifiedDailyDashboard() {
     startMainListening()
   }
 
-  // Simple progress ring component (focus + protein)
+  // Progress ring component (focus + protein)
   function ProgressRing({ value, label, sub }: { value: number; label: string; sub?: string }) {
     const pct = Math.max(0, Math.min(100, value))
     const r = 28
@@ -340,7 +432,9 @@ function UnifiedDailyDashboard() {
     )
   }
 
-  const headerNote = latestVoiceNote || (isToday ? 'Speak to log progress.' : 'No activity recorded for this day.')
+  const headline =
+    coaching?.headline ||
+    (isToday ? 'Speak or tap to log progress — your coach is standing by.' : 'No activity recorded for this day.')
 
   return (
     <div className="min-h-dvh bg-background px-4 pb-24 pt-6">
@@ -352,18 +446,21 @@ function UnifiedDailyDashboard() {
             <div className="text-3xl font-semibold tracking-tighter">How am I doing?</div>
           </div>
 
-          {/* Compact date nav */}
           <div className="flex items-center gap-1.5 text-sm">
-            <Button variant="outline" size="sm" onClick={() => changeDate(-1)} aria-label="Previous day">◀</Button>
+            <Button variant="outline" size="icon" className="size-8" onClick={() => changeDate(-1)} aria-label="Previous day">
+              <ChevronLeft className="size-4" />
+            </Button>
             <Button
               variant={isToday ? 'default' : 'outline'}
               size="sm"
               onClick={goToday}
-              className="min-w-[92px] tabular-nums"
+              className="min-w-[72px] tabular-nums"
             >
               Today
             </Button>
-            <Button variant="outline" size="sm" onClick={() => changeDate(1)} aria-label="Next day">▶</Button>
+            <Button variant="outline" size="icon" className="size-8" onClick={() => changeDate(1)} aria-label="Next day">
+              <ChevronRight className="size-4" />
+            </Button>
 
             <input
               type="date"
@@ -375,7 +472,7 @@ function UnifiedDailyDashboard() {
               className="ml-1 h-8 rounded border bg-background px-2 text-xs tabular-nums"
             />
             {!isToday && (
-              <span className="ml-2 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Read-only</span>
+              <span className="ml-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Read-only</span>
             )}
           </div>
         </div>
@@ -394,20 +491,17 @@ function UnifiedDailyDashboard() {
                 {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ''}
                 {proteinCurrent > 0 ? `${proteinPct}% protein` : 'Log nutrition or tasks'}
               </div>
-              <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                {headerNote}
-              </div>
+              <div className="mt-2 line-clamp-3 text-sm text-muted-foreground">{headline}</div>
             </div>
 
-            {/* Prominent mic trigger (only for today) */}
             {isToday && (
               <button
                 onClick={handleFabClick}
                 disabled={isVoiceProcessing}
-                className={`flex size-16 items-center justify-center rounded-full border text-xl transition-all active:scale-[0.985] ${isListening ? 'border-red-500 bg-red-500 text-white shadow' : 'border-border hover:border-primary hover:text-primary'}`}
+                className={`flex size-16 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.985] ${isListening ? 'border-red-500 bg-red-500 text-white shadow' : 'border-border hover:border-primary hover:text-primary'}`}
                 aria-label={isListening ? 'Stop listening' : 'Start voice input'}
               >
-                {isListening ? '■' : '🎤'}
+                {isListening ? <Square className="size-6 fill-current" /> : <Mic className="size-6" />}
               </button>
             )}
           </div>
@@ -417,13 +511,15 @@ function UnifiedDailyDashboard() {
           )}
         </div>
 
-        {/* Listening overlay (dims + waveform) */}
+        {/* Listening overlay */}
         {isListeningOverlay && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div className="rounded-2xl bg-background px-8 py-7 text-center shadow-xl">
-              <div className="text-sm font-medium tracking-wide text-muted-foreground">Listening…</div>
+              <div className="flex items-center justify-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
+                <Mic className="size-4 text-primary" /> Listening…
+              </div>
               <div className="mt-3 flex items-end justify-center gap-1.5 h-10">
-                {[0,1,2,3].map((i) => (
+                {[0, 1, 2, 3].map((i) => (
                   <div key={i} className="w-1.5 animate-pulse rounded bg-primary" style={{ height: 12 + (i % 3) * 7, animationDelay: `${i * 110}ms` }} />
                 ))}
               </div>
@@ -434,7 +530,7 @@ function UnifiedDailyDashboard() {
           </div>
         )}
 
-        {/* Confirmation banner (destructive / high impact) */}
+        {/* Confirmation banner */}
         {pendingConfirm && (
           <div className="mb-4 rounded border border-border bg-accent/40 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -453,61 +549,157 @@ function UnifiedDailyDashboard() {
           </div>
         )}
 
+        {/* AI COACH SUGGESTIONS */}
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" /> Coach Suggestions
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={refreshCoaching}
+                disabled={coachLoading}
+                className="h-7 gap-1.5 text-xs font-normal"
+              >
+                <RefreshCw className={`size-3.5 ${coachLoading ? 'animate-spin' : ''}`} />
+                {coachLoading ? 'Thinking…' : 'Refresh'}
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {coaching?.suggestions?.length ? (
+              <ul className="space-y-2">
+                {coaching.suggestions.map((s, i) => {
+                  const Icon = DOMAIN_ICON[s.domain] || Brain
+                  return (
+                    <li key={i} className="flex gap-2.5 text-sm">
+                      <Icon className="mt-0.5 size-4 shrink-0 text-primary/80" />
+                      <div className="min-w-0">
+                        <span>{s.text}</span>
+                        {s.action && isToday && (
+                          <span className="ml-1 text-xs text-muted-foreground">— try “{s.action.trim()}”</span>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : coachLoading ? (
+              <div className="text-sm text-muted-foreground">Your coach is reviewing today…</div>
+            ) : dailyPlan?.aiSuggestions?.length ? (
+              <ul className="space-y-1.5 text-sm">
+                {dailyPlan.aiSuggestions.slice(0, 6).map((s, i) => (
+                  <li key={i} className="flex gap-2">
+                    <Brain className="mt-0.5 size-4 shrink-0 text-primary/80" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-muted-foreground">No suggestions yet — tap Refresh.</div>
+            )}
+            {coaching && (
+              <div className="pt-1 text-[10px] text-muted-foreground/60">
+                {coaching.generatedBy === 'ai' ? 'Generated by Grok' : 'Coach (offline rules)'} • updated{' '}
+                {new Date(coaching.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* WORKOUT SUGGESTION */}
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Dumbbell className="size-4 text-primary" /> Today’s Workout
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {coaching?.workout ? (
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <div className="font-medium">{coaching.workout.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {coaching.workout.focus} • ~{coaching.workout.estimatedMinutes} min
+                  </div>
+                </div>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {coaching.workout.exercises.map((ex, i) => (
+                    <li key={i} className="flex items-center justify-between border-b border-border/40 py-1 last:border-0">
+                      <span>{ex.name}</span>
+                      <span className="tabular-nums text-xs text-muted-foreground">{ex.sets} × {ex.reps}</span>
+                    </li>
+                  ))}
+                </ul>
+                {isToday && (
+                  <Button size="sm" className="mt-3 gap-1.5" onClick={logSuggestedWorkout} disabled={syncing}>
+                    <Check className="size-4" /> Mark complete
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                {coachLoading ? 'Building your session…' : 'Tap Refresh on suggestions to generate a session.'}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* FOCUS & TASKS */}
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle className="text-base">Focus &amp; Tasks {isLoading && <span className="ml-2 text-xs text-muted-foreground">(loading…)</span>}</CardTitle>
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <ListTodo className="size-4 text-primary" /> Focus &amp; Tasks
+              </span>
+              <Link to="/kanban" className="text-sm font-normal text-primary hover:underline">
+                Open full Kanban →
+              </Link>
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {!isToday && (
-              <div className="mb-3 rounded bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground">Viewing past day — editing disabled.</div>
-            )}
-
-            {/* Quick add (today only) */}
-            {isToday && (
-              <form onSubmit={handleQuickAdd} className="mb-4 flex items-center gap-2">
+            {isToday ? (
+              <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
                 <Input
                   value={taskInput}
                   onChange={(e) => setTaskInput(e.target.value)}
-                  placeholder="Add a task for today…"
+                  placeholder="Quick add task for today…"
                   className="flex-1"
                 />
-                <Button type="submit" size="sm" disabled={!taskInput.trim()}>Add</Button>
+                <Button type="submit" size="sm" disabled={!taskInput.trim()} className="gap-1">
+                  <Plus className="size-4" /> Add
+                </Button>
                 <VoiceInput onTranscript={handleVoiceTranscript} />
               </form>
+            ) : (
+              <div className="text-sm text-muted-foreground">Tasks for past days are view-only here. Use the full Kanban to edit.</div>
             )}
-
-            {/* Open tasks (top) */}
-            <div className="space-y-1">
-              {openTasks.length === 0 && (
-                <div className="py-3 text-sm text-muted-foreground">No open tasks. {isToday ? 'Add one above or speak.' : ''}</div>
-              )}
-              {openTasks.slice(0, 6).map((t) => (
-                <div key={t.id} className="group flex items-start gap-3 rounded-md px-1 py-1.5 hover:bg-accent/40">
-                  <button
-                    onClick={() => toggleTaskDone(t.id)}
-                    disabled={!isToday}
-                    className="mt-1 size-5 shrink-0 rounded-full border border-border hover:border-primary disabled:opacity-50"
-                    aria-label="Mark done"
-                  />
-                  <div className="min-w-0 flex-1 text-[0.97rem] leading-snug">{t.text}</div>
-                  {t.estimatedMinutes && <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{t.estimatedMinutes}m</div>}
-                </div>
-              ))}
+            {tasks.length > 0 && (
+              <ul className="mt-3 space-y-1 text-sm">
+                {tasks.slice(0, 6).map((t) => (
+                  <li key={t.id} className="flex items-center gap-2">
+                    <span className={`flex size-4 items-center justify-center rounded-full border ${t.done ? 'bg-primary text-primary-foreground border-primary' : 'border-muted-foreground/40'}`}>
+                      {t.done && <Check className="size-3" />}
+                    </span>
+                    <span className={t.done ? 'text-muted-foreground line-through' : ''}>{t.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-2 text-[10px] text-muted-foreground">
+              Voice/AI supported — try “add workout 30 min” or “remind me to call mom”.
             </div>
-
-            {doneTasks.length > 0 && (
-              <div className="mt-4 border-t pt-3 text-xs text-muted-foreground">
-                {doneTasks.length} done today
-              </div>
-            )}
           </CardContent>
         </Card>
 
         {/* NUTRITION */}
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle className="text-base">Nutrition</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Utensils className="size-4 text-primary" /> Nutrition
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="mb-2 flex items-center justify-between text-sm">
@@ -518,8 +710,8 @@ function UnifiedDailyDashboard() {
               <div className="h-full bg-primary transition-all" style={{ width: `${proteinPct}%` }} />
             </div>
 
-            <div className="mt-3 text-xs text-muted-foreground">
-              Water: {(nutrition?.waterMl ?? 0)} ml
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Droplet className="size-3.5" /> Water: {waterMl} ml
             </div>
 
             {(nutrition?.mealLogs?.length ?? 0) > 0 && (
@@ -539,25 +731,62 @@ function UnifiedDailyDashboard() {
           </CardContent>
         </Card>
 
-        {/* PLAN & SUGGESTIONS */}
+        {/* FINANCE — first-class snapshot */}
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle className="text-base">Plan &amp; AI Suggestions</CardTitle>
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Wallet className="size-4 text-primary" /> Finance Snapshot
+              </span>
+              <span className="text-lg font-semibold tabular-nums">
+                ${(finance?.netWorth ?? 0).toLocaleString()}
+              </span>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {dailyPlan?.aiSuggestions?.length ? (
-              <ul className="list-disc pl-5">
-                {dailyPlan.aiSuggestions.slice(0, 4).map((s, i) => <li key={i}>{s}</li>)}
+          <CardContent>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Net worth</div>
+
+            {finance?.accounts?.length ? (
+              <ul className="mt-2 space-y-1 text-sm">
+                {finance.accounts.map((a, i) => (
+                  <li key={i} className="flex items-center justify-between border-b border-border/40 py-1 last:border-0">
+                    <span>{a.account}</span>
+                    <span className="tabular-nums text-muted-foreground">${a.amount.toLocaleString()}</span>
+                  </li>
+                ))}
               </ul>
             ) : (
-              <div className="text-muted-foreground">No suggestions yet. Voice commands will populate plans over time.</div>
+              <div className="mt-2 text-sm text-muted-foreground">
+                No accounts tracked yet. Add balances below to start your net-worth baseline.
+              </div>
             )}
-            {dailyPlan?.notes && <div className="text-muted-foreground">{dailyPlan.notes}</div>}
+
+            {isToday && (
+              <form onSubmit={handleAddAccount} className="mt-3 flex items-center gap-2">
+                <Input
+                  value={acctName}
+                  onChange={(e) => setAcctName(e.target.value)}
+                  placeholder="Account (e.g. Checking)"
+                  className="flex-1"
+                />
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={acctAmount}
+                  onChange={(e) => setAcctAmount(e.target.value)}
+                  placeholder="Balance"
+                  className="w-32"
+                />
+                <Button type="submit" size="sm" className="gap-1" disabled={!acctName.trim() || !acctAmount}>
+                  <Plus className="size-4" /> Save
+                </Button>
+              </form>
+            )}
           </CardContent>
         </Card>
 
-        {/* RECENT ACTIVITY (voice/AI, no extra cost) */}
-        <Card className="mb-4">
+        {/* RECENT ACTIVITY */}
+        <Card className="mb-8">
           <CardHeader>
             <CardTitle className="text-base">Recent Activity</CardTitle>
           </CardHeader>
@@ -586,23 +815,12 @@ function UnifiedDailyDashboard() {
           </CardContent>
         </Card>
 
-        {/* FINANCE (collapsed by default feel) */}
-        <details className="mb-8">
-          <summary className="cursor-pointer select-none text-sm text-muted-foreground">Finance snapshot (optional)</summary>
-          <Card className="mt-2">
-            <CardContent className="pt-4 text-sm text-muted-foreground">
-              {dashboard ? 'Daily finance aggregates will appear here once tracked.' : '—'}
-            </CardContent>
-          </Card>
-        </details>
-
         <div className="text-[10px] text-muted-foreground/60 flex items-center gap-2">
           {selectedDate} • TanStack Start + R2 {syncing && '• syncing…'} {isLoading && '• loading…'}
         </div>
       </div>
 
-      {/* Always-present small voice input for confirm flows (ADR-004/005) */}
-      {/* We keep one mounted so confirm dialogs work even if main FAB is used */}
+      {/* Hidden voice input kept mounted for confirm flows */}
       <div className="hidden">
         <VoiceInput onTranscript={() => {}} />
       </div>
