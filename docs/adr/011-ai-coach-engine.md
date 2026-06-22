@@ -17,7 +17,7 @@ The grilling questions that shaped this ADR:
 
 ## Decision
 
-Introduce a single **AI Coach engine** (`src/lib/server/coach.ts`) that acts as the user's "advisory board" (life coach + strength coach + financial advisor) and produces structured, actionable output from the day's real numbers.
+Introduce a single **AI Coach engine** (`src/server/coach.ts`) that acts as the user's "advisory board" (life coach + strength coach + financial advisor) and produces structured, actionable output from the day's real numbers.
 
 ### 1. One engine, structured output
 `generateCoaching({ date })` returns a typed `CoachingResult`:

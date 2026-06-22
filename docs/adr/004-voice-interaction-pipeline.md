@@ -106,7 +106,7 @@ Adopt a staged voice pipeline with the following contract.
 
 1. Implement client-side `VoiceInput` component using Web Speech API.
 2. Create `VoicePipelineService` (or TanStack AI route) that orchestrates STT → intent → execution.
-3. Add `VoiceTranscript` and `AIInteraction` persistence helpers under the existing `src/server/r2.ts` pattern.
+3. Add `VoiceTranscript` and `AIInteraction` persistence helpers under the existing `src/server/adapters/r2.ts` pattern.
 4. Define the canonical intent schema and prompt templates for Grok.
 5. Build the confirmation dialog + TTS playback for assistant responses.
 6. Update AGENTS.md priority list (voice is now the top implementation target).

@@ -12,7 +12,7 @@
 
 ADR-002 established the Core Domain Model with daily/weekly aggregate objects (`DailyNutrition`, `DailyPlan`, `DailyFinanceSnapshot`, `ProductivityTask` collections, etc.) and append-only logs (`AIInteraction`, `VoiceTranscript`).
 
-The existing implementation in `src/server/r2.ts` (and helpers added for ADR-002) already defines:
+The existing implementation in `src/server/adapters/r2.ts` (and helpers added for ADR-002) already defines:
 
 - `getUserPrefix(userId)` → `assistant/{userId}`
 - `getKey(collection)` → `assistant/{userId}/{collection}.json`
@@ -42,7 +42,7 @@ All objects live under:
 assistant/brian/
 ```
 
-The helpers `getUserPrefix()`, `getKey()`, `getDailyKey()`, `getWeeklyKey()`, `getLogKey()`, `getRefKey()`, and `getDomainKey()` in `src/server/r2.ts` are the single source of truth.
+The helpers `getUserPrefix()`, `getKey()`, `getDailyKey()`, `getWeeklyKey()`, `getLogKey()`, `getRefKey()`, and `getDomainKey()` in `src/server/adapters/r2.ts` are the single source of truth.
 
 ### 2. Key Layout (v1 — chosen for simplicity)
 
@@ -164,7 +164,7 @@ This is acceptable because:
 
 - Daily aggregates map 1:1 (or day-sharded) to R2 keys → trivial, cheap `get` for dashboard.
 - Append-only logs remain simple, auditable, and never compacted.
-- Existing helpers in `src/server/r2.ts` are the source of truth; only additive functions were needed.
+- Existing helpers in `src/server/adapters/r2.ts` are the source of truth; only additive functions were needed.
 - Date-sharded delete index (`meta/deleted/`) makes the 7-day hard-delete worker efficient and cheap (O(days) work).
 - Prefix listing + small daily objects gives effective "table scan" at personal scale without a DB.
 - Read-modify-write compaction is simple to implement and reason about.

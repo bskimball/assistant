@@ -37,6 +37,14 @@ export interface UserPreferences {
 export type Sex = "male" | "female" | "other";
 export type ActivityLevel = "sedentary" | "light" | "moderate" | "active" | "very_active";
 export type RiskTolerance = "conservative" | "moderate" | "aggressive";
+/** User-facing workout categories the trainer can emphasize (ADR-013). */
+export type WorkoutStyle = "strength" | "calisthenics" | "yoga" | "conditioning";
+export const WORKOUT_STYLES: { value: WorkoutStyle; label: string; hint: string }[] = [
+  { value: "strength", label: "Strength", hint: "Weights — push / pull / legs" },
+  { value: "calisthenics", label: "Calisthenics", hint: "Bodyweight strength" },
+  { value: "yoga", label: "Yoga & mobility", hint: "Flexibility + recovery" },
+  { value: "conditioning", label: "Conditioning", hint: "Cardio + core" },
+];
 
 /**
  * Long-lived personalization context for the Coach Engine (ADR-013).
@@ -65,6 +73,11 @@ export interface UserProfile extends BaseEntity {
   trainingDaysPerWeek?: number;
   /** e.g. 'barbell', 'dumbbells', 'full gym', 'bodyweight only'. */
   equipmentAccess?: string[];
+  /**
+   * Workout styles the trainer should emphasize when building the weekly plan.
+   * Empty/undefined → balanced default (strength + calisthenics + yoga).
+   */
+  preferredWorkoutStyles?: WorkoutStyle[];
 
   // Nutrition (dietitian)
   /** e.g. 'vegetarian', 'no dairy', 'nut allergy'. */
@@ -132,9 +145,21 @@ export interface WorkoutPlan extends BaseEntity {
   status: WorkoutPlanStatus;
   generatedBy: GeneratedBy;
   exercises: PlannedExercise[];
+  /** Monday/Sunday bounds for weekly AI plans. */
+  weekStartDate?: ISODate;
+  weekEndDate?: ISODate;
+  plannedSessions?: PlannedWorkoutSession[];
   goalAlignment?: string;
   activatedAt?: Timestamp;
   archivedAt?: Timestamp;
+}
+
+export interface PlannedWorkoutSession {
+  date: ISODate;
+  title: string;
+  focus: string;
+  estimatedMinutes: number;
+  exercises: PlannedExercise[];
 }
 
 /**
@@ -310,8 +335,26 @@ export interface DailyPlan extends BaseEntity {
   acceptedAt?: Timestamp;
   acceptedSuggestionIds?: string[];
   aiSuggestions?: string[];
+  aiCoaching?: DailyCoachingSnapshot;
   voiceNoteIds?: string[];
   notes?: string;
+}
+
+export interface DailyCoachingSnapshot {
+  headline: string;
+  suggestions: {
+    domain: "focus" | "fitness" | "nutrition" | "finance" | "family" | "general";
+    text: string;
+    action?: string;
+  }[];
+  workout: {
+    title: string;
+    focus: string;
+    estimatedMinutes: number;
+    exercises: { name: string; sets: number; reps: string }[];
+  };
+  generatedBy: "ai" | "fallback";
+  updatedAt: Timestamp;
 }
 
 export interface WeeklyReview extends BaseEntity {
@@ -469,7 +512,7 @@ export function productivityTaskFromLegacyTodo(todo: {
  * MIGRATION NOTE (ADR-002):
  * Legacy `Todo` (src/lib/todos.ts) + future kanban items are absorbed by
  * `ProductivityTask`. New code should use ProductivityTask + the
- * productivity daily aggregate persistence (src/lib/server/domain.ts).
+ * productivity daily aggregate persistence (src/server/domain.ts).
  *
  * Existing todos UI continues to work against the legacy `todos.json`
  * collection during the transition period.

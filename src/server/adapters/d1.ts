@@ -3,7 +3,7 @@
  *
  * Scope: authentication only (users / sessions / accounts / verification).
  * All domain data (nutrition, tasks, finance, plans, voice/AI logs) stays in
- * Cloudflare R2 via `src/server/r2.ts` + `src/lib/server/domain.ts`.
+ * Cloudflare R2 via `src/server/adapters/r2.ts` + `src/server/domain.ts`.
  *
  * Pattern:
  * - Dynamic import of `cloudflare:workers` keeps this server-only.

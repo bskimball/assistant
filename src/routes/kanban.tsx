@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -8,6 +8,9 @@ import {
   Trash2,
   Inbox,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
   Users,
   Dumbbell,
   Salad,
@@ -23,12 +26,13 @@ import {
 } from 'lucide-react'
 import {
   saveProductivityTasksForDay,
-} from '@/lib/server/domain'
+} from '@/server/domain'
 import type { ProductivityTask, ISODate } from '@/lib/domain'
 import {
   createProductivityTask,
   updateTaskStatus,
   todayISO,
+  toISODate,
 } from '@/lib/domain'
 import {
   productivityTasksCollection,
@@ -58,6 +62,18 @@ function KanbanBoard() {
   const today = todayISO()
   const [selectedDate, setSelectedDate] = useState<ISODate>(today)
   const isToday = selectedDate === today
+  const dateInputRef = useRef<HTMLInputElement>(null)
+  const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+
+  function changeDate(delta: number) {
+    const d = new Date(selectedDate + 'T00:00:00')
+    d.setDate(d.getDate() + delta)
+    setSelectedDate(toISODate(d))
+  }
 
   const [taskInput, setTaskInput] = useState('')
   const [quickCategory, setQuickCategory] = useState<ColumnId | ''>('')
@@ -182,21 +198,87 @@ function KanbanBoard() {
   return (
     <div className="min-h-dvh bg-background px-4 pb-12 pt-6 sm:px-6">
       <div className="mx-auto w-full max-w-page">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Tasks &amp; Reminders</div>
-            <div className="text-3xl font-semibold tracking-tighter">Kanban Board</div>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-baseline gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Tasks &amp; Reminders</div>
+              <div className="text-3xl font-semibold tracking-tighter">Kanban Board</div>
+            </div>
+            <Link to="/" className="hidden text-sm text-primary hover:underline sm:inline">← Back to Dashboard</Link>
           </div>
-          <div className="flex items-center gap-2">
-            <Link to="/" className="text-sm text-primary hover:underline">← Back to Dashboard</Link>
-            <Button variant="outline" size="sm" onClick={() => setSelectedDate(today)}>Today</Button>
-            <input 
-              type="date" 
-              value={selectedDate} 
-              onChange={e => setSelectedDate(e.target.value as ISODate)} 
-              className="h-8 rounded border bg-background px-2 text-xs" 
-            />
-            {!isToday && <span className="text-[10px] text-muted-foreground">Read-only</span>}
+
+          <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+            <div className="flex items-center gap-2 text-sm">
+              {/* Today indicator — highlights when on the current day, jumps back otherwise */}
+              <Button
+                variant={isToday ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setSelectedDate(today)}
+                disabled={isToday}
+                className="h-8 shrink-0 gap-1.5 disabled:opacity-100"
+                aria-label={isToday ? 'Showing today' : 'Go to today'}
+              >
+                <span
+                  className={`size-1.5 rounded-full bg-current transition-opacity ${isToday ? 'opacity-100' : 'opacity-0'}`}
+                />
+                Today
+              </Button>
+
+              <div className="flex flex-1 items-center gap-1.5 sm:flex-none">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => changeDate(-1)}
+                  aria-label="Previous day"
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                {/* Date label doubles as the picker trigger */}
+                <div className="relative flex-1 sm:flex-none">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => dateInputRef.current?.showPicker?.()}
+                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-[132px]"
+                    aria-label="Pick a date"
+                  >
+                    <CalendarDays className="size-3.5 text-muted-foreground" />
+                    {dateLabel}
+                  </Button>
+                  <input
+                    ref={dateInputRef}
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => {
+                      const v = e.target.value as ISODate
+                      if (v) setSelectedDate(v)
+                    }}
+                    className="pointer-events-none absolute inset-0 size-full opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => changeDate(1)}
+                  aria-label="Next day"
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Read-only indicator sits under the nav; reserved height avoids layout shift */}
+            <div className="flex h-5 items-center justify-end">
+              {!isToday && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <Lock className="size-2.5" /> Read-only
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

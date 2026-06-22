@@ -380,5 +380,5 @@ export type DomainAggregate =
  * Legacy flat collections (todos.json etc.) remain during transition and are
  * absorbed into daily productivity aggregates.
  *
- * Source of truth for key construction: src/server/r2.ts (getDailyKey, getLogKey, getRefKey, getDeletedIndexKey, appendLogLine, ...)
+ * Source of truth for key construction: src/server/adapters/r2.ts (getDailyKey, getLogKey, getRefKey, getDeletedIndexKey, appendLogLine, ...)
  */

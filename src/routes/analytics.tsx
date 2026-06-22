@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { loadDailyDashboard, loadTransactions, loadWorkoutSessions } from "@/lib/server/domain";
+import { loadDailyDashboard, loadTransactions, loadWorkoutSessions } from "@/server/domain";
 import { mlToFlOz, todayISO, toISODate, type ISODate } from "@/lib/domain";
 
 export const Route = createFileRoute("/analytics")({

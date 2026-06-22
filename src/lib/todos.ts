@@ -3,7 +3,7 @@ import { createCollection, localOnlyCollectionOptions } from '@tanstack/db'
 /**
  * Todo domain model and client-side reactive collection.
  *
- * Persistence is R2-backed via server functions (see src/lib/server/todos.ts and ADR-001).
+ * Persistence is R2-backed via server functions (see src/server/todos.ts and ADR-001).
  * TanStack DB collection here provides reactive client state only.
  */
 

@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CalendarRange,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Dumbbell,
@@ -25,8 +26,8 @@ import {
   loadWeeklyReview,
   saveProductivityTasksForDay,
   saveWeeklyReview,
-} from "@/lib/server/domain";
-import { generateWeeklyNarrative, type WeeklyNarrativeResult } from "@/lib/server/coach";
+} from "@/server/domain";
+import { generateWeeklyNarrative, type WeeklyNarrativeResult } from "@/server/coach";
 import {
   createProductivityTask,
   flOzToMl,
@@ -70,9 +71,14 @@ interface WeekStats {
 
 function Weekly() {
   const [anchor, setAnchor] = useState<ISODate>(todayISO());
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const dates = weekDates(anchor);
   const week = toISOWeek(mondayOf(anchor));
   const weekLabel = `${dates[0]} → ${dates[6]}`;
+  const isCurrentWeek = week === toISOWeek(mondayOf(todayISO()));
+  const fmtDay = (d: ISODate) =>
+    new Date(d + "T00:00:00").toLocaleDateString([], { month: "short", day: "numeric" });
+  const rangeLabel = `${fmtDay(dates[0])} – ${fmtDay(dates[6])}`;
 
   const [stats, setStats] = useState<WeekStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -281,7 +287,7 @@ function Weekly() {
   return (
     <div className="min-h-dvh bg-background px-4 pb-16 pt-6 sm:px-6">
       <div className="mx-auto w-full max-w-page">
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Weekly Review
@@ -291,28 +297,67 @@ function Weekly() {
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{weekLabel}</div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 text-sm">
+            {/* This-week indicator — highlights on the current week, jumps back otherwise */}
             <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              onClick={() => shiftWeek(-1)}
-              aria-label="Previous week"
+              variant={isCurrentWeek ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAnchor(todayISO())}
+              disabled={isCurrentWeek}
+              className="h-8 shrink-0 gap-1.5 disabled:opacity-100"
+              aria-label={isCurrentWeek ? "Showing this week" : "Go to this week"}
             >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setAnchor(todayISO())}>
+              <span
+                className={`size-1.5 rounded-full bg-current transition-opacity ${isCurrentWeek ? "opacity-100" : "opacity-0"}`}
+              />
               This week
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              onClick={() => shiftWeek(1)}
-              aria-label="Next week"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
+
+            <div className="flex flex-1 items-center gap-1.5 sm:flex-none">
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={() => shiftWeek(-1)}
+                aria-label="Previous week"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              {/* Range label doubles as the week picker trigger */}
+              <div className="relative flex-1 sm:flex-none">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => dateInputRef.current?.showPicker?.()}
+                  className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-[140px]"
+                  aria-label="Pick a week"
+                >
+                  <CalendarDays className="size-3.5 text-muted-foreground" />
+                  {rangeLabel}
+                </Button>
+                <input
+                  ref={dateInputRef}
+                  type="date"
+                  value={anchor}
+                  onChange={(e) => {
+                    const v = e.target.value as ISODate;
+                    if (v) setAnchor(v);
+                  }}
+                  className="pointer-events-none absolute inset-0 size-full opacity-0"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={() => shiftWeek(1)}
+                aria-label="Next week"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
 

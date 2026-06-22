@@ -10,13 +10,13 @@ An AI-assisted personal life coach (fitness, nutrition, finance, family, product
 ## What was done this session (two phases)
 
 ### Phase 1 — Product improvements (user's fixes + advisor-team build)
-- Built the **AI Coach engine** `src/lib/server/coach.ts` (`generateCoaching`, `generateWeeklyNarrative`) — Grok-backed with a zero-config deterministic fallback. This is what makes "AI suggestions" and "workout suggestions" real (they were dead/empty before).
-- **Finance** made first-class: `loadDailyFinance`/`saveDailyFinance` in `src/lib/server/domain.ts` + a net-worth card on the dashboard (was a collapsed "optional" placeholder).
+- Built the **AI Coach engine** `src/server/coach.ts` (`generateCoaching`, `generateWeeklyNarrative`) — Grok-backed with a zero-config deterministic fallback. This is what makes "AI suggestions" and "workout suggestions" real (they were dead/empty before).
+- **Finance** made first-class: `loadDailyFinance`/`saveDailyFinance` in `src/server/domain.ts` + a net-worth card on the dashboard (was a collapsed "optional" placeholder).
 - **Icons**: replaced all emoji/unicode glyphs with `lucide-react` (dashboard, `kanban.tsx`, root nav). There were never real SVG sprites — that was a misdiagnosis; the issue was emoji-as-icons.
 - Rebuilt `src/routes/index.tsx` (coach card, workout card, finance card, lucide icons) and the nav/brand in `src/routes/__root.tsx`.
 
 ### Phase 2 — Fixed abandoned WIP + wrote ADRs
-- **Auth/D1 was broken WIP**, now correct & runnable: declared missing deps in `package.json` (`better-auth`, `drizzle-orm`); added the `DB` D1 binding to `wrangler.jsonc`; fixed `src/db/schema.ts` (was missing the `user` table Better Auth requires; date cols now timestamp-mode); trimmed `src/server/db.ts` to auth-only (removed `@ts-nocheck` + half-stubbed domain CRUD that competed with R2); added `src/components/AuthControl.tsx` (Google sign-in/out) to the header.
+- **Auth/D1 was broken WIP**, now correct & runnable: declared missing deps in `package.json` (`better-auth`, `drizzle-orm`); added the `DB` D1 binding to `wrangler.jsonc`; fixed `src/db/schema.ts` (was missing the `user` table Better Auth requires; date cols now timestamp-mode); trimmed `src/server/adapters/d1.ts` to auth-only (removed `@ts-nocheck` + half-stubbed domain CRUD that competed with R2); added `src/components/AuthControl.tsx` (Google sign-in/out) to the header.
 - **Decision**: D1 backs **auth only**; all domain data stays in **R2**. Do not migrate domain data to D1.
 - Built real **`/weekly`** (rollup + bar chart + editable WeeklyReview + AI narrative) and **`/analytics`** (7/14/30-day trend charts) on top of R2 daily aggregates.
 
@@ -27,7 +27,7 @@ An AI-assisted personal life coach (fitness, nutrition, finance, family, product
 - Glossary + `AGENTS.md` "Current State" already updated to match.
 
 ## Architecture notes for the next agent
-- **Domain persistence = R2** via `src/server/r2.ts` + `src/lib/server/domain.ts` (daily aggregates `assistant/brian/{domain}/{date}.json`). **Auth = D1** via `src/server/db.ts` (4 Better Auth tables). Keep these separate.
+- **Domain persistence = R2** via `src/server/adapters/r2.ts` + `src/server/domain.ts` (daily aggregates `assistant/brian/{domain}/{date}.json`). **Auth = D1** via `src/server/adapters/d1.ts` (4 Better Auth tables). Keep these separate.
 - Coach output is persisted into `DailyPlan.aiSuggestions` so reloads don't re-call the LLM; regeneration is explicit (Refresh button / finance edit).
 - Everything has a deterministic fallback so the app works with **no `GROK_API_KEY`**.
 

@@ -13,7 +13,7 @@ A partial Better Auth + Drizzle scaffold already existed but was abandoned mid-f
 - `better-auth` and `drizzle-orm` were installed but **not declared in `package.json`** (a clean install would silently drop them).
 - `wrangler.jsonc` had **no D1 binding**, so `getDb()` threw at runtime.
 - `src/db/schema.ts` was missing the **`user` table** Better Auth requires, and date columns were plain integers rather than drizzle timestamp-mode.
-- `src/server/db.ts` was `@ts-nocheck` and contained half-finished domain CRUD helpers that **duplicated the live R2 store**, implying a second source of truth for domain data.
+- `src/server/adapters/d1.ts` was `@ts-nocheck` and contained half-finished domain CRUD helpers that **duplicated the live R2 store**, implying a second source of truth for domain data.
 - No UI ever invoked the auth handler — it was dead code.
 
 The grilling question that drove this ADR: **"Where does authentication state live, and does adopting a relational store for auth mean migrating domain data off R2?"**
@@ -25,7 +25,7 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 ### 1. Store boundaries
 - **D1 (`DB` binding)** persists exactly four Better Auth tables: `user`, `session`, `account`, `verification`. Nothing else.
 - **R2** remains the system of record for all domain aggregates (nutrition, tasks, finance, plans, workouts, voice/AI logs).
-- `src/server/db.ts` is reduced to `getDb()` + `ensureSchema()` and exposes no domain CRUD, removing the competing-store ambiguity.
+- `src/server/adapters/d1.ts` is reduced to `getDb()` + `ensureSchema()` and exposes no domain CRUD, removing the competing-store ambiguity.
 
 ### 2. Schema bootstrap
 - `ensureSchema()` runs idempotent `CREATE TABLE IF NOT EXISTS` statements before auth handling. For a single-user app this is simpler and more reliable than a separate migration step/CLI.

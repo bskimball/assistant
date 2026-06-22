@@ -33,7 +33,7 @@ import type {
   ISOWeek,
 } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
-import type { SoftDeleteRecord } from "@/server/r2";
+import type { SoftDeleteRecord } from "@/server/adapters/r2";
 import {
   assertSingleActiveWorkoutPlan,
   assertValidMealLog,
@@ -48,10 +48,10 @@ import {
   mlToFlOz,
   type Macros,
 } from "@/lib/domain";
-import { loadTodos, saveTodos } from "@/lib/server/todos";
+import { loadTodos, saveTodos } from "@/server/todos";
 
 async function loadR2() {
-  const r2 = await import("@/server/r2");
+  const r2 = await import("@/server/adapters/r2");
   return r2;
 }
 

@@ -178,9 +178,9 @@ This app is deployed to **Cloudflare Workers** with **R2** as the primary persis
 ### Key conventions
 
 - All user data lives under R2 keys: `assistant/{userId}/{collection}.json`
-- Current user: `brian` (see `src/server/r2.ts`)
+- Current user: `brian` (see `src/server/adapters/r2.ts`)
 - TanStack DB (`todosCollection`) is **client reactive state only**.
-- All reads/writes are performed via server functions (`src/lib/server/*`) → R2.
+- All reads/writes are performed via server functions (`src/server/*`) → R2.
 
 ### Local development
 

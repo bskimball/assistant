@@ -44,11 +44,12 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 - Voice input/output system (ADR-004 implemented: browser STT, intent extraction, immediate execution for additive actions, confirmation for destructive, R2 per-object + daily logs)
 - Unified Daily Improvement Dashboard (ADR-005) as default `/` route: date nav, progress rings (focus + nutrition), sections for tasks/nutrition/plan/activity, persistent mic FAB + listening overlay, read-only past days, TanStack DB reactivity, zero extra LLM cost for headline
 - Productivity uses unified Daily aggregates + legacy todo shim still present during transition
-- AI Coach module (`src/lib/server/coach.ts`, ADR-011): `generateCoaching` produces cross-domain suggestions (focus/fitness/nutrition/finance/family) + a daily workout suggestion + motivational headline; `generateWeeklyNarrative` does the weekly version. Grok-backed with a data-driven deterministic fallback (works with no API key). Suggestions persist into the DailyPlan so reloads are free.
-- Personalization (ADR-013): a long-lived `UserProfile` (`loadUserProfile`/`saveUserProfile`, stored at `user-profile.json`) and a trailing 7-day `TrendSignals` (`collectTrend`) now feed the coach. Suggestions respect injuries/dietary restrictions, use the user's own protein/water/savings targets, and reference momentum (protein direction, workouts vs. target, net-worth change). All fields optional → empty profile degrades gracefully. `/profile` provides settings/onboarding with a coach-quality completeness indicator.
+- AI Coach module (`src/server/coach.ts`, ADR-011): `generateCoaching` produces cross-domain suggestions (focus/fitness/nutrition/finance/family) + a daily workout suggestion + motivational headline; `generateWeeklyNarrative` does the weekly version. Grok-backed with a data-driven deterministic fallback (works with no API key). Suggestions persist into the DailyPlan so reloads are free.
+- Personalization (ADR-013): a long-lived `UserProfile` (`loadUserProfile`/`saveUserProfile`, stored at `user-profile.json`) and a trailing 7-day `TrendSignals` (`collectTrend`) now feed the coach. Suggestions respect injuries/dietary restrictions, use the user's own protein/water/savings targets, and reference momentum (protein direction, workouts vs. target, net-worth change). The weekly workout plan blends traditional strength, bodyweight calisthenics, and yoga/mobility (sequenced so overlapping muscle areas never land on back-to-back days); `preferredWorkoutStyles` on the profile lets the user steer that blend, defaulting to the balanced mix. All fields optional → empty profile degrades gracefully. `/profile` provides settings/onboarding with a coach-quality completeness indicator.
 - Finance is first-class (ADR-012): `loadDailyFinance`/`saveDailyFinance` daily aggregates + a net-worth snapshot on the dashboard (no longer "optional").
 - Closed-loop coaching (ADR-014): coach suggestions can be accepted into real daily tasks, voice meal logs parse explicit macros/calories instead of storing zeroes, workout sessions track duration/effort hooks, finance has a lightweight `transactions.json` cashflow ledger, analytics charts cashflow, and weekly review can schedule next-week focus tasks.
 - Authentication (ADR-010): Better Auth + Google OAuth backed by Cloudflare D1 (auth tables only — domain data stays on R2). `AuthControl` in the header; degrades gracefully when OAuth is unconfigured. Remote deploy needs a real D1 id + Google secrets.
+- Server module layout (ADR-015): server functions and server-side domain logic live under `src/server/*`; Cloudflare-specific R2/D1 integrations live under `src/server/adapters/*`; client-safe shared types/helpers remain under `src/lib/*`.
 - Weekly Review (`/weekly`) and Analytics (`/analytics`) are built on R2 daily aggregates (weekly rollup + editable review + AI narrative; multi-day trend charts).
 - Icons standardized on `lucide-react` (emoji/unicode glyphs removed from dashboard, Kanban, and nav).
 - Theme toggle, basic UI components
@@ -75,7 +76,7 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 
 ## AI Integration Rules
 
-- AI calls are encapsulated behind server functions (`src/lib/server/coach.ts`, `domain.ts`); migrating the direct Grok transport to TanStack AI abstractions is the target (see ADR-011)
+- AI calls are encapsulated behind server functions (`src/server/coach.ts`, `src/server/domain.ts`); migrating the direct Grok transport to TanStack AI abstractions is the target (see ADR-011)
 - Every AI path must have a deterministic fallback so the app works with no `GROK_API_KEY`
 - Grok API keys stored securely (never committed)
 - Responses must be actionable (plans, suggestions, not just data)

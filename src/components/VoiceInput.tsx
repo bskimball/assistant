@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -42,9 +42,15 @@ export function VoiceInput({
   const recognitionRef = useRef<any>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
 
-  const isSupported =
-    typeof window !== 'undefined' &&
-    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+  // Detect Web Speech support AFTER mount. Computing it during render would
+  // disagree between SSR (no `window` → unsupported) and the client's first
+  // (hydration) render, causing a hydration mismatch on the button's
+  // `disabled`/`title`. Start unsupported (matching the server) and flip in an
+  // effect once hydrated.
+  const [isSupported, setIsSupported] = useState(false)
+  useEffect(() => {
+    setIsSupported('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+  }, [])
 
   const speak = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return

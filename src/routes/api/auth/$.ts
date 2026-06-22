@@ -6,7 +6,7 @@
  *
  * All auth flows (signIn.social({ provider: 'google' }), getSession, signOut, etc.) go through here.
  *
- * Ensure schema (auth + domain tables) before first use.
+ * Ensure auth schema before first use.
  */
 
 import { createFileRoute } from "@tanstack/react-router";
@@ -14,7 +14,7 @@ import { getAuth } from "@/lib/auth";
 
 async function ensureSchemaSafe() {
   try {
-    const { ensureSchema } = await import("@/server/db");
+    const { ensureSchema } = await import("@/server/adapters/d1");
     await ensureSchema();
   } catch {
     // Non-fatal in dev

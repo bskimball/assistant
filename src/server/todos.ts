@@ -23,7 +23,7 @@ export type StoredTodos = {
 
 async function loadR2() {
   // Dynamic import guarantees this module graph is server-only
-  const r2 = await import("@/server/r2");
+  const r2 = await import("@/server/adapters/r2");
   return r2;
 }
 

@@ -14,7 +14,7 @@
 
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { getDb } from "@/server/db";
+import { getDb } from "@/server/adapters/d1";
 
 let _auth: any = null;
 

@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Mic,
   Square,
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  CalendarDays,
+  Lock,
   Dumbbell,
   Wallet,
   Utensils,
@@ -32,13 +34,13 @@ import {
   loadTransactions,
   appendTransaction,
   type DailyDashboardPayload,
-} from "@/lib/server/domain";
+} from "@/server/domain";
 import {
   acceptDailyCoachingPlan,
   generateCoaching,
   type CoachingResult,
   type CoachDomain,
-} from "@/lib/server/coach";
+} from "@/server/coach";
 import type {
   DailyNutrition,
   ISODate,
@@ -81,10 +83,16 @@ const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
 function UnifiedDailyDashboard() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const today = todayISO();
   const selectedDate: ISODate = (search.date as ISODate) || today;
   const isToday = selectedDate === today;
+  const dateLabel = new Date(selectedDate + "T00:00:00").toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 
   // Dashboard data state (ADR-005)
   const [dashboard, setDashboard] = useState<DailyDashboardPayload | null>(null);
@@ -189,6 +197,18 @@ function UnifiedDailyDashboard() {
         loadTransactions(),
       ]);
       setDashboard(data);
+      setCoaching(
+        data.plan?.aiCoaching
+          ? {
+              date,
+              headline: data.plan.aiCoaching.headline,
+              suggestions: data.plan.aiCoaching.suggestions,
+              workout: data.plan.aiCoaching.workout,
+              generatedBy: data.plan.aiCoaching.generatedBy,
+              updatedAt: data.plan.aiCoaching.updatedAt,
+            }
+          : null,
+      );
       hydrateProductivityTasks(data.productivity?.tasks || []);
       setWorkoutSessions((sessionsStore?.sessions || []).filter((s) => !s.deletedAt));
       setTransactions((txnStore?.transactions || []).filter((t) => !t.deletedAt));
@@ -211,16 +231,16 @@ function UnifiedDailyDashboard() {
 
   useEffect(() => {
     loadForDate(selectedDate);
-    setCoaching(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
-  // Generate coaching for the current day (free fallback when no API key).
-  async function refreshCoaching() {
+  // Generate coaching for the current day (cached unless force-refreshing).
+  async function refreshCoaching(force = true) {
     setCoachLoading(true);
     try {
-      const result = await generateCoaching({ data: { date: selectedDate } });
+      const result = await generateCoaching({ data: { date: selectedDate, force } });
       setCoaching(result);
+      await loadForDate(selectedDate);
     } catch (e) {
       console.warn("[dashboard] coaching failed", e);
     } finally {
@@ -228,10 +248,10 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Auto-generate coaching once per day-view after the dashboard loads.
+  // Auto-generate coaching only when this date has no persisted coach snapshot.
   useEffect(() => {
-    if (dashboard && !coaching && !coachLoading) {
-      refreshCoaching();
+    if (isToday && dashboard && !dashboard.plan?.aiCoaching && !coaching && !coachLoading) {
+      refreshCoaching(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboard]);
@@ -554,7 +574,7 @@ function UnifiedDailyDashboard() {
     <div className="min-h-dvh bg-background px-4 pb-24 pt-6 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         {/* Top nav + date */}
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Daily Dashboard
@@ -562,48 +582,78 @@ function UnifiedDailyDashboard() {
             <div className="text-3xl font-semibold tracking-tighter">How am I doing?</div>
           </div>
 
-          <div className="flex items-center gap-1.5 text-sm">
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              onClick={() => changeDate(-1)}
-              aria-label="Previous day"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              variant={isToday ? "default" : "outline"}
-              size="sm"
-              onClick={goToday}
-              className="min-w-[72px] tabular-nums"
-            >
-              Today
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              onClick={() => changeDate(1)}
-              aria-label="Next day"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
+          <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+            <div className="flex items-center gap-2 text-sm">
+              {/* Today indicator — highlights when on the current day, jumps back otherwise */}
+              <Button
+                variant={isToday ? "default" : "outline"}
+                size="sm"
+                onClick={goToday}
+                disabled={isToday}
+                className="h-8 shrink-0 gap-1.5 disabled:opacity-100"
+                aria-label={isToday ? "Showing today" : "Go to today"}
+              >
+                <span
+                  className={`size-1.5 rounded-full bg-current transition-opacity ${isToday ? "opacity-100" : "opacity-0"}`}
+                />
+                Today
+              </Button>
 
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                const v = e.target.value as ISODate;
-                if (v) changeDate(v);
-              }}
-              className="ml-1 h-8 rounded border bg-background px-2 text-xs tabular-nums"
-            />
-            {!isToday && (
-              <span className="ml-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-                Read-only
-              </span>
-            )}
+              <div className="flex flex-1 items-center gap-1.5 sm:flex-none">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => changeDate(-1)}
+                  aria-label="Previous day"
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                {/* Date label doubles as the picker trigger */}
+                <div className="relative flex-1 sm:flex-none">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => dateInputRef.current?.showPicker?.()}
+                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-[132px]"
+                    aria-label="Pick a date"
+                  >
+                    <CalendarDays className="size-3.5 text-muted-foreground" />
+                    {dateLabel}
+                  </Button>
+                  <input
+                    ref={dateInputRef}
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      const v = e.target.value as ISODate;
+                      if (v) changeDate(v);
+                    }}
+                    className="pointer-events-none absolute inset-0 size-full opacity-0"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => changeDate(1)}
+                  aria-label="Next day"
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Read-only indicator sits under the nav; reserved height avoids layout shift */}
+            <div className="flex h-5 items-center justify-end">
+              {!isToday && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <Lock className="size-2.5" /> Read-only
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -713,8 +763,8 @@ function UnifiedDailyDashboard() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={refreshCoaching}
-                disabled={coachLoading}
+                onClick={() => refreshCoaching(true)}
+                disabled={coachLoading || !isToday}
                 className="h-7 gap-1.5 text-xs font-normal"
               >
                 <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />

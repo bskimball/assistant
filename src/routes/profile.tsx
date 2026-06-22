@@ -18,8 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { loadUserProfile, saveUserProfile } from "@/lib/server/domain";
-import { generateCoaching } from "@/lib/server/coach";
+import { loadUserProfile, saveUserProfile } from "@/server/domain";
+import { generateCoaching } from "@/server/coach";
 import {
   cmToInches,
   computeAge,
@@ -27,7 +27,9 @@ import {
   inchesToCm,
   mlToFlOz,
   toISODate,
+  WORKOUT_STYLES,
   type UserProfile,
+  type WorkoutStyle,
 } from "@/lib/domain";
 
 // User Profile settings (ADR-013): the personalization context the Coach Engine
@@ -50,6 +52,7 @@ type Form = {
   injuries: string;
   trainingDaysPerWeek: string;
   equipmentAccess: string;
+  preferredWorkoutStyles: WorkoutStyle[];
   dietaryRestrictions: string;
   proteinTargetG: string;
   calorieTargetKcal: string;
@@ -71,6 +74,7 @@ const EMPTY: Form = {
   injuries: "",
   trainingDaysPerWeek: "",
   equipmentAccess: "",
+  preferredWorkoutStyles: [],
   dietaryRestrictions: "",
   proteinTargetG: "",
   calorieTargetKcal: "",
@@ -107,6 +111,7 @@ function profileToForm(p: UserProfile): Form {
     injuries: csv(p.injuries),
     trainingDaysPerWeek: p.trainingDaysPerWeek?.toString() ?? "",
     equipmentAccess: csv(p.equipmentAccess),
+    preferredWorkoutStyles: p.preferredWorkoutStyles ?? [],
     dietaryRestrictions: csv(p.dietaryRestrictions),
     proteinTargetG: p.proteinTargetG?.toString() ?? "",
     calorieTargetKcal: p.calorieTargetKcal?.toString() ?? "",
@@ -130,6 +135,7 @@ function formToProfile(f: Form): Partial<UserProfile> {
     injuries: fromCsv(f.injuries),
     trainingDaysPerWeek: num(f.trainingDaysPerWeek),
     equipmentAccess: fromCsv(f.equipmentAccess),
+    preferredWorkoutStyles: f.preferredWorkoutStyles.length ? f.preferredWorkoutStyles : undefined,
     dietaryRestrictions: fromCsv(f.dietaryRestrictions),
     proteinTargetG: num(f.proteinTargetG),
     calorieTargetKcal: num(f.calorieTargetKcal),
@@ -250,6 +256,16 @@ function ProfilePage() {
     setSavedAt(null);
   }
 
+  function toggleWorkoutStyle(style: WorkoutStyle) {
+    setForm((f) => ({
+      ...f,
+      preferredWorkoutStyles: f.preferredWorkoutStyles.includes(style)
+        ? f.preferredWorkoutStyles.filter((s) => s !== style)
+        : [...f.preferredWorkoutStyles, style],
+    }));
+    setSavedAt(null);
+  }
+
   async function handleSave(e?: React.FormEvent) {
     if (e) e.preventDefault();
     setSaving(true);
@@ -258,7 +274,7 @@ function ProfilePage() {
       // Re-run today's coaching so suggestions reflect the new profile immediately
       // (persists into the DailyPlan; mirrors the finance-save behavior in ADR-012).
       try {
-        await generateCoaching({ data: {} });
+        await generateCoaching({ data: { force: true } });
       } catch (err) {
         console.warn("[profile] re-coach after save failed", err);
       }
@@ -463,6 +479,33 @@ function ProfilePage() {
                     />
                   </Field>
                 </div>
+                <Field
+                  label="Preferred workout styles"
+                  hint="What the trainer should emphasize. None selected = balanced mix of strength, calisthenics & yoga."
+                >
+                  <div className="flex flex-wrap gap-2">
+                    {WORKOUT_STYLES.map((s) => {
+                      const active = form.preferredWorkoutStyles.includes(s.value);
+                      return (
+                        <button
+                          key={s.value}
+                          type="button"
+                          onClick={() => toggleWorkoutStyle(s.value)}
+                          aria-pressed={active}
+                          title={s.hint}
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                            active
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-input bg-background hover:bg-muted",
+                          )}
+                        >
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
               </CardContent>
             </Card>
 

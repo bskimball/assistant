@@ -72,7 +72,7 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 **Coach Engine**
 
-- The single server module (`src/lib/server/coach.ts`) that acts as the user's advisory board (life coach + strength coach + financial advisor). Produces a `CoachingResult` from the day's real `DaySignals`. Grok-backed with a deterministic, data-grounded fallback that works with no API key.
+- The single server module (`src/server/coach.ts`) that acts as the user's advisory board (life coach + strength coach + financial advisor). Produces a `CoachingResult` from the day's real `DaySignals`. Grok-backed with a deterministic, data-grounded fallback that works with no API key.
 
 **CoachingResult**
 
@@ -122,7 +122,7 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 ## R2 Storage Conventions (Summary)
 
-**Base prefix**: `assistant/brian/` (via `getUserPrefix()` in `src/server/r2.ts`).
+**Base prefix**: `assistant/brian/` (via `getUserPrefix()` in `src/server/adapters/r2.ts`).
 
 **Daily aggregates** (preferred for nutrition, finance, productivity, planning):
 
