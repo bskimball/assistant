@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vite-plus'
 import { devtools } from '@tanstack/devtools-vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 
@@ -7,7 +7,7 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const config = defineConfig({
+export default defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
     devtools(),
@@ -18,6 +18,13 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  // Vite+ unified config (check / lint+fmt+types, test, tasks)
+  check: {
+    // Oxlint + Oxfmt + type checking via vp check (respects .gitignore / explicit ignore)
+  },
+  test: {
+    // Vitest config picked up by vp test (shares Vite resolve/transform)
+    environment: 'jsdom',
+    globals: true,
+  },
 })
-
-export default config

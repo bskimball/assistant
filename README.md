@@ -6,7 +6,7 @@ To run this application:
 
 ```bash
 npm install
-npm run dev
+# With Vite+: vp install && vp dev   (or npm run dev)
 ```
 
 # Building For Production
@@ -14,14 +14,16 @@ npm run dev
 To build this application for production:
 
 ```bash
+# With Vite+: vp build
 npm run build
 ```
 
 ## Testing
 
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
+This project uses [Vitest](https://vitest.dev/) via Vite+. You can run the tests with:
 
 ```bash
+# vp test --run   or
 npm run test
 ```
 
@@ -183,7 +185,7 @@ This app is deployed to **Cloudflare Workers** with **R2** as the primary persis
 ### Local development
 
 ```bash
-npm run dev          # Uses @cloudflare/vite-plugin + emulated R2
+npm run dev          # Uses @cloudflare/vite-plugin + emulated R2 (vp dev also works)
 npm run dev:cf       # Full wrangler dev (recommended for bindings fidelity)
 ```
 
@@ -207,7 +209,7 @@ See [`.agents/adrs/001-cloudflare-r2-deployment.md`](.agents/adrs/001-cloudflare
 
 ### Scripts
 
-- `dev`, `build`, `preview`
+- `dev` / `build` / `preview` / `test` / `check` (Vite+ `vp` wrappers + npm fallbacks)
 - `deploy` — wrangler deploy
 - `dev:cf` — wrangler dev
 - `cf-typegen` — generate worker types from wrangler config

@@ -25,23 +25,25 @@ Build a personal AI assistant that improves the user's life through:
 - TanStack AI + TanStack AI React for AI features
 - Grok API (xAI) as primary LLM (server-side via Workers)
 - shadcn/ui + Tailwind for UI
-- Vite for build
+- Vite+ (unified Vite 8 toolchain via `vp`) for dev, build, test, check + Vite for core bundling
 
 See `.agents/adrs/001-cloudflare-r2-deployment.md` for deployment architecture.
 
 ## Current State
 - Basic TanStack Start app with routing
-- Kanban board (productivity)
-- Todo app (productivity)
+- Voice input/output system (ADR-004 implemented: browser STT, intent extraction, immediate execution for additive actions, confirmation for destructive, R2 per-object + daily logs)
+- Unified Daily Improvement Dashboard (ADR-005) as default `/` route: date nav, progress rings (focus + nutrition), sections for tasks/nutrition/plan/activity, persistent mic FAB + listening overlay, read-only past days, TanStack DB reactivity, zero extra LLM cost for headline
+- Productivity uses unified Daily aggregates + legacy todo shim still present during transition
 - Theme toggle, basic UI components
 
 ## Priority Features (in order)
-1. Voice input/output system
-2. Workout tracking + AI-suggested plans
-3. Meal/food logging + nutrition suggestions
-4. Finance tracker + stock/finance AI advisor
-5. Family task/care coordination
-6. Unified daily/weekly improvement dashboard
+1. Voice input/output system (implemented ADR-004)
+2. Unified daily/weekly improvement dashboard (implemented ADR-005 — current default view)
+3. Workout tracking + AI-suggested plans
+4. Meal/food logging + nutrition suggestions
+5. Finance tracker + stock/finance AI advisor
+6. Family task/care coordination
+7. Nightly reflection + weekly review (ADR-006/007)
 
 ## Documentation Standards for Agents
 - All ADRs go in `.agents/adrs/`

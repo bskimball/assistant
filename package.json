@@ -6,11 +6,12 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "vp dev --port 3000",
     "generate-routes": "tsr generate",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
+    "build": "vp build",
+    "preview": "vp preview",
+    "test": "vp test --run",
+    "check": "vp check",
     "deploy": "wrangler deploy",
     "dev:cf": "wrangler dev",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv"
@@ -49,10 +50,12 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@voidzero-dev/vite-plus-core": "latest",
     "jsdom": "^28.1.0",
     "typescript": "^6.0.2",
-    "vite": "^8.0.0",
-    "vitest": "^4.1.5",
+    "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+    "vite-plus": "latest",
+    "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
     "wrangler": "^4.103.0"
   },
   "pnpm": {
@@ -60,5 +63,9 @@
       "esbuild",
       "lightningcss"
     ]
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+    "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
   }
 }

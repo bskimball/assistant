@@ -8,15 +8,15 @@
 
 /// <reference types="./worker-configuration.d.ts" />
 
-declare module 'cloudflare:workers' {
+declare module "cloudflare:workers" {
   // CloudflareEnv is declared by wrangler types or our fallback
-  export const env: CloudflareEnv
+  export const env: CloudflareEnv;
 }
 
 // Fallback in case worker-configuration.d.ts has not been generated yet.
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-empty-interface
   interface CloudflareEnv {
-    R2: R2Bucket
+    R2: R2Bucket;
   }
 }
