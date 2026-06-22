@@ -45,7 +45,9 @@ See `.agents/adrs/001-cloudflare-r2-deployment.md` for deployment architecture.
 
 ## Documentation Standards for Agents
 - All ADRs go in `.agents/adrs/`
-- Domain models in `.agents/domain-models/`
+- Domain models and agent context go in `.agents/ai/`
+- Human-facing docs go in `docs/`
+- Handoff documents go in `.agents/handoffs/`
 - Every feature must have an ADR before implementation
 - Code must be self-documenting with clear types
 - Agent-readable comments only when logic is non-obvious

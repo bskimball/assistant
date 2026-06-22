@@ -1,31 +1,66 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
-import { todosCollection, createTodo, ensureSeeds, type Todo, todayKey } from '@/lib/todos'
-import { Button } from '@/components/ui/button'
+import { todosCollection, createTodo, hydrateTodosFromServer, upsertTodoClient, deleteTodoClient, type Todo, todayKey, SEED_TODOS } from '@/lib/todos'
+import { loadTodos, saveTodos, ensureInitialTodos } from '@/lib/server/todos'
 import { Input } from '@/components/ui/input'
 
-export const Route = createFileRoute('/')({ component: DailyPage })
+// Preload todos from R2 during SSR / route load (serverFn runs on server)
+export const Route = createFileRoute('/')({
+  loader: async () => {
+    try {
+      return await loadTodos()
+    } catch (e) {
+      console.warn('[R2] Failed to loadTodos in loader, will fallback client-side:', e)
+      return { items: [], updatedAt: Date.now() }
+    }
+  },
+  component: DailyPage,
+})
 
 function DailyPage() {
+  const initialData = Route.useLoaderData()
   const [todos, setTodos] = useState<Todo[]>([])
   const [input, setInput] = useState('')
   const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all')
+  const [syncing, setSyncing] = useState(false)
 
-  // Sync from TanStack DB collection
+  // Hydrate client collection + local state from server loader data + subscribe to collection
   useEffect(() => {
-    ensureSeeds()
+    // 1. Seed from route loader data (R2)
+    if (initialData?.items?.length) {
+      hydrateTodosFromServer(initialData.items)
+    }
 
-    const unsubscribe = todosCollection.subscribe(() => {
-      const all = Array.from(todosCollection.state.values())
+    // 2. If still empty after initialData, try server seed (first-run) with fallback
+    async function maybeSeedFromServer() {
+      if (todosCollection.state.size === 0) {
+        try {
+          const seededData = await ensureInitialTodos({ data: SEED_TODOS })
+          if (seededData?.items?.length) {
+            hydrateTodosFromServer(seededData.items)
+          }
+        } catch (e) {
+          console.warn('[R2] ensureInitialTodos failed, using local seeds (UI only until write):', e)
+          SEED_TODOS.forEach((t) => {
+            if (!todosCollection.state.has(t.id)) todosCollection.insert(t)
+          })
+        }
+      }
+    }
+
+    maybeSeedFromServer()
+
+    // Use subscribeChanges (current @tanstack/db API). We snapshot state on change.
+    const sub = todosCollection.subscribeChanges(() => {
+      const all = Array.from(todosCollection.state.values()) as unknown as Todo[]
       setTodos(all)
     })
 
-    // Initial load
-    const initial = Array.from(todosCollection.state.values())
-    if (initial.length > 0) setTodos(initial)
+    // Prime local state (cast because of virtual row wrappers in state)
+    setTodos(Array.from(todosCollection.state.values()) as unknown as Todo[])
 
-    return unsubscribe
-  }, [])
+    return () => sub.unsubscribe()
+  }, [initialData])
 
   const today = todayKey()
   const todayTodos = todos.filter(t => t.date === today)
@@ -36,17 +71,32 @@ function DailyPage() {
     return true
   })
 
-  const activeCount = todayTodos.filter(t => !t.done).length
-  const doneCount = todayTodos.filter(t => t.done).length
+  const activeCount = todayTodos.filter((t) => !t.done).length
+  const doneCount = todayTodos.filter((t) => t.done).length
   const progress = todayTodos.length > 0 ? Math.round((doneCount / todayTodos.length) * 100) : 0
+
+  // Write current full snapshot to R2 (source of truth)
+  async function persistToR2(items: Todo[]) {
+    setSyncing(true)
+    try {
+      await saveTodos({ data: { items } })
+    } catch (e) {
+      console.error('[R2] Failed to saveTodos', e)
+      // Optimistic UI keeps working; a future toast/banner can surface errors.
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   function handleAdd(e?: React.FormEvent) {
     if (e) e.preventDefault()
     if (!input.trim()) return
 
     const newTodo = createTodo(input.trim())
-    todosCollection.insert(newTodo)
+    upsertTodoClient(newTodo)
     setInput('')
+
+    persistToR2(Array.from(todosCollection.state.values()) as unknown as Todo[])
   }
 
   function toggleDone(id: string) {
@@ -58,11 +108,15 @@ function DailyPage() {
       done: !todo.done,
       completedAt: !todo.done ? Date.now() : null,
     }
-    todosCollection.update(id, updated)
+    upsertTodoClient(updated)
+
+    persistToR2(Array.from(todosCollection.state.values()) as unknown as Todo[])
   }
 
   function deleteTodo(id: string) {
-    todosCollection.delete(id)
+    deleteTodoClient(id)
+
+    persistToR2(Array.from(todosCollection.state.values()) as unknown as Todo[])
   }
 
   return (
@@ -166,9 +220,12 @@ function DailyPage() {
         </div>
 
         {doneCount > 0 && (
-          <button 
+          <button
             onClick={() => {
-              todayTodos.filter(t => t.done).forEach(t => todosCollection.delete(t.id))
+              todayTodos
+                .filter((t) => t.done)
+                .forEach((t) => deleteTodoClient(t.id))
+              persistToR2(Array.from(todosCollection.state.values()) as unknown as Todo[])
             }}
             className="text-[0.75rem] text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
           >
@@ -176,8 +233,9 @@ function DailyPage() {
           </button>
         )}
 
-        <div className="mt-10 text-[0.6875rem] text-muted-foreground/70">
-          Built with TanStack Start • Local-first • {today}
+        <div className="mt-10 text-[0.6875rem] text-muted-foreground/70 flex items-center gap-2">
+          Built with TanStack Start • Cloudflare R2 • {today}
+          {syncing && <span className="text-[10px] opacity-60">(syncing…)</span>}
         </div>
       </div>
     </div>

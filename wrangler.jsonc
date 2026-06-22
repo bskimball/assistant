@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "assistant",
+  "compatibility_date": "2025-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "assistant-data",
+      "preview_bucket_name": "assistant-data"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

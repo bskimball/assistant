@@ -1,4 +1,11 @@
-import { createCollection } from '@tanstack/db'
+import { createCollection, localOnlyCollectionOptions } from '@tanstack/db'
+
+/**
+ * Todo domain model and client-side reactive collection.
+ *
+ * Persistence is R2-backed via server functions (see src/lib/server/todos.ts and ADR-001).
+ * TanStack DB collection here provides reactive client state only.
+ */
 
 export type Todo = {
   id: string
@@ -18,7 +25,7 @@ export type Todo = {
   energy?: "low" | "medium" | "high"
 }
 
-export const STORAGE_KEY = "aerolist.todos" // for migration compat
+export const STORAGE_KEY = "aerolist.todos" // legacy migration marker only
 
 export function todayKey(): string {
   return toDayKey(Date.now())
@@ -67,51 +74,64 @@ export const SEED_TODOS: Todo[] = [
   },
 ]
 
-// TanStack DB collection for todos - local only for now (with localStorage persist for reloads)
-const PERSIST_KEY = 'aerolist.todos.v2'
+/**
+ * Client-only reactive collection (TanStack DB).
+ * Source of truth for UI is R2. This is hydrated from server on load and kept in sync.
+ *
+ * Uses localOnlyCollectionOptions (required by current @tanstack/db).
+ */
+export const todosCollection = createCollection(
+  localOnlyCollectionOptions<Todo>({
+    id: 'todos',
+    getKey: (todo) => todo.id,
+  })
+)
 
-function loadPersisted(): Todo[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(PERSIST_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-function persist() {
-  if (typeof window === 'undefined') return
-  const all = Array.from(todosCollection.state.values())
-  localStorage.setItem(PERSIST_KEY, JSON.stringify(all))
-}
-
-export const todosCollection = createCollection<Todo>({
-  id: 'todos',
-  getKey: (todo) => todo.id,
-})
-
-// Initial hydrate from localStorage (one-time or on load)
-if (typeof window !== 'undefined') {
-  const persisted = loadPersisted()
-  if (persisted.length) {
-    // Avoid duplicate inserts
-    const existingIds = new Set(Array.from(todosCollection.state.keys()))
-    persisted.forEach(item => {
-      if (!existingIds.has(item.id)) {
-        todosCollection.insert(item)
-      }
-    })
+/**
+ * Replace the entire contents of the client collection from a server payload.
+ * Used after loading from R2.
+ */
+export function hydrateTodosFromServer(items: Todo[]) {
+  // Clear current
+  const currentIds = Array.from(todosCollection.state.keys())
+  if (currentIds.length) {
+    todosCollection.delete(currentIds)
   }
 
-  // Subscribe to persist changes
-  todosCollection.subscribe(persist)
+  // Insert fresh (local-only collection accepts the data)
+  if (items.length) {
+    todosCollection.insert(items)
+  }
 }
 
-// Helper to load seeds if empty (one time)
+/**
+ * Optimistically insert or update a todo in the client collection.
+ * Call immediately for UI, then persist via serverFn.
+ */
+export function upsertTodoClient(todo: Todo) {
+  if (todosCollection.state.has(todo.id)) {
+    todosCollection.update(todo.id, (draft) => {
+      Object.assign(draft, todo)
+    })
+  } else {
+    todosCollection.insert(todo)
+  }
+}
+
+/**
+ * Remove from client collection.
+ */
+export function deleteTodoClient(id: string) {
+  todosCollection.delete(id)
+}
+
+/**
+ * Legacy local seed helper (kept for fallback / first-run before R2 has data).
+ * Prefer server ensure or seeds via load path.
+ */
 export function ensureSeeds() {
-  // In real, we'd check size or a flag, but for demo insert if empty
-  // Note: collections start empty; migration from old localStorage will be added.
   if (todosCollection.state.size === 0) {
-    SEED_TODOS.forEach(t => {
+    SEED_TODOS.forEach((t) => {
       todosCollection.insert(t)
     })
   }
@@ -143,7 +163,6 @@ export function createTodoFromParsed(
   },
   date = todayKey()
 ): Todo {
-  const createdAt = Date.now()
   const base = createTodo(parsed.text, date)
   return {
     ...base,

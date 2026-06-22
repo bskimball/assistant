@@ -167,6 +167,51 @@ export const Route = createFileRoute('/people')({
   },
   component: PeopleComponent,
 })
+```
+
+## Cloudflare + R2 Deployment (ADR-001)
+
+This app is deployed to **Cloudflare Workers** with **R2** as the primary persistent store.
+
+### Key conventions
+
+- All user data lives under R2 keys: `assistant/{userId}/{collection}.json`
+- Current user: `brian` (see `src/server/r2.ts`)
+- TanStack DB (`todosCollection`) is **client reactive state only**.
+- All reads/writes are performed via server functions (`src/lib/server/*`) → R2.
+
+### Local development
+
+```bash
+npm run dev          # Uses @cloudflare/vite-plugin + emulated R2
+npm run dev:cf       # Full wrangler dev (recommended for bindings fidelity)
+```
+
+On first run with R2 you may need a bucket:
+
+```bash
+npx wrangler r2 bucket create assistant-data
+npm run cf-typegen   # Refresh CloudflareEnv types
+```
+
+### Deploy
+
+```bash
+npm run build
+npm run deploy
+```
+
+Requires a logged-in Wrangler session (`npx wrangler login`) and the R2 bucket to exist.
+
+See [`.agents/adrs/001-cloudflare-r2-deployment.md`](.agents/adrs/001-cloudflare-r2-deployment.md) and `wrangler.jsonc`.
+
+### Scripts
+
+- `dev`, `build`, `preview`
+- `deploy` — wrangler deploy
+- `dev:cf` — wrangler dev
+- `cf-typegen` — generate worker types from wrangler config
+
 
 function PeopleComponent() {
   const data = Route.useLoaderData()
