@@ -8,6 +8,10 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 - The single root identity (Brian Kimball). All data is partitioned under the user's R2 prefix. No multi-tenant support in v1.
 
+**UserProfile**
+
+- Long-lived personalization context for the Coach Engine (ADR-013). Optional fields across all four advisor lenses: identity (birthDate/sex/height/units/timezone), coaching (goals, activityLevel), fitness (injuries, trainingDaysPerWeek, equipmentAccess), nutrition (dietaryRestrictions, protein/calorie/water targets), finance (riskTolerance, monthlySavingsGoal, financeNotes). Stored as a single reference object `assistant/brian/user-profile.json` (not a daily aggregate). Every field is optional; an empty profile degrades gracefully.
+
 **WorkoutPlan**
 
 - An AI-generated or manually created plan containing exercises, sets, reps, and goal alignment. Status machine: `draft` → `active` → `archived`. Invariant: only one `active` plan per user at any time.
@@ -74,6 +78,10 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 - Structured coaching output: a data-aware `headline`, 4–6 `CoachSuggestion`s, and a `WorkoutSuggestion`. Persisted into `DailyPlan.aiSuggestions` so reloads are free.
 
+**TrendSignals**
+
+- The trailing 7-day window the coach reasons over alongside today's snapshot (ADR-013): active days, window-wide task completion %, average protein % of target + days-on-target + direction, average water, workouts performed, and net-worth change. Built from the lighter per-domain loaders (no per-day `.jsonl` reads). Combined with `UserProfile`, this is what makes suggestions personalized and momentum-aware rather than single-day and generic.
+
 **CoachSuggestion**
 
 - One actionable recommendation tagged with a `domain` (`focus | fitness | nutrition | finance | family | general`) and an optional `action` voice-command hint that feeds back into the voice pipeline (ADR-004).
@@ -136,14 +144,16 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 **Compaction**: Daily aggregates use read-modify-write (full `get` + `put` on every update). Acceptable at personal scale; no separate compaction worker required for v1.
 
 **Deletion**:
+
 - Every object carries optional `deletedAt` (soft delete).
 - On soft delete, a record is written to `meta/deleted/{YYYY-MM-DD}.json` (sharded).
 - Nightly / periodic worker uses the last ~8 shards to hard-delete keys whose `deletedAt` > 7 days, then prunes processed shards.
 
 ---
 
-**Last updated**: 2026-06-22 (ADR-010/011/012 implemented: Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
+**Last updated**: 2026-06-22 (ADR-013 implemented: long-lived `UserProfile` + trailing 7-day `TrendSignals` feed the Coach Engine, making suggestions personalized and momentum-aware in both the AI and deterministic-fallback paths. Prior: ADR-010/011/012 — Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
 
 **R2 paths for voice (ADR-004)**:
+
 - `assistant/brian/ai/transcripts/{id}.json`
 - `assistant/brian/ai/interactions/{id}.json`

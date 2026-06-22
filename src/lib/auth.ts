@@ -28,6 +28,37 @@ function getEnvValue(env: any, key: string): string | undefined {
   return (globalThis as any)?.[key];
 }
 
+export async function isAuthConfigured(): Promise<boolean> {
+  try {
+    const { env } = await import("cloudflare:workers");
+    return !!(
+      getEnvValue(env, "GOOGLE_CLIENT_ID") &&
+      getEnvValue(env, "GOOGLE_CLIENT_SECRET") &&
+      getEnvValue(env, "BETTER_AUTH_SECRET")
+    );
+  } catch {
+    return !!(
+      getEnvValue(undefined, "GOOGLE_CLIENT_ID") &&
+      getEnvValue(undefined, "GOOGLE_CLIENT_SECRET") &&
+      getEnvValue(undefined, "BETTER_AUTH_SECRET")
+    );
+  }
+}
+
+export async function requireAuthSession(request?: Request): Promise<Session | null> {
+  if (!request) return null;
+  const configured = await isAuthConfigured();
+  if (!configured && process.env.NODE_ENV !== "production") return null;
+
+  const auth = (await getAuth()) as any;
+  const headers = request?.headers ?? new Headers();
+  const session = await auth.api.getSession({ headers });
+  if (!session?.user) {
+    throw new Error("Authentication required.");
+  }
+  return session as Session;
+}
+
 export async function getAuth() {
   if (_auth) return _auth;
 

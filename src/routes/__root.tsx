@@ -1,7 +1,7 @@
 import { HeadContent, Scripts, createRootRoute, Link } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
-import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles, UserCog } from 'lucide-react'
 import { AuthControl } from '@/components/AuthControl'
 
 import appCss from '../styles.css?url'
@@ -54,6 +54,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                   { to: '/kanban', label: 'Kanban', Icon: KanbanSquare },
                   { to: '/weekly', label: 'Weekly', Icon: CalendarRange },
                   { to: '/analytics', label: 'Analytics', Icon: BarChart3 },
+                  { to: '/profile', label: 'Profile', Icon: UserCog },
                 ].map(({ to, label, Icon }) => (
                   <Link
                     key={to}

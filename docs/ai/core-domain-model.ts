@@ -9,239 +9,280 @@
  * All data partitioned under assistant/brian/
  */
 
-export type ISODate = string // YYYY-MM-DD
-export type ISOWeek = string // YYYY-Www e.g. 2026-W25
-export type Timestamp = number // ms since epoch
+export type ISODate = string; // YYYY-MM-DD
+export type ISOWeek = string; // YYYY-Www e.g. 2026-W25
+export type Timestamp = number; // ms since epoch
 
 export interface BaseEntity {
-  id: string
-  createdAt: Timestamp
-  updatedAt?: Timestamp
+  id: string;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
   /** Soft delete marker. Nightly worker hard-deletes when deletedAt < now-7d */
-  deletedAt?: Timestamp
+  deletedAt?: Timestamp;
 }
 
 /** Root (single user partition key) */
 export interface User extends BaseEntity {
-  preferences?: UserPreferences
+  preferences?: UserPreferences;
 }
 
 export interface UserPreferences {
-  timezone?: string
-  units?: 'metric' | 'imperial'
+  timezone?: string;
+  units?: "metric" | "imperial";
   // Future: voice settings, notification prefs, etc.
+}
+
+/** ========== USER PROFILE (ADR-013) ==========
+ * Long-lived personalization context for the Coach Engine.
+ * Stored as a single reference object (user-profile.json), all fields optional.
+ */
+export type Sex = "male" | "female" | "other";
+export type ActivityLevel = "sedentary" | "light" | "moderate" | "active" | "very_active";
+export type RiskTolerance = "conservative" | "moderate" | "aggressive";
+
+export interface UserProfile extends BaseEntity {
+  // Identity
+  displayName?: string;
+  birthDate?: ISODate;
+  sex?: Sex;
+  heightCm?: number;
+  units?: "metric" | "imperial";
+  timezone?: string;
+  // Coaching
+  goals?: string[];
+  activityLevel?: ActivityLevel;
+  // Fitness
+  injuries?: string[];
+  trainingDaysPerWeek?: number;
+  equipmentAccess?: string[];
+  // Nutrition
+  dietaryRestrictions?: string[];
+  proteinTargetG?: number;
+  calorieTargetKcal?: number;
+  waterTargetMl?: number;
+  // Finance
+  riskTolerance?: RiskTolerance;
+  monthlySavingsGoal?: number;
+  financeNotes?: string;
 }
 
 /** ========== FITNESS ========== */
 
-export type WorkoutPlanStatus = 'draft' | 'active' | 'archived'
-export type GeneratedBy = 'ai' | 'manual'
+export type WorkoutPlanStatus = "draft" | "active" | "archived";
+export type GeneratedBy = "ai" | "manual";
 
 export interface PlannedExercise {
-  exerciseId?: string // from ExerciseLibrary
-  name: string
-  sets?: number
-  reps?: number | string // "8-12" or exact
-  weightKg?: number
-  restSec?: number
-  notes?: string
+  exerciseId?: string; // from ExerciseLibrary
+  name: string;
+  sets?: number;
+  reps?: number | string; // "8-12" or exact
+  weightKg?: number;
+  restSec?: number;
+  notes?: string;
 }
 
 export interface WorkoutPlan extends BaseEntity {
-  status: WorkoutPlanStatus
-  generatedBy: GeneratedBy
-  exercises: PlannedExercise[]
-  goalAlignment?: string
-  activatedAt?: Timestamp
-  archivedAt?: Timestamp
+  status: WorkoutPlanStatus;
+  generatedBy: GeneratedBy;
+  exercises: PlannedExercise[];
+  goalAlignment?: string;
+  activatedAt?: Timestamp;
+  archivedAt?: Timestamp;
 }
 
 /** Invariant: only ONE WorkoutPlan with status==='active' at any time. */
 
 export interface PerformedExercise extends PlannedExercise {
-  actualSets?: number
-  actualReps?: number | string
-  actualWeightKg?: number
-  rpe?: number // 1-10
+  actualSets?: number;
+  actualReps?: number | string;
+  actualWeightKg?: number;
+  rpe?: number; // 1-10
 }
 
 export interface WorkoutSession extends BaseEntity {
-  performedAt: Timestamp // MUST NOT be in the future (invariant)
-  planId?: string
-  exercises: PerformedExercise[]
-  volume?: number // total volume calculated
-  notes?: string
-  voiceTranscriptId?: string
+  performedAt: Timestamp; // MUST NOT be in the future (invariant)
+  planId?: string;
+  exercises: PerformedExercise[];
+  volume?: number; // total volume calculated
+  notes?: string;
+  voiceTranscriptId?: string;
 }
 
 /** Invariant: WorkoutSession.performedAt <= now (server time at creation). */
 
 export interface ExerciseDefinition {
-  id: string
-  name: string
-  aliases?: string[]
-  movementPattern?: string // push, pull, squat, hinge, etc.
-  equipment?: string
-  primaryMuscles?: string[]
-  notes?: string
+  id: string;
+  name: string;
+  aliases?: string[];
+  movementPattern?: string; // push, pull, squat, hinge, etc.
+  equipment?: string;
+  primaryMuscles?: string[];
+  notes?: string;
 }
 
 export interface ExerciseLibrary {
-  version: number
-  exercises: ExerciseDefinition[]
-  userOverrides?: Record<string, Partial<ExerciseDefinition>>
+  version: number;
+  exercises: ExerciseDefinition[];
+  userOverrides?: Record<string, Partial<ExerciseDefinition>>;
 }
 
 /** ========== NUTRITION ========== */
 
 export interface Macros {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
 }
 
 export interface FoodItem {
-  id: string
-  name: string
-  quantity: number
-  unit: string // g, ml, serving, etc.
-  macros: Macros // scaled to the quantity
-  source: 'openfoodfacts' | 'user' | 'custom'
-  brand?: string
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string; // g, ml, serving, etc.
+  macros: Macros; // scaled to the quantity
+  source: "openfoodfacts" | "user" | "custom";
+  brand?: string;
 }
 
 export interface MealLog extends BaseEntity {
-  timestamp: Timestamp
+  timestamp: Timestamp;
   /** Invariant: foodItems.length >= 1 */
-  foodItems: FoodItem[]
-  notes?: string
+  foodItems: FoodItem[];
+  notes?: string;
   // attachments?: Attachment[]
 }
 
 export interface DailyNutrition extends BaseEntity {
-  date: ISODate
-  mealLogs: MealLog[]
-  totals: Macros
-  waterMl?: number
+  date: ISODate;
+  mealLogs: MealLog[];
+  totals: Macros;
+  waterMl?: number;
 }
 
 /** ========== FINANCE ========== */
 
 export interface AccountBalance {
-  account: string
-  amount: number
-  currency: string
+  account: string;
+  amount: number;
+  currency: string;
 }
 
 export interface Position {
-  symbol: string
-  quantity: number
-  price: number
-  value: number
+  symbol: string;
+  quantity: number;
+  price: number;
+  value: number;
 }
 
 export interface DailyFinanceSnapshot extends BaseEntity {
-  date: ISODate
-  netWorth: number
-  accounts: AccountBalance[]
-  positions: Position[]
+  date: ISODate;
+  netWorth: number;
+  accounts: AccountBalance[];
+  positions: Position[];
 }
 
 export type TransactionType =
-  | 'buy' | 'sell' | 'transfer' | 'deposit' | 'withdrawal' | 'dividend' | 'fee' | 'other'
+  | "buy"
+  | "sell"
+  | "transfer"
+  | "deposit"
+  | "withdrawal"
+  | "dividend"
+  | "fee"
+  | "other";
 
 export interface Transaction extends BaseEntity {
-  timestamp: Timestamp
-  type: TransactionType
-  amount: number
-  currency: string
-  account?: string
-  asset?: string
-  quantity?: number
-  notes?: string
+  timestamp: Timestamp;
+  type: TransactionType;
+  amount: number;
+  currency: string;
+  account?: string;
+  asset?: string;
+  quantity?: number;
+  notes?: string;
 }
 
 /** ========== PRODUCTIVITY ========== */
 
 /** Replaces legacy Todo + kanban items. */
-export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'cancelled'
+export type TaskStatus = "pending" | "in_progress" | "done" | "cancelled";
 
 export interface ProductivityTask extends BaseEntity {
-  text: string
-  status: TaskStatus
-  done: boolean // derived convenience (status === 'done')
-  date: ISODate // the day this task is scheduled for
-  completedAt?: Timestamp
-  due?: ISODate
-  notes?: string
-  tags?: string[]
-  priority?: 1 | 2 | 3
-  project?: string
-  estimatedMinutes?: number
-  energy?: 'low' | 'medium' | 'high'
+  text: string;
+  status: TaskStatus;
+  done: boolean; // derived convenience (status === 'done')
+  date: ISODate; // the day this task is scheduled for
+  completedAt?: Timestamp;
+  due?: ISODate;
+  notes?: string;
+  tags?: string[];
+  priority?: 1 | 2 | 3;
+  project?: string;
+  estimatedMinutes?: number;
+  energy?: "low" | "medium" | "high";
   /** Optional kanban column for board views */
-  column?: string
+  column?: string;
   /** Optional link to the DailyPlan that owns/surfaced this task */
-  dailyPlanId?: string
-  source?: 'inbox' | 'daily' | 'ai'
+  dailyPlanId?: string;
+  source?: "inbox" | "daily" | "ai";
 }
 
 export interface DailyFocusScore extends BaseEntity {
-  date: ISODate
-  tasksCompleted: number
-  focusMinutes: number
-  energyRating?: 1 | 2 | 3 | 4 | 5
-  notes?: string
+  date: ISODate;
+  tasksCompleted: number;
+  focusMinutes: number;
+  energyRating?: 1 | 2 | 3 | 4 | 5;
+  notes?: string;
 }
 
 /** ========== PLANNING ========== */
 
 export interface DailyPlan extends BaseEntity {
-  date: ISODate
-  workoutPlanId?: string
-  nutritionTargets?: Partial<Macros>
-  topTaskIds: string[]
-  aiSuggestions?: string[]
-  voiceNoteIds?: string[]
-  notes?: string
+  date: ISODate;
+  workoutPlanId?: string;
+  nutritionTargets?: Partial<Macros>;
+  topTaskIds: string[];
+  aiSuggestions?: string[];
+  voiceNoteIds?: string[];
+  notes?: string;
 }
 
 export interface WeeklyReview extends BaseEntity {
-  week: ISOWeek
-  wins: string[]
-  blockers: string[]
-  nextWeekFocus: string[]
-  reflection?: string
+  week: ISOWeek;
+  wins: string[];
+  blockers: string[];
+  nextWeekFocus: string[];
+  reflection?: string;
 }
 
 /** ========== AI & VOICE (append-only) ========== */
 
 export interface ToolCall {
-  name: string
-  arguments: Record<string, any>
-  result?: any
+  name: string;
+  arguments: Record<string, any>;
+  result?: any;
 }
 
 export interface AIInteraction extends BaseEntity {
-  timestamp: Timestamp
-  intent: string
-  prompt: string
-  response: string
-  toolCalls?: ToolCall[]
-  model: string
-  tokensIn?: number
-  tokensOut?: number
+  timestamp: Timestamp;
+  intent: string;
+  prompt: string;
+  response: string;
+  toolCalls?: ToolCall[];
+  model: string;
+  tokensIn?: number;
+  tokensOut?: number;
   // voiceTranscriptId?: string  // if triggered by voice
 }
 
 export interface VoiceTranscript extends BaseEntity {
-  timestamp: Timestamp
-  audioR2Key: string // points to the blob in R2 ('' in v1 per ADR-004)
-  transcriptText: string
-  durationSec: number
-  language?: string
-  aiInteractionId?: string // link to the AIInteraction that processed it
+  timestamp: Timestamp;
+  audioR2Key: string; // points to the blob in R2 ('' in v1 per ADR-004)
+  transcriptText: string;
+  durationSec: number;
+  language?: string;
+  aiInteractionId?: string; // link to the AIInteraction that processed it
 }
 
 /**
@@ -249,28 +290,28 @@ export interface VoiceTranscript extends BaseEntity {
  * Sent from STT -> Grok (via TanStack AI or direct equiv) -> action.
  */
 export interface VoiceIntent {
-  action: 'createTask' | 'logWater' | 'logMeal' | 'deleteTask' | 'markTaskDone' | 'unknown'
-  payload: Record<string, any>
-  confidence: number
-  requiresConfirmation: boolean
-  clarificationQuestion?: string
+  action: "createTask" | "logWater" | "logMeal" | "deleteTask" | "markTaskDone" | "unknown";
+  payload: Record<string, any>;
+  confidence: number;
+  requiresConfirmation: boolean;
+  clarificationQuestion?: string;
 }
 
 /** ========== CROSS-CUTTING ========== */
 
 export interface Attachment extends BaseEntity {
-  entityType: string // 'meal' | 'workout' | ...
-  entityId: string
-  r2Key: string
-  mimeType: string
-  sizeBytes: number
-  filename?: string
+  entityType: string; // 'meal' | 'workout' | ...
+  entityId: string;
+  r2Key: string;
+  mimeType: string;
+  sizeBytes: number;
+  filename?: string;
 }
 
 export interface Tag {
-  id: string
-  name: string
-  color?: string
+  id: string;
+  name: string;
+  color?: string;
 }
 
 /** ========== INVARIANTS (documented for enforcement) ========== */
@@ -282,9 +323,9 @@ export interface Tag {
  */
 export const INVARIANTS = {
   SINGLE_ACTIVE_WORKOUT_PLAN: 'Only one WorkoutPlan with status="active" may exist',
-  NO_FUTURE_WORKOUT_SESSION: 'WorkoutSession.performedAt cannot be in the future',
-  MEALLOG_REQUIRES_ITEMS: 'MealLog.foodItems must contain at least one FoodItem',
-} as const
+  NO_FUTURE_WORKOUT_SESSION: "WorkoutSession.performedAt cannot be in the future",
+  MEALLOG_REQUIRES_ITEMS: "MealLog.foodItems must contain at least one FoodItem",
+} as const;
 
 /** Type helpers for agents and code */
 export type DomainEntity =
@@ -300,7 +341,7 @@ export type DomainEntity =
   | WeeklyReview
   | AIInteraction
   | VoiceTranscript
-  | Attachment
+  | Attachment;
 
 export type DomainAggregate =
   | DailyNutrition
@@ -308,7 +349,7 @@ export type DomainAggregate =
   | DailyPlan
   | WeeklyReview
   | WorkoutPlan
-  | ExerciseLibrary
+  | ExerciseLibrary;
 
 /**
  * R2 Key Patterns (see consolidated ADR-003 + glossary)

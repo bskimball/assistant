@@ -12,64 +12,69 @@
  *   assistant/{USER_ID}/todos.json
  */
 
-import { createServerFn } from '@tanstack/react-start'
-import type { Todo } from '@/lib/todos'
+import { createServerFn } from "@tanstack/react-start";
+import type { Todo } from "@/lib/todos";
+import { requireAuthSession } from "@/lib/auth";
 
 export type StoredTodos = {
-  items: Todo[]
-  updatedAt: number
-}
+  items: Todo[];
+  updatedAt: number;
+};
 
 async function loadR2() {
   // Dynamic import guarantees this module graph is server-only
-  const r2 = await import('@/server/r2')
-  return r2
+  const r2 = await import("@/server/r2");
+  return r2;
 }
 
 function todosKey(r2: Awaited<ReturnType<typeof loadR2>>) {
-  return r2.getKey('todos.json')
+  return r2.getKey("todos.json");
 }
 
 /**
  * Load all todos for the current user from R2.
  */
-export const loadTodos = createServerFn({ method: 'GET' }).handler(async () => {
-  const r2 = await loadR2()
-  const stored = await r2.getJSON<StoredTodos>(todosKey(r2))
+export const loadTodos = createServerFn({ method: "GET" }).handler(async () => {
+  const r2 = await loadR2();
+  const stored = await r2.getJSON<StoredTodos>(todosKey(r2));
   if (stored && Array.isArray(stored.items)) {
-    return stored
+    return stored;
   }
-  return { items: [], updatedAt: Date.now() } satisfies StoredTodos
-})
+  return { items: [], updatedAt: Date.now() } satisfies StoredTodos;
+});
 
 /**
  * Replace the entire todos collection in R2 (last-write-wins).
  */
-export const saveTodos = createServerFn({ method: 'POST' })
+export const saveTodos = createServerFn({ method: "POST" })
   .validator((data: { items: Todo[] }) => data)
-  .handler(async ({ data }) => {
-    const r2 = await loadR2()
+  .handler(async (ctx: any) => {
+    await requireAuthSession(ctx.request);
+    const { data } = ctx;
+    const r2 = await loadR2();
     const payload: StoredTodos = {
       items: data.items,
       updatedAt: Date.now(),
-    }
-    await r2.putJSON(todosKey(r2), payload)
-    return payload
-  })
+    };
+    await r2.putJSON(todosKey(r2), payload);
+    return payload;
+  });
 
 /**
  * Seed initial data if the collection is empty in R2.
  */
-export const ensureInitialTodos = createServerFn({ method: 'POST' })
+export const ensureInitialTodos = createServerFn({ method: "POST" })
   .validator((seed: Todo[]) => seed)
-  .handler(async ({ data: seed }) => {
-    const r2 = await loadR2()
-    const key = todosKey(r2)
-    const existing = await r2.getJSON<StoredTodos>(key)
+  .handler(async (ctx: any) => {
+    await requireAuthSession(ctx.request);
+    const seed = ctx.data;
+    const r2 = await loadR2();
+    const key = todosKey(r2);
+    const existing = await r2.getJSON<StoredTodos>(key);
     if (existing && existing.items.length > 0) {
-      return existing
+      return existing;
     }
-    const payload: StoredTodos = { items: seed, updatedAt: Date.now() }
-    await r2.putJSON(key, payload)
-    return payload
-  })
+    const payload: StoredTodos = { items: seed, updatedAt: Date.now() };
+    await r2.putJSON(key, payload);
+    return payload;
+  });

@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useEffect, useMemo } from 'react'
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState, useEffect, useMemo } from "react";
 import {
   Mic,
   Square,
@@ -17,51 +17,57 @@ import {
   Plus,
   Check,
   ListTodo,
-} from 'lucide-react'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { VoiceInput, speakAssistant } from '@/components/VoiceInput'
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { VoiceInput, speakAssistant } from "@/components/VoiceInput";
 import {
   processVoiceInput,
   loadDailyDashboard,
   saveProductivityTasksForDay,
   appendWorkoutSession,
   saveDailyFinance,
+  loadWorkoutSessions,
+  loadTransactions,
+  appendTransaction,
   type DailyDashboardPayload,
-} from '@/lib/server/domain'
-import { generateCoaching, type CoachingResult, type CoachDomain } from '@/lib/server/coach'
+} from "@/lib/server/domain";
+import {
+  acceptDailyCoachingPlan,
+  generateCoaching,
+  type CoachingResult,
+  type CoachDomain,
+} from "@/lib/server/coach";
 import type {
   DailyNutrition,
   ISODate,
   DailyFocusScore,
   DailyPlan,
-} from '@/lib/domain'
-import {
-  createProductivityTask,
-  todayISO,
-  toISODate,
-} from '@/lib/domain'
+  WorkoutSession,
+  Transaction,
+} from "@/lib/domain";
+import { createProductivityTask, todayISO, toISODate } from "@/lib/domain";
 import {
   productivityTasksCollection,
   hydrateProductivityTasks,
   upsertProductivityTaskClient,
   getTasksForDate,
-} from '@/lib/daily'
+} from "@/lib/daily";
 
 // Unified Daily Improvement Dashboard (ADR-005)
 // Daily aggregates + TanStack DB for reactivity, now with a live AI coach.
 
-type Search = { date?: string }
+type Search = { date?: string };
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): Search => {
-    const raw = typeof search.date === 'string' ? search.date : undefined
-    const valid = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined
-    return { date: valid }
+    const raw = typeof search.date === "string" ? search.date : undefined;
+    const valid = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
+    return { date: valid };
   },
   component: UnifiedDailyDashboard,
-})
+});
 
 const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
   focus: Target,
@@ -70,91 +76,124 @@ const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
   finance: Wallet,
   family: Users,
   general: Brain,
-}
+};
 
 function UnifiedDailyDashboard() {
-  const search = Route.useSearch()
-  const navigate = Route.useNavigate()
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
 
-  const today = todayISO()
-  const selectedDate: ISODate = (search.date as ISODate) || today
-  const isToday = selectedDate === today
+  const today = todayISO();
+  const selectedDate: ISODate = (search.date as ISODate) || today;
+  const isToday = selectedDate === today;
 
   // Dashboard data state (ADR-005)
-  const [dashboard, setDashboard] = useState<DailyDashboardPayload | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [dashboard, setDashboard] = useState<DailyDashboardPayload | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Coaching state
-  const [coaching, setCoaching] = useState<CoachingResult | null>(null)
-  const [coachLoading, setCoachLoading] = useState(false)
+  const [coaching, setCoaching] = useState<CoachingResult | null>(null);
+  const [coachLoading, setCoachLoading] = useState(false);
 
   // Voice state (ADR-004)
-  const [voiceStatus, setVoiceStatus] = useState<string>('')
-  const [pendingConfirm, setPendingConfirm] = useState<{ transcript: string; intentText?: string } | null>(null)
-  const [isVoiceProcessing, setIsVoiceProcessing] = useState(false)
+  const [voiceStatus, setVoiceStatus] = useState<string>("");
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    transcript: string;
+    intentText?: string;
+  } | null>(null);
+  const [isVoiceProcessing, setIsVoiceProcessing] = useState(false);
 
   // Listening overlay (for persistent mic FAB)
-  const [isListeningOverlay, setIsListeningOverlay] = useState(false)
-  const [interim, setInterim] = useState('')
-  const [listenError, setListenError] = useState<string | null>(null)
+  const [isListeningOverlay, setIsListeningOverlay] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [listenError, setListenError] = useState<string | null>(null);
 
   // Local quick-add for tasks (Focus section)
-  const [taskInput, setTaskInput] = useState('')
+  const [taskInput, setTaskInput] = useState("");
 
   // Finance quick-add
-  const [acctName, setAcctName] = useState('')
-  const [acctAmount, setAcctAmount] = useState('')
+  const [acctName, setAcctName] = useState("");
+  const [acctAmount, setAcctAmount] = useState("");
+  const [txnAmount, setTxnAmount] = useState("");
+  const [txnCategory, setTxnCategory] = useState("");
+  const [txnNote, setTxnNote] = useState("");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [workoutSessions, setWorkoutSessions] = useState<WorkoutSession[]>([]);
 
   // Subscribe to productivity collection for instant updates
-  const [tasksVersion, setTasksVersion] = useState(0)
+  const [tasksVersion, setTasksVersion] = useState(0);
   useEffect(() => {
-    const sub = productivityTasksCollection.subscribeChanges(() => setTasksVersion((v) => v + 1))
-    return () => sub.unsubscribe()
-  }, [])
+    const sub = productivityTasksCollection.subscribeChanges(() => setTasksVersion((v) => v + 1));
+    return () => sub.unsubscribe();
+  }, []);
 
-  const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion])
-  const doneTasks = tasks.filter((t) => t.done && !t.deletedAt)
-  const focusProgress = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0
+  const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion]);
+  const doneTasks = tasks.filter((t) => t.done && !t.deletedAt);
+  const focusProgress = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0;
 
   // Derived headline signals (no extra LLM)
-  const nutrition = dashboard?.nutrition as (DailyNutrition & { updatedAt?: number }) | null
-  const finance = dashboard?.finance ?? null
-  const focusScore = (dashboard?.focus || null) as (DailyFocusScore & { updatedAt?: number }) | null
-  const dailyPlan = (dashboard?.plan || null) as (DailyPlan & { updatedAt?: number }) | null
+  const nutrition = dashboard?.nutrition as (DailyNutrition & { updatedAt?: number }) | null;
+  const finance = dashboard?.finance ?? null;
+  const focusScore = (dashboard?.focus || null) as
+    | (DailyFocusScore & { updatedAt?: number })
+    | null;
+  const dailyPlan = (dashboard?.plan || null) as (DailyPlan & { updatedAt?: number }) | null;
 
-  const proteinCurrent = nutrition?.totals?.protein ?? 0
-  const proteinTarget = dailyPlan?.nutritionTargets?.protein ?? 150
-  const proteinPct = Math.min(100, Math.round((proteinCurrent / Math.max(1, proteinTarget)) * 100))
-  const waterMl = nutrition?.waterMl ?? 0
-  const focusMinutes = focusScore?.focusMinutes ?? 0
+  const proteinCurrent = nutrition?.totals?.protein ?? 0;
+  const proteinTarget = dailyPlan?.nutritionTargets?.protein ?? 150;
+  const proteinPct = Math.min(100, Math.round((proteinCurrent / Math.max(1, proteinTarget)) * 100));
+  const waterMl = nutrition?.waterMl ?? 0;
+  const focusMinutes = focusScore?.focusMinutes ?? 0;
+  const selectedDayStart = new Date(selectedDate + "T00:00:00").getTime();
+  const selectedDayEnd = new Date(selectedDate + "T23:59:59.999").getTime();
+  const recentWorkout = [...workoutSessions]
+    .filter((s) => s.performedAt <= selectedDayEnd)
+    .sort((a, b) => b.performedAt - a.performedAt)[0];
+  const weekWorkoutCount = workoutSessions.filter(
+    (s) => s.performedAt >= selectedDayStart - 6 * 86400000 && s.performedAt <= selectedDayEnd,
+  ).length;
+  const dayTransactions = transactions.filter(
+    (t) => t.timestamp >= selectedDayStart && t.timestamp <= selectedDayEnd,
+  );
+  const cashIn = dayTransactions
+    .filter((t) => ["deposit", "dividend", "sell"].includes(t.type))
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const cashOut = dayTransactions
+    .filter((t) => ["withdrawal", "buy", "fee", "other"].includes(t.type))
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   // Date nav
   function changeDate(deltaOrDate: number | ISODate) {
-    let next: ISODate
-    if (typeof deltaOrDate === 'number') {
-      const d = new Date(selectedDate + 'T00:00:00')
-      d.setDate(d.getDate() + deltaOrDate)
-      next = toISODate(d)
+    let next: ISODate;
+    if (typeof deltaOrDate === "number") {
+      const d = new Date(selectedDate + "T00:00:00");
+      d.setDate(d.getDate() + deltaOrDate);
+      next = toISODate(d);
     } else {
-      next = deltaOrDate
+      next = deltaOrDate;
     }
-    navigate({ search: { date: next } })
+    navigate({ search: { date: next } });
   }
 
   function goToday() {
-    navigate({ search: {} })
+    navigate({ search: {} });
   }
 
   // Load data for a date (snapshot + recent activity)
   async function loadForDate(date: ISODate) {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      const data = await loadDailyDashboard({ data: date })
-      setDashboard(data)
-      hydrateProductivityTasks(data.productivity?.tasks || [])
+      const [data, sessionsStore, txnStore] = await Promise.all([
+        loadDailyDashboard({ data: date }),
+        loadWorkoutSessions(),
+        loadTransactions(),
+      ]);
+      setDashboard(data);
+      hydrateProductivityTasks(data.productivity?.tasks || []);
+      setWorkoutSessions((sessionsStore?.sessions || []).filter((s) => !s.deletedAt));
+      setTransactions((txnStore?.transactions || []).filter((t) => !t.deletedAt));
     } catch (e) {
-      console.warn('[dashboard] loadDailyDashboard failed for', date, e)
+      console.warn("[dashboard] loadDailyDashboard failed for", date, e);
       setDashboard({
         date,
         nutrition: null,
@@ -163,258 +202,331 @@ function UnifiedDailyDashboard() {
         plan: null,
         focus: null,
         recent: { interactions: [], transcripts: [] },
-      })
-      hydrateProductivityTasks([])
+      });
+      hydrateProductivityTasks([]);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
   useEffect(() => {
-    loadForDate(selectedDate)
-    setCoaching(null)
+    loadForDate(selectedDate);
+    setCoaching(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate])
+  }, [selectedDate]);
 
   // Generate coaching for the current day (free fallback when no API key).
   async function refreshCoaching() {
-    setCoachLoading(true)
+    setCoachLoading(true);
     try {
-      const result = await generateCoaching({ data: { date: selectedDate } })
-      setCoaching(result)
+      const result = await generateCoaching({ data: { date: selectedDate } });
+      setCoaching(result);
     } catch (e) {
-      console.warn('[dashboard] coaching failed', e)
+      console.warn("[dashboard] coaching failed", e);
     } finally {
-      setCoachLoading(false)
+      setCoachLoading(false);
     }
   }
 
   // Auto-generate coaching once per day-view after the dashboard loads.
   useEffect(() => {
     if (dashboard && !coaching && !coachLoading) {
-      refreshCoaching()
+      refreshCoaching();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboard])
+  }, [dashboard]);
 
   // Persist current day's productivity tasks (RMW via aggregate)
   async function persistTasks(date: ISODate) {
-    setSyncing(true)
+    setSyncing(true);
     try {
-      const current = getTasksForDate(date)
-      await saveProductivityTasksForDay({ data: { date, tasks: current } })
+      const current = getTasksForDate(date);
+      await saveProductivityTasksForDay({ data: { date, tasks: current } });
     } catch (e) {
-      console.error('[dashboard] Failed to persist productivity tasks', e)
+      console.error("[dashboard] Failed to persist productivity tasks", e);
     } finally {
-      setSyncing(false)
+      setSyncing(false);
     }
   }
 
   async function handleQuickAdd(e?: React.FormEvent) {
-    if (e) e.preventDefault()
-    if (!isToday || !taskInput.trim()) return
-    const newTask = createProductivityTask({ text: taskInput.trim(), date: selectedDate, source: 'daily' })
-    upsertProductivityTaskClient(newTask)
-    setTaskInput('')
-    await persistTasks(selectedDate)
+    if (e) e.preventDefault();
+    if (!isToday || !taskInput.trim()) return;
+    const newTask = createProductivityTask({
+      text: taskInput.trim(),
+      date: selectedDate,
+      source: "daily",
+    });
+    upsertProductivityTaskClient(newTask);
+    setTaskInput("");
+    await persistTasks(selectedDate);
   }
 
   // Log the suggested workout as a completed session.
   async function logSuggestedWorkout() {
-    if (!coaching || !isToday) return
-    setSyncing(true)
+    if (!coaching || !isToday) return;
+    setSyncing(true);
     try {
       await appendWorkoutSession({
         data: {
           performedAt: Date.now(),
           notes: coaching.workout.title,
+          durationMinutes: coaching.workout.estimatedMinutes,
+          effortRating: 3,
           exercises: coaching.workout.exercises.map((e) => ({
             name: e.name,
             sets: e.sets,
             reps: e.reps,
           })),
         },
-      })
-      setVoiceStatus(`Logged: ${coaching.workout.title}`)
-      speakAssistant(`Nice work. Logged ${coaching.workout.title}.`)
-      setTimeout(() => setVoiceStatus(''), 2200)
+      });
+      setVoiceStatus(`Logged: ${coaching.workout.title}`);
+      speakAssistant(`Nice work. Logged ${coaching.workout.title}.`);
+      setTimeout(() => setVoiceStatus(""), 2200);
     } catch (e) {
-      console.error('[dashboard] log workout failed', e)
+      console.error("[dashboard] log workout failed", e);
     } finally {
-      setSyncing(false)
+      setSyncing(false);
     }
   }
 
   // Add / update a finance account balance.
   async function handleAddAccount(e?: React.FormEvent) {
-    if (e) e.preventDefault()
-    if (!isToday) return
-    const name = acctName.trim()
-    const amount = parseFloat(acctAmount)
-    if (!name || isNaN(amount)) return
-    setSyncing(true)
+    if (e) e.preventDefault();
+    if (!isToday) return;
+    const name = acctName.trim();
+    const amount = parseFloat(acctAmount);
+    if (!name || isNaN(amount)) return;
+    setSyncing(true);
     try {
-      const existing = finance?.accounts || []
-      const idx = existing.findIndex((a) => a.account.toLowerCase() === name.toLowerCase())
+      const existing = finance?.accounts || [];
+      const idx = existing.findIndex((a) => a.account.toLowerCase() === name.toLowerCase());
       const nextAccounts =
         idx >= 0
           ? existing.map((a, i) => (i === idx ? { ...a, amount } : a))
-          : [...existing, { account: name, amount, currency: 'USD' }]
+          : [...existing, { account: name, amount, currency: "USD" }];
       const saved = await saveDailyFinance({
         data: {
           date: selectedDate,
           finance: {
             date: selectedDate,
-            netWorth: 0, // derived server-side from accounts + positions
             accounts: nextAccounts,
             positions: finance?.positions || [],
           },
         },
-      })
-      setDashboard((d) => (d ? { ...d, finance: saved } : d))
-      setAcctName('')
-      setAcctAmount('')
-      refreshCoaching()
+      });
+      setDashboard((d) => (d ? { ...d, finance: saved } : d));
+      setAcctName("");
+      setAcctAmount("");
+      refreshCoaching();
     } catch (e) {
-      console.error('[dashboard] save finance failed', e)
+      console.error("[dashboard] save finance failed", e);
     } finally {
-      setSyncing(false)
+      setSyncing(false);
+    }
+  }
+
+  async function handleAcceptCoachPlan() {
+    if (!coaching || !isToday || dailyPlan?.acceptedAt) return;
+    setSyncing(true);
+    try {
+      const result = await acceptDailyCoachingPlan({
+        data: {
+          date: selectedDate,
+          suggestions: coaching.suggestions,
+          workout: coaching.workout,
+        },
+      });
+      hydrateProductivityTasks(result.tasksAdded.concat(getTasksForDate(selectedDate)));
+      await loadForDate(selectedDate);
+      setVoiceStatus(`Plan accepted: ${result.tasksAdded.length} actions added`);
+      setTimeout(() => setVoiceStatus(""), 2200);
+    } catch (e) {
+      console.error("[dashboard] accept plan failed", e);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleAddTransaction(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!isToday) return;
+    const amount = parseFloat(txnAmount);
+    if (!amount || isNaN(amount)) return;
+    setSyncing(true);
+    try {
+      const transaction = await appendTransaction({
+        data: {
+          timestamp: Date.now(),
+          type: amount >= 0 ? "deposit" : "withdrawal",
+          amount,
+          currency: "USD",
+          category: txnCategory.trim() || undefined,
+          notes: txnNote.trim() || undefined,
+        },
+      });
+      setTransactions((items) => [...items, transaction]);
+      setTxnAmount("");
+      setTxnCategory("");
+      setTxnNote("");
+      refreshCoaching();
+    } catch (e) {
+      console.error("[dashboard] transaction save failed", e);
+    } finally {
+      setSyncing(false);
     }
   }
 
   // Voice transcript handler (ADR-004)
   async function handleVoiceTranscript(text: string) {
-    setIsVoiceProcessing(true)
-    setVoiceStatus('Processing…')
+    setIsVoiceProcessing(true);
+    setVoiceStatus("Processing…");
     try {
-      const result = await processVoiceInput({ data: { transcriptText: text } })
-      setVoiceStatus(result.spokenText || 'Done')
-      await loadForDate(selectedDate)
+      const result = await processVoiceInput({ data: { transcriptText: text } });
+      setVoiceStatus(result.spokenText || "Done");
+      await loadForDate(selectedDate);
       if (result.success) {
-        speakAssistant(result.spokenText || 'Done')
+        speakAssistant(result.spokenText || "Done");
       } else if (result.intent?.requiresConfirmation) {
-        setPendingConfirm({ transcript: text, intentText: result.intent.action })
-        speakAssistant(result.spokenText)
+        setPendingConfirm({ transcript: text, intentText: result.intent.action });
+        speakAssistant(result.spokenText);
       } else {
-        speakAssistant(result.spokenText)
+        speakAssistant(result.spokenText);
       }
     } catch (e: any) {
-      const msg = 'Voice error. ' + (e?.message || '')
-      setVoiceStatus(msg)
-      speakAssistant('Sorry, something went wrong.')
+      const msg = "Voice error. " + (e?.message || "");
+      setVoiceStatus(msg);
+      speakAssistant("Sorry, something went wrong.");
     } finally {
-      setIsVoiceProcessing(false)
-      setTimeout(() => setVoiceStatus(''), 2200)
+      setIsVoiceProcessing(false);
+      setTimeout(() => setVoiceStatus(""), 2200);
     }
   }
 
   async function confirmVoiceAction(confirmed: boolean) {
-    if (!pendingConfirm) return
-    const { transcript } = pendingConfirm
-    setPendingConfirm(null)
+    if (!pendingConfirm) return;
+    const { transcript } = pendingConfirm;
+    setPendingConfirm(null);
     if (!confirmed) {
-      setVoiceStatus('Cancelled')
-      setTimeout(() => setVoiceStatus(''), 1200)
-      return
+      setVoiceStatus("Cancelled");
+      setTimeout(() => setVoiceStatus(""), 1200);
+      return;
     }
-    setIsVoiceProcessing(true)
-    setVoiceStatus('Executing…')
+    setIsVoiceProcessing(true);
+    setVoiceStatus("Executing…");
     try {
-      const result = await processVoiceInput({ data: { transcriptText: transcript, forceExecute: true } })
-      setVoiceStatus(result.spokenText || '')
-      await loadForDate(selectedDate)
-      if (result.success) speakAssistant(result.spokenText)
+      const result = await processVoiceInput({
+        data: { transcriptText: transcript, forceExecute: true },
+      });
+      setVoiceStatus(result.spokenText || "");
+      await loadForDate(selectedDate);
+      if (result.success) speakAssistant(result.spokenText);
     } catch {
-      setVoiceStatus('Confirm failed')
+      setVoiceStatus("Confirm failed");
     } finally {
-      setIsVoiceProcessing(false)
-      setTimeout(() => setVoiceStatus(''), 2000)
+      setIsVoiceProcessing(false);
+      setTimeout(() => setVoiceStatus(""), 2000);
     }
   }
 
   // === Persistent Mic FAB + Listening overlay (ADR-005) ===
-  const isListening = isListeningOverlay
+  const isListening = isListeningOverlay;
 
   function stopOverlayListening() {
-    const rec = (window as any).__dashRec
+    const rec = (window as any).__dashRec;
     if (rec) {
-      try { rec.onresult = null; rec.onerror = null; rec.onend = null; rec.stop() } catch {}
-      ;(window as any).__dashRec = null
+      try {
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.stop();
+      } catch {}
+      (window as any).__dashRec = null;
     }
-    setInterim('')
-    setIsListeningOverlay(false)
+    setInterim("");
+    setIsListeningOverlay(false);
   }
 
   function startMainListening() {
-    if (!isToday) return
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!isToday) return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
-      setListenError('Voice not supported. Use Chrome/Edge.')
-      return
+      setListenError("Voice not supported. Use Chrome/Edge.");
+      return;
     }
-    setListenError(null)
-    setInterim('')
-    setIsListeningOverlay(true)
+    setListenError(null);
+    setInterim("");
+    setIsListeningOverlay(true);
 
-    const rec = new SR()
-    ;(window as any).__dashRec = rec
-    rec.continuous = false
-    rec.interimResults = true
-    rec.lang = 'en-US'
+    const rec = new SR();
+    (window as any).__dashRec = rec;
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = "en-US";
 
     rec.onresult = (event: any) => {
-      let finalText = ''
-      let curInterim = ''
+      let finalText = "";
+      let curInterim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const res = event.results[i]
-        if (res.isFinal) finalText += res[0].transcript
-        else curInterim += res[0].transcript
+        const res = event.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else curInterim += res[0].transcript;
       }
-      if (curInterim) setInterim(curInterim.trim())
+      if (curInterim) setInterim(curInterim.trim());
       if (finalText) {
-        const cleaned = finalText.trim()
-        stopOverlayListening()
-        handleVoiceTranscript(cleaned)
+        const cleaned = finalText.trim();
+        stopOverlayListening();
+        handleVoiceTranscript(cleaned);
       }
-    }
+    };
     rec.onerror = () => {
-      stopOverlayListening()
-      setListenError('No speech or recognition error.')
-      setTimeout(() => setListenError(null), 1800)
-    }
+      stopOverlayListening();
+      setListenError("No speech or recognition error.");
+      setTimeout(() => setListenError(null), 1800);
+    };
     rec.onend = () => {
-      if (isListeningOverlay) setIsListeningOverlay(false)
-      ;(window as any).__dashRec = null
-    }
+      if (isListeningOverlay) setIsListeningOverlay(false);
+      (window as any).__dashRec = null;
+    };
 
     try {
-      rec.start()
+      rec.start();
     } catch {
-      stopOverlayListening()
-      setListenError('Could not start mic.')
+      stopOverlayListening();
+      setListenError("Could not start mic.");
     }
   }
 
   function handleFabClick() {
     if (isListening) {
-      stopOverlayListening()
-      return
+      stopOverlayListening();
+      return;
     }
-    startMainListening()
+    startMainListening();
   }
 
   // Progress ring component (focus + protein)
   function ProgressRing({ value, label, sub }: { value: number; label: string; sub?: string }) {
-    const pct = Math.max(0, Math.min(100, value))
-    const r = 28
-    const c = 2 * Math.PI * r
-    const off = c * (1 - pct / 100)
+    const pct = Math.max(0, Math.min(100, value));
+    const r = 28;
+    const c = 2 * Math.PI * r;
+    const off = c * (1 - pct / 100);
     return (
       <div className="flex flex-col items-center">
         <svg width="68" height="68" className="-rotate-90">
-          <circle cx="34" cy="34" r={r} stroke="currentColor" strokeOpacity={0.12} strokeWidth="6" fill="none" />
           <circle
-            cx="34" cy="34" r={r}
+            cx="34"
+            cy="34"
+            r={r}
+            stroke="currentColor"
+            strokeOpacity={0.12}
+            strokeWidth="6"
+            fill="none"
+          />
+          <circle
+            cx="34"
+            cy="34"
+            r={r}
             stroke="currentColor"
             strokeWidth="6"
             fill="none"
@@ -429,12 +541,14 @@ function UnifiedDailyDashboard() {
           {sub && <div className="text-[9px] text-muted-foreground/70 tabular-nums">{sub}</div>}
         </div>
       </div>
-    )
+    );
   }
 
   const headline =
     coaching?.headline ||
-    (isToday ? 'Speak or tap to log progress — your coach is standing by.' : 'No activity recorded for this day.')
+    (isToday
+      ? "Speak or tap to log progress — your coach is standing by."
+      : "No activity recorded for this day.");
 
   return (
     <div className="min-h-dvh bg-background px-4 pb-24 pt-6">
@@ -442,23 +556,37 @@ function UnifiedDailyDashboard() {
         {/* Top nav + date */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Daily Dashboard</div>
+            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
+              Daily Dashboard
+            </div>
             <div className="text-3xl font-semibold tracking-tighter">How am I doing?</div>
           </div>
 
           <div className="flex items-center gap-1.5 text-sm">
-            <Button variant="outline" size="icon" className="size-8" onClick={() => changeDate(-1)} aria-label="Previous day">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={() => changeDate(-1)}
+              aria-label="Previous day"
+            >
               <ChevronLeft className="size-4" />
             </Button>
             <Button
-              variant={isToday ? 'default' : 'outline'}
+              variant={isToday ? "default" : "outline"}
               size="sm"
               onClick={goToday}
               className="min-w-[72px] tabular-nums"
             >
               Today
             </Button>
-            <Button variant="outline" size="icon" className="size-8" onClick={() => changeDate(1)} aria-label="Next day">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={() => changeDate(1)}
+              aria-label="Next day"
+            >
               <ChevronRight className="size-4" />
             </Button>
 
@@ -466,13 +594,15 @@ function UnifiedDailyDashboard() {
               type="date"
               value={selectedDate}
               onChange={(e) => {
-                const v = e.target.value as ISODate
-                if (v) changeDate(v)
+                const v = e.target.value as ISODate;
+                if (v) changeDate(v);
               }}
               className="ml-1 h-8 rounded border bg-background px-2 text-xs tabular-nums"
             />
             {!isToday && (
-              <span className="ml-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Read-only</span>
+              <span className="ml-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                Read-only
+              </span>
             )}
           </div>
         </div>
@@ -481,15 +611,23 @@ function UnifiedDailyDashboard() {
         <div className="mb-6 rounded-2xl border bg-card p-5">
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
             <div className="flex items-center gap-6">
-              <ProgressRing value={focusProgress} label="Focus" sub={`${doneTasks.length}/${tasks.length} tasks`} />
-              <ProgressRing value={proteinPct} label="Protein" sub={`${proteinCurrent}g / ${proteinTarget}g`} />
+              <ProgressRing
+                value={focusProgress}
+                label="Focus"
+                sub={`${doneTasks.length}/${tasks.length} tasks`}
+              />
+              <ProgressRing
+                value={proteinPct}
+                label="Protein"
+                sub={`${proteinCurrent}g / ${proteinTarget}g`}
+              />
             </div>
 
             <div className="max-w-[420px] text-center sm:text-left">
               <div className="text-[13px] font-medium text-muted-foreground">Today at a glance</div>
               <div className="mt-1 text-xl leading-tight">
-                {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ''}
-                {proteinCurrent > 0 ? `${proteinPct}% protein` : 'Log nutrition or tasks'}
+                {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
+                {proteinCurrent > 0 ? `${proteinPct}% protein` : "Log nutrition or tasks"}
               </div>
               <div className="mt-2 line-clamp-3 text-sm text-muted-foreground">{headline}</div>
             </div>
@@ -498,16 +636,22 @@ function UnifiedDailyDashboard() {
               <button
                 onClick={handleFabClick}
                 disabled={isVoiceProcessing}
-                className={`flex size-16 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.985] ${isListening ? 'border-red-500 bg-red-500 text-white shadow' : 'border-border hover:border-primary hover:text-primary'}`}
-                aria-label={isListening ? 'Stop listening' : 'Start voice input'}
+                className={`flex size-16 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.985] ${isListening ? "border-red-500 bg-red-500 text-white shadow" : "border-border hover:border-primary hover:text-primary"}`}
+                aria-label={isListening ? "Stop listening" : "Start voice input"}
               >
-                {isListening ? <Square className="size-6 fill-current" /> : <Mic className="size-6" />}
+                {isListening ? (
+                  <Square className="size-6 fill-current" />
+                ) : (
+                  <Mic className="size-6" />
+                )}
               </button>
             )}
           </div>
 
           {(voiceStatus || isVoiceProcessing) && (
-            <div className="mt-3 text-center text-[10px] uppercase tracking-[1px] text-muted-foreground/70">{voiceStatus}</div>
+            <div className="mt-3 text-center text-[10px] uppercase tracking-[1px] text-muted-foreground/70">
+              {voiceStatus}
+            </div>
           )}
         </div>
 
@@ -520,11 +664,17 @@ function UnifiedDailyDashboard() {
               </div>
               <div className="mt-3 flex items-end justify-center gap-1.5 h-10">
                 {[0, 1, 2, 3].map((i) => (
-                  <div key={i} className="w-1.5 animate-pulse rounded bg-primary" style={{ height: 12 + (i % 3) * 7, animationDelay: `${i * 110}ms` }} />
+                  <div
+                    key={i}
+                    className="w-1.5 animate-pulse rounded bg-primary"
+                    style={{ height: 12 + (i % 3) * 7, animationDelay: `${i * 110}ms` }}
+                  />
                 ))}
               </div>
               {interim && <div className="mt-3 text-sm text-muted-foreground">“{interim}”</div>}
-              <button onClick={stopOverlayListening} className="mt-5 text-xs underline">Cancel</button>
+              <button onClick={stopOverlayListening} className="mt-5 text-xs underline">
+                Cancel
+              </button>
               {listenError && <div className="mt-2 text-xs text-destructive">{listenError}</div>}
             </div>
           </div>
@@ -540,11 +690,15 @@ function UnifiedDailyDashboard() {
             <div className="flex items-center gap-2">
               <VoiceInput
                 confirmMode
-                confirmPrompt={`Say yes to ${pendingConfirm.intentText || 'this action'} or no.`}
+                confirmPrompt={`Say yes to ${pendingConfirm.intentText || "this action"} or no.`}
                 onConfirm={confirmVoiceAction}
               />
-              <Button variant="ghost" size="sm" onClick={() => confirmVoiceAction(false)}>Cancel</Button>
-              <Button size="sm" onClick={() => confirmVoiceAction(true)}>Yes</Button>
+              <Button variant="ghost" size="sm" onClick={() => confirmVoiceAction(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => confirmVoiceAction(true)}>
+                Yes
+              </Button>
             </div>
           </div>
         )}
@@ -563,8 +717,8 @@ function UnifiedDailyDashboard() {
                 disabled={coachLoading}
                 className="h-7 gap-1.5 text-xs font-normal"
               >
-                <RefreshCw className={`size-3.5 ${coachLoading ? 'animate-spin' : ''}`} />
-                {coachLoading ? 'Thinking…' : 'Refresh'}
+                <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />
+                {coachLoading ? "Thinking…" : "Refresh"}
               </Button>
             </CardTitle>
           </CardHeader>
@@ -572,18 +726,20 @@ function UnifiedDailyDashboard() {
             {coaching?.suggestions?.length ? (
               <ul className="space-y-2">
                 {coaching.suggestions.map((s, i) => {
-                  const Icon = DOMAIN_ICON[s.domain] || Brain
+                  const Icon = DOMAIN_ICON[s.domain] || Brain;
                   return (
                     <li key={i} className="flex gap-2.5 text-sm">
                       <Icon className="mt-0.5 size-4 shrink-0 text-primary/80" />
                       <div className="min-w-0">
                         <span>{s.text}</span>
                         {s.action && isToday && (
-                          <span className="ml-1 text-xs text-muted-foreground">— try “{s.action.trim()}”</span>
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            — try “{s.action.trim()}”
+                          </span>
                         )}
                       </div>
                     </li>
-                  )
+                  );
                 })}
               </ul>
             ) : coachLoading ? (
@@ -601,9 +757,27 @@ function UnifiedDailyDashboard() {
               <div className="text-sm text-muted-foreground">No suggestions yet — tap Refresh.</div>
             )}
             {coaching && (
-              <div className="pt-1 text-[10px] text-muted-foreground/60">
-                {coaching.generatedBy === 'ai' ? 'Generated by Grok' : 'Coach (offline rules)'} • updated{' '}
-                {new Date(coaching.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="text-[10px] text-muted-foreground/60">
+                  {coaching.generatedBy === "ai" ? "Generated by Grok" : "Coach (offline rules)"} •
+                  updated{" "}
+                  {new Date(coaching.updatedAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
+                {isToday && (
+                  <Button
+                    size="sm"
+                    variant={dailyPlan?.acceptedAt ? "outline" : "default"}
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={handleAcceptCoachPlan}
+                    disabled={syncing || !!dailyPlan?.acceptedAt}
+                  >
+                    <Check className="size-3.5" />
+                    {dailyPlan?.acceptedAt ? "Plan accepted" : "Accept plan"}
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>
@@ -617,6 +791,18 @@ function UnifiedDailyDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="rounded bg-muted px-2 py-1 tabular-nums">
+                {weekWorkoutCount} workout{weekWorkoutCount === 1 ? "" : "s"} in 7 days
+              </span>
+              {recentWorkout && (
+                <span className="rounded bg-muted px-2 py-1">
+                  Last: {recentWorkout.notes || "session"}{" "}
+                  {recentWorkout.durationMinutes ? `• ${recentWorkout.durationMinutes} min` : ""}
+                  {recentWorkout.effortRating ? ` • effort ${recentWorkout.effortRating}/5` : ""}
+                </span>
+              )}
+            </div>
             {coaching?.workout ? (
               <div>
                 <div className="flex items-baseline justify-between">
@@ -627,21 +813,33 @@ function UnifiedDailyDashboard() {
                 </div>
                 <ul className="mt-2 space-y-1 text-sm">
                   {coaching.workout.exercises.map((ex, i) => (
-                    <li key={i} className="flex items-center justify-between border-b border-border/40 py-1 last:border-0">
+                    <li
+                      key={i}
+                      className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
+                    >
                       <span>{ex.name}</span>
-                      <span className="tabular-nums text-xs text-muted-foreground">{ex.sets} × {ex.reps}</span>
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {ex.sets} × {ex.reps}
+                      </span>
                     </li>
                   ))}
                 </ul>
                 {isToday && (
-                  <Button size="sm" className="mt-3 gap-1.5" onClick={logSuggestedWorkout} disabled={syncing}>
+                  <Button
+                    size="sm"
+                    className="mt-3 gap-1.5"
+                    onClick={logSuggestedWorkout}
+                    disabled={syncing}
+                  >
                     <Check className="size-4" /> Mark complete
                   </Button>
                 )}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">
-                {coachLoading ? 'Building your session…' : 'Tap Refresh on suggestions to generate a session.'}
+                {coachLoading
+                  ? "Building your session…"
+                  : "Tap Refresh on suggestions to generate a session."}
               </div>
             )}
           </CardContent>
@@ -674,16 +872,22 @@ function UnifiedDailyDashboard() {
                 <VoiceInput onTranscript={handleVoiceTranscript} />
               </form>
             ) : (
-              <div className="text-sm text-muted-foreground">Tasks for past days are view-only here. Use the full Kanban to edit.</div>
+              <div className="text-sm text-muted-foreground">
+                Tasks for past days are view-only here. Use the full Kanban to edit.
+              </div>
             )}
             {tasks.length > 0 && (
               <ul className="mt-3 space-y-1 text-sm">
                 {tasks.slice(0, 6).map((t) => (
                   <li key={t.id} className="flex items-center gap-2">
-                    <span className={`flex size-4 items-center justify-center rounded-full border ${t.done ? 'bg-primary text-primary-foreground border-primary' : 'border-muted-foreground/40'}`}>
+                    <span
+                      className={`flex size-4 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
+                    >
                       {t.done && <Check className="size-3" />}
                     </span>
-                    <span className={t.done ? 'text-muted-foreground line-through' : ''}>{t.text}</span>
+                    <span className={t.done ? "text-muted-foreground line-through" : ""}>
+                      {t.text}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -704,10 +908,15 @@ function UnifiedDailyDashboard() {
           <CardContent>
             <div className="mb-2 flex items-center justify-between text-sm">
               <div>Protein</div>
-              <div className="tabular-nums text-muted-foreground">{proteinCurrent}g / {proteinTarget}g</div>
+              <div className="tabular-nums text-muted-foreground">
+                {proteinCurrent}g / {proteinTarget}g
+              </div>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-              <div className="h-full bg-primary transition-all" style={{ width: `${proteinPct}%` }} />
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${proteinPct}%` }}
+              />
             </div>
 
             <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -716,18 +925,31 @@ function UnifiedDailyDashboard() {
 
             {(nutrition?.mealLogs?.length ?? 0) > 0 && (
               <div className="mt-3">
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Recent logs</div>
+                <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Recent logs
+                </div>
                 <ul className="space-y-0.5 text-sm">
-                  {nutrition!.mealLogs.slice(-3).reverse().map((m, idx) => (
-                    <li key={idx} className="text-muted-foreground">
-                      {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — {m.foodItems?.[0]?.name || 'meal'}
-                    </li>
-                  ))}
+                  {nutrition!.mealLogs
+                    .slice(-3)
+                    .reverse()
+                    .map((m, idx) => (
+                      <li key={idx} className="text-muted-foreground">
+                        {new Date(m.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                        — {m.foodItems?.[0]?.name || "meal"}
+                      </li>
+                    ))}
                 </ul>
               </div>
             )}
 
-            {isToday && <div className="mt-2 text-[10px] text-muted-foreground/70">Say “log 40g protein chicken” or “add water 300 ml”.</div>}
+            {isToday && (
+              <div className="mt-2 text-[10px] text-muted-foreground/70">
+                Say “log 40g protein chicken” or “add water 300 ml”.
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -744,14 +966,31 @@ function UnifiedDailyDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Net worth</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Net worth
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded bg-muted px-2 py-1">
+                <div className="text-muted-foreground">Cash in</div>
+                <div className="font-medium tabular-nums">${cashIn.toLocaleString()}</div>
+              </div>
+              <div className="rounded bg-muted px-2 py-1">
+                <div className="text-muted-foreground">Cash out</div>
+                <div className="font-medium tabular-nums">${cashOut.toLocaleString()}</div>
+              </div>
+            </div>
 
             {finance?.accounts?.length ? (
               <ul className="mt-2 space-y-1 text-sm">
                 {finance.accounts.map((a, i) => (
-                  <li key={i} className="flex items-center justify-between border-b border-border/40 py-1 last:border-0">
+                  <li
+                    key={i}
+                    className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
+                  >
                     <span>{a.account}</span>
-                    <span className="tabular-nums text-muted-foreground">${a.amount.toLocaleString()}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      ${a.amount.toLocaleString()}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -762,25 +1001,70 @@ function UnifiedDailyDashboard() {
             )}
 
             {isToday && (
-              <form onSubmit={handleAddAccount} className="mt-3 flex items-center gap-2">
-                <Input
-                  value={acctName}
-                  onChange={(e) => setAcctName(e.target.value)}
-                  placeholder="Account (e.g. Checking)"
-                  className="flex-1"
-                />
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={acctAmount}
-                  onChange={(e) => setAcctAmount(e.target.value)}
-                  placeholder="Balance"
-                  className="w-32"
-                />
-                <Button type="submit" size="sm" className="gap-1" disabled={!acctName.trim() || !acctAmount}>
-                  <Plus className="size-4" /> Save
-                </Button>
-              </form>
+              <div className="mt-3 space-y-2">
+                <form onSubmit={handleAddAccount} className="flex items-center gap-2">
+                  <Input
+                    value={acctName}
+                    onChange={(e) => setAcctName(e.target.value)}
+                    placeholder="Account (e.g. Checking)"
+                    className="flex-1"
+                  />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={acctAmount}
+                    onChange={(e) => setAcctAmount(e.target.value)}
+                    placeholder="Balance"
+                    className="w-32"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="gap-1"
+                    disabled={!acctName.trim() || !acctAmount}
+                  >
+                    <Plus className="size-4" /> Balance
+                  </Button>
+                </form>
+                <form
+                  onSubmit={handleAddTransaction}
+                  className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr_1fr_auto]"
+                >
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={txnAmount}
+                    onChange={(e) => setTxnAmount(e.target.value)}
+                    placeholder="+/- amount"
+                  />
+                  <Input
+                    value={txnCategory}
+                    onChange={(e) => setTxnCategory(e.target.value)}
+                    placeholder="Category"
+                  />
+                  <Input
+                    value={txnNote}
+                    onChange={(e) => setTxnNote(e.target.value)}
+                    placeholder="Note"
+                  />
+                  <Button type="submit" size="sm" className="gap-1" disabled={!txnAmount}>
+                    <Plus className="size-4" /> Cashflow
+                  </Button>
+                </form>
+              </div>
+            )}
+            {dayTransactions.length > 0 && (
+              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                {dayTransactions
+                  .slice(-3)
+                  .reverse()
+                  .map((t) => (
+                    <li key={t.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{t.category || t.notes || t.type}</span>
+                      <span className="tabular-nums">${t.amount.toLocaleString()}</span>
+                    </li>
+                  ))}
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -792,31 +1076,51 @@ function UnifiedDailyDashboard() {
           </CardHeader>
           <CardContent>
             {(() => {
-              const rec = dashboard?.recent || { interactions: [], transcripts: [] }
+              const rec = dashboard?.recent || { interactions: [], transcripts: [] };
               const combined = [
-                ...(rec.interactions || []).map((i) => ({ ts: i.timestamp, label: 'AI', text: (i.response || i.intent || '').toString().slice(0, 120) })),
-                ...(rec.transcripts || []).map((v) => ({ ts: v.timestamp, label: 'Voice', text: v.transcriptText?.slice(0, 120) || '' })),
-              ].sort((a, b) => b.ts - a.ts).slice(0, 8)
+                ...(rec.interactions || []).map((i) => ({
+                  ts: i.timestamp,
+                  label: "AI",
+                  text: (i.response || i.intent || "").toString().slice(0, 120),
+                })),
+                ...(rec.transcripts || []).map((v) => ({
+                  ts: v.timestamp,
+                  label: "Voice",
+                  text: v.transcriptText?.slice(0, 120) || "",
+                })),
+              ]
+                .sort((a, b) => b.ts - a.ts)
+                .slice(0, 8);
 
-              if (combined.length === 0) return <div className="text-sm text-muted-foreground">No voice or AI activity for this day.</div>
+              if (combined.length === 0)
+                return (
+                  <div className="text-sm text-muted-foreground">
+                    No voice or AI activity for this day.
+                  </div>
+                );
 
               return (
                 <div className="space-y-2 text-sm">
                   {combined.map((c, idx) => (
                     <div key={idx} className="flex gap-2 text-muted-foreground">
-                      <span className="mt-px inline-block w-[42px] shrink-0 font-mono text-[10px] text-muted-foreground/70">{new Date(c.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="mt-px inline-block w-[42px] shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                        {new Date(c.ts).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
                       <span className="shrink-0 font-medium text-foreground/80">{c.label}:</span>
                       <span className="min-w-0 flex-1">{c.text}</span>
                     </div>
                   ))}
                 </div>
-              )
+              );
             })()}
           </CardContent>
         </Card>
 
         <div className="text-[10px] text-muted-foreground/60 flex items-center gap-2">
-          {selectedDate} • TanStack Start + R2 {syncing && '• syncing…'} {isLoading && '• loading…'}
+          {selectedDate} • TanStack Start + R2 {syncing && "• syncing…"} {isLoading && "• loading…"}
         </div>
       </div>
 
@@ -825,5 +1129,5 @@ function UnifiedDailyDashboard() {
         <VoiceInput onTranscript={() => {}} />
       </div>
     </div>
-  )
+  );
 }

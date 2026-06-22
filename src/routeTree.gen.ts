@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as KanbanRouteImport } from './routes/kanban'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AboutRouteImport } from './routes/about'
@@ -18,6 +19,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
   path: '/weekly',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const KanbanRoute = KanbanRouteImport.update({
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/analytics': typeof AnalyticsRoute
   '/kanban': typeof KanbanRoute
+  '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/analytics': typeof AnalyticsRoute
   '/kanban': typeof KanbanRoute
+  '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,22 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/analytics': typeof AnalyticsRoute
   '/kanban': typeof KanbanRoute
+  '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/analytics' | '/kanban' | '/weekly'
+  fullPaths: '/' | '/about' | '/analytics' | '/kanban' | '/profile' | '/weekly'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/analytics' | '/kanban' | '/weekly'
-  id: '__root__' | '/' | '/about' | '/analytics' | '/kanban' | '/weekly'
+  to: '/' | '/about' | '/analytics' | '/kanban' | '/profile' | '/weekly'
+  id:
+    | '__root__'
+    | '/'
+    | '/about'
+    | '/analytics'
+    | '/kanban'
+    | '/profile'
+    | '/weekly'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +92,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AnalyticsRoute: typeof AnalyticsRoute
   KanbanRoute: typeof KanbanRoute
+  ProfileRoute: typeof ProfileRoute
   WeeklyRoute: typeof WeeklyRoute
 }
 
@@ -86,6 +103,13 @@ declare module '@tanstack/react-router' {
       path: '/weekly'
       fullPath: '/weekly'
       preLoaderRoute: typeof WeeklyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/kanban': {
@@ -124,6 +148,7 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AnalyticsRoute: AnalyticsRoute,
   KanbanRoute: KanbanRoute,
+  ProfileRoute: ProfileRoute,
   WeeklyRoute: WeeklyRoute,
 }
 export const routeTree = rootRouteImport
