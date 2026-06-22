@@ -17,7 +17,14 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import type { ISODate, ISOWeek, UserProfile } from "@/lib/domain";
-import { todayISO, toISODate, computeAge, createProductivityTask } from "@/lib/domain";
+import {
+  todayISO,
+  toISODate,
+  computeAge,
+  createProductivityTask,
+  cmToInches,
+  mlToFlOz,
+} from "@/lib/domain";
 import {
   loadDailyDashboard,
   saveDailyPlan,
@@ -110,7 +117,7 @@ export interface TrendSignals {
   avgProteinPct: number;
   /** Days that hit ≥90% of the protein target. */
   proteinDaysOnTarget: number;
-  /** Average daily water (ml) across days that logged any food. */
+  /** Average daily water (ml) across days that logged any food; displayed as fl oz. */
   avgWaterMl: number;
   /** Workout sessions performed within the window. */
   workouts: number;
@@ -288,6 +295,8 @@ function fallbackCoaching(
 ): CoachingResult {
   const suggestions: CoachSuggestion[] = [];
   const waterTarget = profile.waterTargetMl ?? 2500;
+  const waterCurrentOz = mlToFlOz(signals.waterMl) ?? 0;
+  const waterTargetOz = mlToFlOz(waterTarget) ?? 85;
 
   // FOCUS / PRODUCTIVITY
   if (signals.tasksTotal === 0) {
@@ -330,8 +339,8 @@ function fallbackCoaching(
   if (signals.waterMl < waterTarget) {
     suggestions.push({
       domain: "nutrition",
-      text: `Hydration at ${signals.waterMl} ml — aim for ~${(waterTarget / 1000).toFixed(1)} L. Grab a glass now.`,
-      action: "add water 300 ml",
+      text: `Hydration at ${waterCurrentOz} fl oz — aim for ~${waterTargetOz} fl oz. Grab a glass now.`,
+      action: "add water 12 oz",
     });
   }
 
@@ -434,10 +443,14 @@ async function getGrokKey(): Promise<string | undefined> {
 function profileBlock(profile: UserProfile): string {
   const lines: string[] = [];
   const age = computeAge(profile.birthDate);
+  const heightIn = cmToInches(profile.heightCm);
+  const heightLabel =
+    typeof heightIn === "number" ? `${Math.floor(heightIn / 12)}'${heightIn % 12}"` : null;
   const bio = [
     age ? `${age}y` : null,
     profile.sex,
-    profile.heightCm ? `${profile.heightCm}cm` : null,
+    heightLabel,
+    profile.units ? `units: ${profile.units}` : "units: imperial",
     profile.activityLevel ? `activity: ${profile.activityLevel}` : null,
   ].filter(Boolean);
   if (bio.length) lines.push(`- Bio: ${bio.join(", ")}`);
@@ -461,6 +474,8 @@ function profileBlock(profile: UserProfile): string {
 
 function buildCoachPrompt(signals: DaySignals, profile: UserProfile, trend: TrendSignals): string {
   const name = profile.displayName || "Brian";
+  const waterOz = mlToFlOz(signals.waterMl) ?? 0;
+  const avgWaterOz = mlToFlOz(trend.avgWaterMl) ?? 0;
   return `You are ${name}'s personal advisory board: an elite life coach, a certified strength & conditioning coach, and a CFP-level financial advisor. Give concise, actionable coaching for TODAY based on real data. Personalize every suggestion to the profile and the 7-day trend — never contradict injuries or dietary restrictions.
 
 User profile:
@@ -469,7 +484,7 @@ ${profileBlock(profile)}
 Today's data (${signals.date}, weekday index ${signals.dayOfWeek} where 0=Sunday):
 - Tasks: ${signals.tasksDone}/${signals.tasksTotal} complete
 - Protein: ${signals.proteinCurrent}g of ${signals.proteinTarget}g target
-- Water: ${signals.waterMl} ml
+- Water: ${waterOz} fl oz
 - Meals logged: ${signals.mealsLogged}
 - Net worth tracked: ${signals.hasFinance ? "$" + signals.netWorth : "not set up yet"}
 
@@ -478,7 +493,7 @@ Last ${trend.days} days (trend):
 - Task completion: ${trend.taskCompletionPct}%
 - Workouts: ${trend.workouts}
 - Avg protein: ${trend.avgProteinPct}% of target (direction: ${trend.proteinTrend}); ${trend.proteinDaysOnTarget} day(s) on target
-- Avg water: ${trend.avgWaterMl} ml
+- Avg water: ${avgWaterOz} fl oz
 - Net-worth change: ${trend.netWorthChange >= 0 ? "+" : ""}$${trend.netWorthChange}
 - Net cashflow from logged transactions: ${trend.netCashflow >= 0 ? "+" : ""}$${trend.netCashflow}
 
@@ -498,6 +513,7 @@ Reply with ONLY one compact JSON object (no markdown):
 
 Rules:
 - 4 to 6 suggestions, one per domain where relevant, each referencing his actual numbers.
+- Use US customary units for bodyweight, exercise loads, height, and hydration (lb, in, fl oz), not kg/cm/ml in user-facing text.
 - The workout must suit the weekday (lighter/recovery on overloaded days; push/pull/legs rotation otherwise).
 - Be specific and encouraging. No fluff, no disclaimers.`;
 }
@@ -628,10 +644,10 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
     const now = Date.now();
     const existingTasks = await loadProductivityTasksForDay({ data: data.date });
 
-    const planTasks = data.suggestions
-      .filter((s) => s.text && s.domain !== "general")
+    const planTasks = (data.suggestions as CoachSuggestion[])
+      .filter((s: CoachSuggestion) => s.text && s.domain !== "general")
       .slice(0, 5)
-      .map((s) =>
+      .map((s: CoachSuggestion) =>
         createProductivityTask({
           text: `${domainLabel(s.domain)}: ${s.text}`,
           date: data.date,
@@ -665,7 +681,8 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
         acceptedAt: now,
         acceptedSuggestionIds: planTasks.map((t) => t.id),
         aiSuggestions:
-          existingPlan?.aiSuggestions || data.suggestions.map((s) => `[${s.domain}] ${s.text}`),
+          existingPlan?.aiSuggestions ||
+          (data.suggestions as CoachSuggestion[]).map((s: CoachSuggestion) => `[${s.domain}] ${s.text}`),
         voiceNoteIds: existingPlan?.voiceNoteIds,
         notes: existingPlan?.notes,
       },
@@ -759,13 +776,14 @@ export const generateWeeklyNarrative = createServerFn({ method: "POST" })
 
     const completion =
       data.tasksTotal > 0 ? Math.round((data.tasksCompleted / data.tasksTotal) * 100) : 0;
+    const avgWaterOz = mlToFlOz(data.avgWaterMl) ?? 0;
     const prompt = `You are Brian's life coach + strength coach + financial advisor writing his WEEKLY REVIEW for ${data.week}.
 
 Data this week:
 - Tasks: ${data.tasksCompleted}/${data.tasksTotal} complete (${completion}%)
 - Workouts: ${data.workouts}
 - Avg protein vs target: ${data.avgProteinPct}%
-- Avg water: ${data.avgWaterMl} ml
+- Avg water: ${avgWaterOz} fl oz
 - Net worth: ${data.netWorth > 0 ? "$" + data.netWorth : "not tracked"}
 - Active (logged) days: ${data.activeDays}/7
 
@@ -774,7 +792,7 @@ ${profileBlock(profile)}
 
 Reply with ONLY one compact JSON object:
 { "reflection": "2-3 sentence honest, encouraging summary", "wins": ["..."], "blockers": ["..."], "nextWeekFocus": ["..."] }
-Each array has 2-4 specific, actionable items referencing the numbers. No markdown.`;
+Each array has 2-4 specific, actionable items referencing the numbers. Use US customary units for bodyweight, exercise loads, height, and hydration. No markdown.`;
 
     try {
       const resp = await fetch("https://api.x.ai/v1/chat/completions", {

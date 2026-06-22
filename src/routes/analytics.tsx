@@ -14,7 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { loadDailyDashboard, loadTransactions, loadWorkoutSessions } from "@/lib/server/domain";
-import { todayISO, toISODate, type ISODate } from "@/lib/domain";
+import { mlToFlOz, todayISO, toISODate, type ISODate } from "@/lib/domain";
 
 export const Route = createFileRoute("/analytics")({
   component: Analytics,
@@ -25,7 +25,7 @@ interface DayPoint {
   completionPct: number;
   tasksTotal: number;
   proteinPct: number;
-  waterMl: number;
+  waterOz: number;
   netWorth: number;
   workouts: number;
   cashflow: number;
@@ -73,7 +73,7 @@ function Analytics() {
           tasksTotal: tasks.length,
           proteinPct:
             protein > 0 ? Math.min(100, Math.round((protein / Math.max(1, target)) * 100)) : 0,
-          waterMl: dash.nutrition?.waterMl ?? 0,
+          waterOz: mlToFlOz(dash.nutrition?.waterMl ?? 0) ?? 0,
           netWorth: dash.finance?.netWorth ?? 0,
           workouts: allSessions.filter((s) => s.performedAt >= dayStart && s.performedAt <= dayEnd)
             .length,
@@ -107,8 +107,8 @@ function Analytics() {
   const netCashflow = points.reduce((sum, p) => sum + p.cashflow, 0);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-6">
-      <div className="mx-auto w-full max-w-[860px]">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-6 sm:px-6">
+      <div className="mx-auto w-full max-w-page">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Analytics</div>
@@ -183,8 +183,8 @@ function Analytics() {
             <ChartCard icon={Utensils} title="Protein % of target" color="var(--primary)">
               <LineChart points={points} sel={(p) => p.proteinPct} max={100} unit="%" />
             </ChartCard>
-            <ChartCard icon={Droplet} title="Water (ml)">
-              <BarsChart points={points} sel={(p) => p.waterMl} unit=" ml" />
+            <ChartCard icon={Droplet} title="Water (fl oz)">
+              <BarsChart points={points} sel={(p) => p.waterOz} unit=" fl oz" />
             </ChartCard>
             {latestNetWorth > 0 && (
               <ChartCard icon={Wallet} title="Net worth ($)">

@@ -27,7 +27,15 @@ import {
   saveWeeklyReview,
 } from "@/lib/server/domain";
 import { generateWeeklyNarrative, type WeeklyNarrativeResult } from "@/lib/server/coach";
-import { createProductivityTask, todayISO, toISODate, toISOWeek, type ISODate } from "@/lib/domain";
+import {
+  createProductivityTask,
+  flOzToMl,
+  mlToFlOz,
+  todayISO,
+  toISODate,
+  toISOWeek,
+  type ISODate,
+} from "@/lib/domain";
 
 export const Route = createFileRoute("/weekly")({
   component: Weekly,
@@ -54,7 +62,7 @@ interface WeekStats {
   tasksTotal: number;
   workouts: number;
   avgProteinPct: number;
-  avgWaterMl: number;
+  avgWaterOz: number;
   netWorth: number;
   activeDays: number;
   perDayCompletion: { date: ISODate; pct: number; total: number }[];
@@ -144,7 +152,7 @@ function Weekly() {
         tasksTotal,
         workouts,
         avgProteinPct: proteinDays ? Math.round(proteinPctSum / proteinDays) : 0,
-        avgWaterMl: waterDays ? Math.round(waterSum / waterDays) : 0,
+        avgWaterOz: mlToFlOz(waterDays ? Math.round(waterSum / waterDays) : 0) ?? 0,
         netWorth,
         activeDays,
         perDayCompletion,
@@ -179,7 +187,7 @@ function Weekly() {
           tasksTotal: stats.tasksTotal,
           workouts: stats.workouts,
           avgProteinPct: stats.avgProteinPct,
-          avgWaterMl: stats.avgWaterMl,
+          avgWaterMl: flOzToMl(stats.avgWaterOz) ?? 0,
           netWorth: stats.netWorth,
           activeDays: stats.activeDays,
         },
@@ -271,8 +279,8 @@ function Weekly() {
     stats && stats.tasksTotal > 0 ? Math.round((stats.tasksCompleted / stats.tasksTotal) * 100) : 0;
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-6">
-      <div className="mx-auto w-full max-w-[820px]">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-6 sm:px-6">
+      <div className="mx-auto w-full max-w-page">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">

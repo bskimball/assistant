@@ -55,7 +55,7 @@ export interface UserProfile extends BaseEntity {
   timezone?: string;
 
   // Coaching context
-  /** Free-form top-level goals, e.g. "lose 5 kg", "save $20k", "bench 100kg". */
+  /** Free-form top-level goals, e.g. "lose 10 lb", "save $20k", "bench 225 lb". */
   goals?: string[];
   activityLevel?: ActivityLevel;
 
@@ -91,7 +91,26 @@ export function computeAge(birthDate?: ISODate, now: Date = new Date()): number 
 
 /** Default empty profile shell (used by the loader when none is stored yet). */
 export function createDefaultUserProfile(now: Timestamp = Date.now()): UserProfile {
-  return { id: "user-profile", createdAt: now };
+  return { id: "user-profile", createdAt: now, units: "imperial" };
+}
+
+export const CM_PER_INCH = 2.54;
+export const ML_PER_FL_OZ = 29.5735295625;
+
+export function cmToInches(cm?: number): number | undefined {
+  return typeof cm === "number" ? Math.round(cm / CM_PER_INCH) : undefined;
+}
+
+export function inchesToCm(inches?: number): number | undefined {
+  return typeof inches === "number" ? Math.round(inches * CM_PER_INCH) : undefined;
+}
+
+export function mlToFlOz(ml?: number): number | undefined {
+  return typeof ml === "number" ? Math.round(ml / ML_PER_FL_OZ) : undefined;
+}
+
+export function flOzToMl(flOz?: number): number | undefined {
+  return typeof flOz === "number" ? Math.round(flOz * ML_PER_FL_OZ) : undefined;
 }
 
 /* ===================== FITNESS ===================== */
@@ -104,7 +123,7 @@ export interface PlannedExercise {
   name: string;
   sets?: number;
   reps?: number | string;
-  weightKg?: number;
+  weightLb?: number;
   restSec?: number;
   notes?: string;
 }
@@ -126,7 +145,7 @@ export interface WorkoutPlan extends BaseEntity {
 export interface PerformedExercise extends PlannedExercise {
   actualSets?: number;
   actualReps?: number | string;
-  actualWeightKg?: number;
+  actualWeightLb?: number;
   rpe?: number;
 }
 

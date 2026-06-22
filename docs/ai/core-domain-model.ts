@@ -76,7 +76,7 @@ export interface PlannedExercise {
   name: string;
   sets?: number;
   reps?: number | string; // "8-12" or exact
-  weightKg?: number;
+  weightLb?: number;
   restSec?: number;
   notes?: string;
 }
@@ -95,7 +95,7 @@ export interface WorkoutPlan extends BaseEntity {
 export interface PerformedExercise extends PlannedExercise {
   actualSets?: number;
   actualReps?: number | string;
-  actualWeightKg?: number;
+  actualWeightLb?: number;
   rpe?: number; // 1-10
 }
 

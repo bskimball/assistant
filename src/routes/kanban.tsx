@@ -180,9 +180,9 @@ function KanbanBoard() {
   }, [tasks])
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-12 pt-6">
-      <div className="mx-auto max-w-[1100px]">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="min-h-dvh bg-background px-4 pb-12 pt-6 sm:px-6">
+      <div className="mx-auto w-full max-w-page">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Tasks &amp; Reminders</div>
             <div className="text-3xl font-semibold tracking-tighter">Kanban Board</div>

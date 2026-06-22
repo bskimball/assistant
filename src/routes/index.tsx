@@ -47,7 +47,7 @@ import type {
   WorkoutSession,
   Transaction,
 } from "@/lib/domain";
-import { createProductivityTask, todayISO, toISODate } from "@/lib/domain";
+import { createProductivityTask, mlToFlOz, todayISO, toISODate } from "@/lib/domain";
 import {
   productivityTasksCollection,
   hydrateProductivityTasks,
@@ -142,7 +142,7 @@ function UnifiedDailyDashboard() {
   const proteinCurrent = nutrition?.totals?.protein ?? 0;
   const proteinTarget = dailyPlan?.nutritionTargets?.protein ?? 150;
   const proteinPct = Math.min(100, Math.round((proteinCurrent / Math.max(1, proteinTarget)) * 100));
-  const waterMl = nutrition?.waterMl ?? 0;
+  const waterOz = mlToFlOz(nutrition?.waterMl ?? 0) ?? 0;
   const focusMinutes = focusScore?.focusMinutes ?? 0;
   const selectedDayStart = new Date(selectedDate + "T00:00:00").getTime();
   const selectedDayEnd = new Date(selectedDate + "T23:59:59.999").getTime();
@@ -551,8 +551,8 @@ function UnifiedDailyDashboard() {
       : "No activity recorded for this day.");
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-24 pt-6">
-      <div className="mx-auto w-full max-w-[780px]">
+    <div className="min-h-dvh bg-background px-4 pb-24 pt-6 sm:px-6">
+      <div className="mx-auto w-full max-w-page">
         {/* Top nav + date */}
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
@@ -920,7 +920,7 @@ function UnifiedDailyDashboard() {
             </div>
 
             <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Droplet className="size-3.5" /> Water: {waterMl} ml
+              <Droplet className="size-3.5" /> Water: {waterOz} fl oz
             </div>
 
             {(nutrition?.mealLogs?.length ?? 0) > 0 && (
@@ -947,7 +947,7 @@ function UnifiedDailyDashboard() {
 
             {isToday && (
               <div className="mt-2 text-[10px] text-muted-foreground/70">
-                Say “log 40g protein chicken” or “add water 300 ml”.
+                Say “log 40g protein chicken” or “add water 12 oz”.
               </div>
             )}
           </CardContent>

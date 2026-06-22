@@ -13,6 +13,11 @@ Build a personal AI assistant and Life Coach that improves the user's life throu
 
 **Current user**: Brian Kimball (primary person to improve)
 
+## User Defaults
+
+- Brian is in the United States. Use US customary units in all user-facing health and fitness copy by default: pounds for bodyweight and exercise loads, inches/feet for height, and fluid ounces for hydration.
+- Internal storage may preserve existing normalized fields (for example centimeters or milliliters) when needed for compatibility, but UI labels, coach prompts, examples, and voice confirmations should speak in USA units unless the user explicitly chooses otherwise.
+
 ## Core Principles
 
 1. **Person-first**: Every feature must demonstrably improve the user's life

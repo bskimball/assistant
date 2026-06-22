@@ -1,14 +1,34 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { User, Target, Dumbbell, Utensils, Wallet, Save, Check } from "lucide-react";
+import {
+  User,
+  Target,
+  Dumbbell,
+  Utensils,
+  Wallet,
+  Save,
+  Check,
+  Calendar as CalendarIcon,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { loadUserProfile, saveUserProfile } from "@/lib/server/domain";
 import { generateCoaching } from "@/lib/server/coach";
-import { computeAge, type UserProfile } from "@/lib/domain";
+import {
+  cmToInches,
+  computeAge,
+  flOzToMl,
+  inchesToCm,
+  mlToFlOz,
+  toISODate,
+  type UserProfile,
+} from "@/lib/domain";
 
 // User Profile settings (ADR-013): the personalization context the Coach Engine
 // reads. Grouped by the four advisor lenses so it mirrors how the coach reasons.
@@ -22,7 +42,7 @@ type Form = {
   displayName: string;
   birthDate: string;
   sex: string;
-  heightCm: string;
+  heightIn: string;
   units: string;
   timezone: string;
   goals: string;
@@ -33,7 +53,7 @@ type Form = {
   dietaryRestrictions: string;
   proteinTargetG: string;
   calorieTargetKcal: string;
-  waterTargetMl: string;
+  waterTargetOz: string;
   riskTolerance: string;
   monthlySavingsGoal: string;
   financeNotes: string;
@@ -43,8 +63,8 @@ const EMPTY: Form = {
   displayName: "",
   birthDate: "",
   sex: "",
-  heightCm: "",
-  units: "",
+  heightIn: "",
+  units: "imperial",
   timezone: "",
   goals: "",
   activityLevel: "",
@@ -54,7 +74,7 @@ const EMPTY: Form = {
   dietaryRestrictions: "",
   proteinTargetG: "",
   calorieTargetKcal: "",
-  waterTargetMl: "",
+  waterTargetOz: "",
   riskTolerance: "",
   monthlySavingsGoal: "",
   financeNotes: "",
@@ -79,8 +99,8 @@ function profileToForm(p: UserProfile): Form {
     displayName: p.displayName ?? "",
     birthDate: p.birthDate ?? "",
     sex: p.sex ?? "",
-    heightCm: p.heightCm?.toString() ?? "",
-    units: p.units ?? "",
+    heightIn: cmToInches(p.heightCm)?.toString() ?? "",
+    units: p.units ?? "imperial",
     timezone: p.timezone ?? "",
     goals: csv(p.goals),
     activityLevel: p.activityLevel ?? "",
@@ -90,7 +110,7 @@ function profileToForm(p: UserProfile): Form {
     dietaryRestrictions: csv(p.dietaryRestrictions),
     proteinTargetG: p.proteinTargetG?.toString() ?? "",
     calorieTargetKcal: p.calorieTargetKcal?.toString() ?? "",
-    waterTargetMl: p.waterTargetMl?.toString() ?? "",
+    waterTargetOz: mlToFlOz(p.waterTargetMl)?.toString() ?? "",
     riskTolerance: p.riskTolerance ?? "",
     monthlySavingsGoal: p.monthlySavingsGoal?.toString() ?? "",
     financeNotes: p.financeNotes ?? "",
@@ -102,8 +122,8 @@ function formToProfile(f: Form): Partial<UserProfile> {
     displayName: str(f.displayName),
     birthDate: str(f.birthDate),
     sex: (str(f.sex) as UserProfile["sex"]) ?? undefined,
-    heightCm: num(f.heightCm),
-    units: (str(f.units) as UserProfile["units"]) ?? undefined,
+    heightCm: inchesToCm(num(f.heightIn)),
+    units: (str(f.units) as UserProfile["units"]) ?? "imperial",
     timezone: str(f.timezone),
     goals: fromCsv(f.goals),
     activityLevel: (str(f.activityLevel) as UserProfile["activityLevel"]) ?? undefined,
@@ -113,7 +133,7 @@ function formToProfile(f: Form): Partial<UserProfile> {
     dietaryRestrictions: fromCsv(f.dietaryRestrictions),
     proteinTargetG: num(f.proteinTargetG),
     calorieTargetKcal: num(f.calorieTargetKcal),
-    waterTargetMl: num(f.waterTargetMl),
+    waterTargetMl: flOzToMl(num(f.waterTargetOz)),
     riskTolerance: (str(f.riskTolerance) as UserProfile["riskTolerance"]) ?? undefined,
     monthlySavingsGoal: num(f.monthlySavingsGoal),
     financeNotes: str(f.financeNotes),
@@ -122,6 +142,89 @@ function formToProfile(f: Form): Partial<UserProfile> {
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+/**
+ * A labelled form row. Defined at module scope (NOT inside ProfilePage) — a
+ * component declared inline would get a new identity on every render, causing
+ * React to remount its subtree and steal focus from inputs on each keystroke.
+ */
+function Field({
+  label,
+  children,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      {children}
+      {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/** Parse a "YYYY-MM-DD" string to a local Date (or undefined if malformed). */
+function parseISODate(value: string): Date | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [y, m, d] = value.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? undefined : dt;
+}
+
+/** shadcn date picker (Popover + Calendar) with a year dropdown for fast birth-year selection. */
+function BirthDatePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = parseISODate(value);
+  const today = new Date();
+  const label = selected
+    ? selected.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+    : "Pick a date";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-9 w-full justify-start gap-2 px-3 font-normal",
+            !selected && "text-muted-foreground",
+          )}
+        >
+          <CalendarIcon className="size-4 text-muted-foreground" />
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected ?? new Date(today.getFullYear() - 30, today.getMonth())}
+          captionLayout="dropdown"
+          startMonth={new Date(1920, 0)}
+          endMonth={new Date(today.getFullYear(), 11)}
+          disabled={{ after: today }}
+          onSelect={(date) => {
+            if (date) {
+              onChange(toISODate(date));
+              setOpen(false);
+            }
+          }}
+          autoFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function ProfilePage() {
   const [form, setForm] = useState<Form>(EMPTY);
@@ -175,7 +278,7 @@ function ProfilePage() {
     form.equipmentAccess,
     form.dietaryRestrictions,
     form.proteinTargetG,
-    form.waterTargetMl,
+    form.waterTargetOz,
     form.riskTolerance,
     form.monthlySavingsGoal,
   ];
@@ -190,27 +293,9 @@ function ProfilePage() {
     !form.monthlySavingsGoal.trim() && "monthly savings goal",
   ].filter(Boolean);
 
-  function Field({
-    label,
-    children,
-    hint,
-  }: {
-    label: string;
-    children: React.ReactNode;
-    hint?: string;
-  }) {
-    return (
-      <div className="space-y-1.5">
-        <Label className="text-xs">{label}</Label>
-        {children}
-        {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-dvh bg-background px-4 pb-24 pt-6">
-      <div className="mx-auto w-full max-w-[780px]">
+    <div className="min-h-dvh bg-background px-4 pb-24 pt-6 sm:px-6">
+      <div className="mx-auto w-full max-w-page">
         <div className="mb-6">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Settings</div>
           <div className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
@@ -261,10 +346,9 @@ function ProfilePage() {
                   />
                 </Field>
                 <Field label={`Birth date${age != null ? ` (age ${age})` : ""}`}>
-                  <Input
-                    type="date"
+                  <BirthDatePicker
                     value={form.birthDate}
-                    onChange={(e) => set("birthDate", e.target.value)}
+                    onChange={(v) => set("birthDate", v)}
                   />
                 </Field>
                 <Field label="Sex">
@@ -279,12 +363,12 @@ function ProfilePage() {
                     <option value="other">Other</option>
                   </select>
                 </Field>
-                <Field label="Height (cm)">
+                <Field label="Height (in)">
                   <Input
                     type="number"
-                    value={form.heightCm}
-                    onChange={(e) => set("heightCm", e.target.value)}
-                    placeholder="180"
+                    value={form.heightIn}
+                    onChange={(e) => set("heightIn", e.target.value)}
+                    placeholder="71"
                   />
                 </Field>
                 <Field label="Units">
@@ -293,9 +377,8 @@ function ProfilePage() {
                     value={form.units}
                     onChange={(e) => set("units", e.target.value)}
                   >
-                    <option value="">—</option>
+                    <option value="imperial">US customary (lb/in/oz)</option>
                     <option value="metric">Metric</option>
-                    <option value="imperial">Imperial</option>
                   </select>
                 </Field>
                 <Field label="Timezone" hint="e.g. America/Chicago">
@@ -318,12 +401,12 @@ function ProfilePage() {
               <CardContent className="space-y-4">
                 <Field
                   label="Top goals"
-                  hint="Comma-separated, e.g. lose 5 kg, save $20k, bench 100 kg"
+                  hint="Comma-separated, e.g. lose 10 lb, save $20k, bench 225 lb"
                 >
                   <Input
                     value={form.goals}
                     onChange={(e) => set("goals", e.target.value)}
-                    placeholder="lose 5 kg, save $20k, run a 10k"
+                    placeholder="lose 10 lb, save $20k, run a 5k"
                   />
                 </Field>
                 <Field label="Activity level">
@@ -418,12 +501,12 @@ function ProfilePage() {
                       placeholder="2400"
                     />
                   </Field>
-                  <Field label="Water target (ml)">
+                  <Field label="Water target (fl oz)">
                     <Input
                       type="number"
-                      value={form.waterTargetMl}
-                      onChange={(e) => set("waterTargetMl", e.target.value)}
-                      placeholder="2500"
+                      value={form.waterTargetOz}
+                      onChange={(e) => set("waterTargetOz", e.target.value)}
+                      placeholder="85"
                     />
                   </Field>
                 </div>

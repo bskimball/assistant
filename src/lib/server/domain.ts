@@ -44,6 +44,8 @@ import {
   createDefaultUserProfile,
   todayISO,
   newId,
+  flOzToMl,
+  mlToFlOz,
   type Macros,
 } from "@/lib/domain";
 import { loadTodos, saveTodos } from "@/lib/server/todos";
@@ -173,7 +175,7 @@ export const saveWorkoutSessions = createServerFn({ method: "POST" })
     const { data } = ctx;
     // Validate no future sessions on write
     const now = Date.now();
-    data.sessions.forEach((s) => {
+    data.sessions.forEach((s: WorkoutSession) => {
       if (!s.deletedAt) assertValidWorkoutSessionDate(s.performedAt, now);
     });
     const payload: WorkoutSessionsStore = { sessions: data.sessions, updatedAt: Date.now() };
@@ -352,8 +354,14 @@ export const saveDailyFinance = createServerFn({ method: "POST" })
     const { data } = ctx;
     const now = Date.now();
     // Derive net worth from accounts + positions when not explicitly provided.
-    const accountsTotal = (data.finance.accounts || []).reduce((s, a) => s + (a.amount || 0), 0);
-    const positionsTotal = (data.finance.positions || []).reduce((s, p) => s + (p.value || 0), 0);
+    const accountsTotal = (data.finance.accounts || []).reduce(
+      (s: number, a: { amount?: number }) => s + (a.amount || 0),
+      0,
+    );
+    const positionsTotal = (data.finance.positions || []).reduce(
+      (s: number, p: { value?: number }) => s + (p.value || 0),
+      0,
+    );
     const derivedNetWorth = accountsTotal + positionsTotal;
     const explicitNetWorth =
       typeof data.finance.netWorth === "number" ? data.finance.netWorth : undefined;
@@ -657,7 +665,8 @@ Rules:
 - createTask / logWater / logMeal / markTaskDone : additive or low-risk -> requiresConfirmation=false
 - deleteTask or anything destructive/high impact: requiresConfirmation=true
 - For createTask payload must include at least "text". Support date "today"|"tomorrow"|YYYY-MM-DD.
-- For logWater prefer payload { milliliters: number } (infer 250 if vague "a glass").
+- For logWater prefer payload { fluidOunces: number } for US customary phrases, or
+  { milliliters: number } if the user explicitly says ml. Infer 8 fl oz if vague "a glass".
 - Extract the key request precisely. Do not invent.
 - If garbage or ambiguous (confidence < 0.55) set action:"unknown" and provide a short spoken clarificationQuestion.
 
@@ -687,10 +696,19 @@ function fallbackParseIntent(text: string, _today: ISODate): VoiceIntent {
     };
   }
   if (t.includes("water") || t.includes("drink")) {
-    const mlMatch = t.match(/(\d+)\s*(ml|milli|glass|cup)/);
-    const ml = mlMatch
-      ? Math.min(2000, parseInt(mlMatch[1], 10) * (mlMatch[2].includes("glass") ? 250 : 1))
-      : 250;
+    const waterMatch = t.match(
+      /(\d+)\s*(oz|ounce|ounces|fl oz|fluid ounce|fluid ounces|ml|milli|glass|cup)/,
+    );
+    const unit = waterMatch?.[2] ?? "";
+    const amount = waterMatch ? parseInt(waterMatch[1], 10) : 8;
+    const ml =
+      unit.includes("ml") || unit.includes("milli")
+        ? amount
+        : unit.includes("cup")
+          ? flOzToMl(amount * 8) ?? 237
+          : unit.includes("glass")
+            ? flOzToMl(amount * 8) ?? 237
+            : flOzToMl(amount) ?? 237;
     return {
       action: "logWater",
       payload: { milliliters: ml },
@@ -837,7 +855,10 @@ async function executeVoiceIntent(intent: VoiceIntent): Promise<{
           updatedAt: now,
         };
         await saveDailyNutrition({ data: { date, nutrition: updated as any } });
-        return { spokenText: `Logged ${Math.round(ml)} ml water.`, success: true };
+        return {
+          spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.`,
+          success: true,
+        };
       }
 
       case "logMeal": {

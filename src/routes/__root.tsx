@@ -1,8 +1,9 @@
 import { HeadContent, Scripts, createRootRoute, Link } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
-import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles, UserCog } from 'lucide-react'
+import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles, UserCog, Compass } from 'lucide-react'
 import { AuthControl } from '@/components/AuthControl'
+import { Button } from '@/components/ui/button'
 
 import appCss from '../styles.css?url'
 
@@ -30,7 +31,37 @@ export const Route = createRootRoute({
     ],
   }),
   shellComponent: RootDocument,
+  notFoundComponent: NotFound,
 })
+
+function NotFound() {
+  return (
+    <div className="flex min-h-[70dvh] items-center justify-center px-4 py-12 sm:px-6">
+      <div className="mx-auto w-full max-w-md text-center">
+        <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border bg-card">
+          <Compass className="size-7 text-primary" />
+        </div>
+        <div className="text-xs uppercase tracking-[2px] text-muted-foreground">404</div>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tighter sm:text-3xl">
+          This page wandered off.
+        </h1>
+        <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+          The page you’re looking for doesn’t exist or may have moved. Let’s get you back on track.
+        </p>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <Button asChild size="sm" className="gap-1.5">
+            <Link to="/">
+              <LayoutDashboard className="size-4" /> Back to dashboard
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/about">Learn about the app</Link>
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
@@ -41,8 +72,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
         {/* Persistent nav */}
-        <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur px-4 py-2 text-sm">
-          <div className="mx-auto flex max-w-[900px] items-center justify-between gap-3">
+        <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur px-4 py-2 text-sm sm:px-6">
+          <div className="mx-auto flex w-full max-w-page items-center justify-between gap-3">
             <Link to="/" className="flex items-center gap-1.5 font-semibold tracking-tight">
               <Sparkles className="size-4 text-primary" />
               Life&nbsp;Assistant
