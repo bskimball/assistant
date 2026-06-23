@@ -33,7 +33,9 @@ export function AuthControl() {
     try {
       await signOut()
     } finally {
-      setBusy(false)
+      // Hard-redirect so the root auth guard re-runs and the now-signed-out
+      // user can't keep viewing the page they were on.
+      window.location.assign('/login')
     }
   }
 

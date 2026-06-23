@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as NutritionRouteImport } from './routes/nutrition'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as KanbanRouteImport } from './routes/kanban'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AboutRouteImport } from './routes/about'
@@ -25,6 +27,16 @@ const WeeklyRoute = WeeklyRouteImport.update({
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NutritionRoute = NutritionRouteImport.update({
+  id: '/nutrition',
+  path: '/nutrition',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const KanbanRoute = KanbanRouteImport.update({
@@ -58,6 +70,8 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/analytics': typeof AnalyticsRoute
   '/kanban': typeof KanbanRoute
+  '/login': typeof LoginRoute
+  '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -67,6 +81,8 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/analytics': typeof AnalyticsRoute
   '/kanban': typeof KanbanRoute
+  '/login': typeof LoginRoute
+  '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -77,6 +93,8 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/analytics': typeof AnalyticsRoute
   '/kanban': typeof KanbanRoute
+  '/login': typeof LoginRoute
+  '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -88,6 +106,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/analytics'
     | '/kanban'
+    | '/login'
+    | '/nutrition'
     | '/profile'
     | '/weekly'
     | '/api/auth/$'
@@ -97,6 +117,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/analytics'
     | '/kanban'
+    | '/login'
+    | '/nutrition'
     | '/profile'
     | '/weekly'
     | '/api/auth/$'
@@ -106,6 +128,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/analytics'
     | '/kanban'
+    | '/login'
+    | '/nutrition'
     | '/profile'
     | '/weekly'
     | '/api/auth/$'
@@ -116,6 +140,8 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AnalyticsRoute: typeof AnalyticsRoute
   KanbanRoute: typeof KanbanRoute
+  LoginRoute: typeof LoginRoute
+  NutritionRoute: typeof NutritionRoute
   ProfileRoute: typeof ProfileRoute
   WeeklyRoute: typeof WeeklyRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -135,6 +161,20 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/nutrition': {
+      id: '/nutrition'
+      path: '/nutrition'
+      fullPath: '/nutrition'
+      preLoaderRoute: typeof NutritionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/kanban': {
@@ -180,6 +220,8 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AnalyticsRoute: AnalyticsRoute,
   KanbanRoute: KanbanRoute,
+  LoginRoute: LoginRoute,
+  NutritionRoute: NutritionRoute,
   ProfileRoute: ProfileRoute,
   WeeklyRoute: WeeklyRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

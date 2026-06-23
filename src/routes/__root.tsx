@@ -1,16 +1,30 @@
-import { HeadContent, Scripts, createRootRoute, Link } from '@tanstack/react-router'
+import { HeadContent, Scripts, createRootRoute, redirect, useRouterState, Link } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles, UserCog, Compass } from 'lucide-react'
 import { AuthControl } from '@/components/AuthControl'
 import ThemeToggle from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
+import { getSessionState } from '@/server/session'
 
 import appCss from '../styles.css?url'
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
 export const Route = createRootRoute({
+  // Gate the whole app: unauthenticated users are redirected to /login.
+  // The result is stashed in context so /login and the shell can read it
+  // without re-fetching. When auth isn't configured (no Google/secret env in
+  // dev) there's no way to sign in, so we don't gate — the dev escape hatch.
+  beforeLoad: async ({ location }) => {
+    const auth = await getSessionState()
+    const isAuthRoute =
+      location.pathname === '/login' || location.pathname.startsWith('/api/')
+    if (auth.configured && !auth.authenticated && !isAuthRoute) {
+      throw redirect({ to: '/login' })
+    }
+    return { auth }
+  },
   head: () => ({
     meta: [
       {
@@ -65,6 +79,8 @@ function NotFound() {
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const showNav = pathname !== '/login'
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -72,7 +88,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
-        {/* Persistent nav */}
+        {/* Persistent nav (hidden on the login gate) */}
+        {showNav && (
         <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur px-4 py-2 text-sm sm:px-6">
           <div className="mx-auto flex w-full max-w-page items-center justify-between gap-3">
             <Link to="/" className="flex items-center gap-1.5 font-semibold tracking-tight">
@@ -107,6 +124,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+        )}
         {children}
         <TanStackDevtools
           config={{

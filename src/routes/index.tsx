@@ -53,6 +53,7 @@ import type {
 } from "@/lib/domain";
 import {
   createProductivityTask,
+  flOzToMl,
   mlToFlOz,
   newId,
   todayISO,
@@ -163,7 +164,13 @@ function UnifiedDailyDashboard() {
   const proteinCurrent = nutrition?.totals?.protein ?? 0;
   const proteinTarget = dailyPlan?.nutritionTargets?.protein ?? 150;
   const proteinPct = Math.min(100, Math.round((proteinCurrent / Math.max(1, proteinTarget)) * 100));
+  const caloriesCurrent = nutrition?.totals?.calories ?? 0;
+  const carbsCurrent = nutrition?.totals?.carbs ?? 0;
+  const fatCurrent = nutrition?.totals?.fat ?? 0;
+  const caloriesTarget = dailyPlan?.nutritionTargets?.calories ?? 2000;
   const waterOz = mlToFlOz(nutrition?.waterMl ?? 0) ?? 0;
+  const waterTargetOz = 85;
+  const waterPct = Math.min(100, Math.round((waterOz / Math.max(1, waterTargetOz)) * 100));
   const focusMinutes = focusScore?.focusMinutes ?? 0;
   const selectedDayStart = new Date(selectedDate + "T00:00:00").getTime();
   const selectedDayEnd = new Date(selectedDate + "T23:59:59.999").getTime();
@@ -467,6 +474,33 @@ function UnifiedDailyDashboard() {
       setTimeout(() => setFoodStatus(null), 3000);
     } finally {
       setFoodEstimating(false);
+    }
+  }
+
+  // Add water: append the given fluid ounces to today's running waterMl total.
+  async function handleAddWater(oz: number) {
+    if (!isToday || foodEstimating) return;
+    const addMl = flOzToMl(oz);
+    if (!addMl) return;
+    try {
+      const saved = await saveDailyNutrition({
+        data: {
+          date: selectedDate,
+          nutrition: {
+            mealLogs: nutrition?.mealLogs || [],
+            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            waterMl: (nutrition?.waterMl ?? 0) + addMl,
+          },
+        },
+      });
+      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setFoodStatus(`Logged ${oz} fl oz water — ${mlToFlOz(saved.waterMl) ?? 0} fl oz today`);
+      setTimeout(() => setFoodStatus(null), 3000);
+      refreshCoaching();
+    } catch (e) {
+      console.error("[dashboard] add water failed", e);
+      setFoodStatus("Couldn’t log water — try again.");
+      setTimeout(() => setFoodStatus(null), 3000);
     }
   }
 
@@ -1024,12 +1058,38 @@ function UnifiedDailyDashboard() {
         {/* NUTRITION */}
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Utensils className="size-4 text-primary" /> Nutrition
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Utensils className="size-4 text-primary" /> Nutrition
+              </span>
+              <Link
+                to="/nutrition"
+                search={{ date: isToday ? undefined : selectedDate }}
+                className="text-sm font-normal text-primary hover:underline"
+              >
+                Open nutrition →
+              </Link>
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Calories — headline number for the day */}
             <div className="mb-2 flex items-center justify-between text-sm">
+              <div>Calories</div>
+              <div className="tabular-nums text-muted-foreground">
+                {caloriesCurrent} / {caloriesTarget} cal
+              </div>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{
+                  width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
+                }}
+              />
+            </div>
+
+            {/* Protein */}
+            <div className="mb-2 mt-3 flex items-center justify-between text-sm">
               <div>Protein</div>
               <div className="tabular-nums text-muted-foreground">
                 {proteinCurrent}g / {proteinTarget}g
@@ -1042,8 +1102,51 @@ function UnifiedDailyDashboard() {
               />
             </div>
 
-            <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Droplet className="size-3.5" /> Water: {waterOz} fl oz
+            {/* Carbs / Fat */}
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded bg-muted px-2 py-1">
+                <div className="text-muted-foreground">Carbs</div>
+                <div className="font-medium tabular-nums">{carbsCurrent}g</div>
+              </div>
+              <div className="rounded bg-muted px-2 py-1">
+                <div className="text-muted-foreground">Fat</div>
+                <div className="font-medium tabular-nums">{fatCurrent}g</div>
+              </div>
+            </div>
+
+            {/* Water — progress + quick-add */}
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Droplet className="size-3.5" /> Water
+                </span>
+                <span className="tabular-nums">
+                  {waterOz} / {waterTargetOz} fl oz
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${waterPct}%` }}
+                />
+              </div>
+              {isToday && (
+                <div className="mt-2 flex items-center gap-2">
+                  {[8, 16, 24].map((oz) => (
+                    <Button
+                      key={oz}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      disabled={foodEstimating}
+                      onClick={() => handleAddWater(oz)}
+                    >
+                      <Droplet className="size-3.5" /> +{oz} oz
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {(nutrition?.mealLogs?.length ?? 0) > 0 && (
@@ -1051,19 +1154,35 @@ function UnifiedDailyDashboard() {
                 <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                   Recent logs
                 </div>
-                <ul className="space-y-0.5 text-sm">
+                <ul className="space-y-1 text-sm">
                   {nutrition!.mealLogs
-                    .slice(-3)
+                    .slice(-5)
                     .reverse()
-                    .map((m, idx) => (
-                      <li key={idx} className="text-muted-foreground">
-                        {new Date(m.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}{" "}
-                        — {m.foodItems?.[0]?.name || "meal"}
-                      </li>
-                    ))}
+                    .map((m, idx) => {
+                      const items = m.foodItems || [];
+                      const name =
+                        items.length > 1
+                          ? `${items[0]?.name || "meal"} +${items.length - 1}`
+                          : items[0]?.name || "meal";
+                      const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
+                      const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
+                      return (
+                        <li key={idx} className="flex items-center justify-between gap-2">
+                          <span className="truncate">
+                            <span className="text-muted-foreground">
+                              {new Date(m.timestamp).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>{" "}
+                            {name}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            {cals} cal · {prot}g
+                          </span>
+                        </li>
+                      );
+                    })}
                 </ul>
               </div>
             )}
