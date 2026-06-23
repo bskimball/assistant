@@ -39,6 +39,7 @@ import {
 import {
   acceptDailyCoachingPlan,
   generateCoaching,
+  estimateFoodMacros,
   type CoachingResult,
   type CoachDomain,
 } from "@/server/coach";
@@ -126,10 +127,10 @@ function UnifiedDailyDashboard() {
   // Local quick-add for tasks (Focus section)
   const [taskInput, setTaskInput] = useState("");
 
-  // Nutrition quick-add
+  // Nutrition quick-add (AI estimates macros from the description)
   const [foodName, setFoodName] = useState("");
-  const [foodProtein, setFoodProtein] = useState("");
-  const [foodCalories, setFoodCalories] = useState("");
+  const [foodEstimating, setFoodEstimating] = useState(false);
+  const [foodStatus, setFoodStatus] = useState<string | null>(null);
 
   // Finance quick-add
   const [acctName, setAcctName] = useState("");
@@ -409,29 +410,36 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Add a meal/food item to today's nutrition log.
+  // Add a food/meal: the AI estimates calories + macros from the description,
+  // then we log it to today's nutrition.
   async function handleAddFood(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!isToday) return;
-    const name = foodName.trim();
-    if (!name) return;
-    const protein = parseFloat(foodProtein) || 0;
-    const calories = parseFloat(foodCalories) || 0;
-    setSyncing(true);
+    const description = foodName.trim();
+    if (!description || foodEstimating) return;
+    setFoodEstimating(true);
+    setFoodStatus("Looking up nutrition…");
     try {
+      const est = await estimateFoodMacros({ data: { description } });
       const now = Date.now();
       const foodItem = {
         id: newId("food"),
-        name,
-        quantity: 1,
-        unit: "serving",
-        macros: { calories, protein, carbs: 0, fat: 0 },
-        source: "user" as const,
+        name: est.name,
+        quantity: est.quantity,
+        unit: est.unit,
+        macros: {
+          calories: est.calories,
+          protein: est.protein,
+          carbs: est.carbs,
+          fat: est.fat,
+        },
+        source: "custom" as const,
       };
       const mealLog = {
         id: newId("meal"),
         timestamp: now,
         foodItems: [foodItem],
+        estimateConfidence: est.confidence,
         createdAt: now,
         updatedAt: now,
       };
@@ -447,13 +455,18 @@ function UnifiedDailyDashboard() {
       });
       setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
       setFoodName("");
-      setFoodProtein("");
-      setFoodCalories("");
+      setFoodStatus(
+        `Logged ${est.name} — ${est.calories} cal, ${est.protein}g protein` +
+          (est.generatedBy === "fallback" ? " (rough estimate)" : ""),
+      );
+      setTimeout(() => setFoodStatus(null), 4000);
       refreshCoaching();
     } catch (e) {
-      console.error("[dashboard] save nutrition failed", e);
+      console.error("[dashboard] add food failed", e);
+      setFoodStatus("Couldn’t log that food — try again.");
+      setTimeout(() => setFoodStatus(null), 3000);
     } finally {
-      setSyncing(false);
+      setFoodEstimating(false);
     }
   }
 
@@ -1057,38 +1070,36 @@ function UnifiedDailyDashboard() {
 
             {isToday && (
               <div className="mt-3 space-y-2">
-                <form
-                  onSubmit={handleAddFood}
-                  className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_90px_90px_auto]"
-                >
+                <form onSubmit={handleAddFood} className="flex items-center gap-2">
                   <Input
                     value={foodName}
                     onChange={(e) => setFoodName(e.target.value)}
-                    placeholder="Food (e.g. Chicken breast)"
+                    placeholder="Add food (e.g. 6oz chicken breast)…"
+                    className="flex-1"
+                    disabled={foodEstimating}
                   />
-                  <Input
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={foodProtein}
-                    onChange={(e) => setFoodProtein(e.target.value)}
-                    placeholder="Protein g"
-                  />
-                  <Input
-                    type="number"
-                    step="1"
-                    min="0"
-                    value={foodCalories}
-                    onChange={(e) => setFoodCalories(e.target.value)}
-                    placeholder="Cal"
-                  />
-                  <Button type="submit" size="sm" className="gap-1" disabled={!foodName.trim()}>
-                    <Plus className="size-4" /> Food
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="gap-1"
+                    disabled={!foodName.trim() || foodEstimating}
+                  >
+                    {foodEstimating ? (
+                      <RefreshCw className="size-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-4" />
+                    )}
+                    {foodEstimating ? "Estimating…" : "Add food"}
                   </Button>
                 </form>
-                <div className="text-[10px] text-muted-foreground/70">
-                  Or say “log 40g protein chicken” or “add water 12 oz”.
-                </div>
+                {foodStatus ? (
+                  <div className="text-[11px] text-muted-foreground">{foodStatus}</div>
+                ) : (
+                  <div className="text-[10px] text-muted-foreground/70">
+                    Type any food — the AI fills in calories &amp; protein. Or say “log 40g protein
+                    chicken”.
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

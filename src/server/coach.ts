@@ -46,6 +46,7 @@ import {
   loadWorkoutPlansImpl,
   saveWorkoutPlansImpl,
   loadUserProfileImpl,
+  estimateMacrosFromText,
 } from "@/server/domain-impl";
 import { requireAuthSession } from "@/lib/auth";
 import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
@@ -1071,5 +1072,108 @@ Each array has 2-4 specific, actionable items referencing the numbers. Use US cu
     } catch (e) {
       console.warn("[coach] weekly narrative failed, using fallback", e);
       return fallbackWeekly(data);
+    }
+  });
+
+/* ============================================================
+   FOOD MACRO LOOKUP (dietitian)
+   Estimate calories + macros for a free-text food/meal so the user can
+   log "chicken breast" or "2 eggs and toast" without knowing the numbers.
+   Grok-backed with a deterministic fallback (parses any numbers in text).
+   ============================================================ */
+
+export interface FoodMacroEstimate {
+  /** Cleaned-up food/meal name to store on the log. */
+  name: string;
+  /** Portion amount the macros describe. */
+  quantity: number;
+  unit: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  confidence: "low" | "medium" | "high";
+  generatedBy: "ai" | "fallback";
+}
+
+/** Deterministic fallback — only recovers numbers the user typed. */
+function fallbackFoodMacros(description: string): FoodMacroEstimate {
+  const { macros, confidence } = estimateMacrosFromText(description);
+  return {
+    name: description.trim() || "Meal",
+    quantity: 1,
+    unit: "serving",
+    calories: macros.calories,
+    protein: macros.protein,
+    carbs: macros.carbs,
+    fat: macros.fat,
+    confidence,
+    generatedBy: "fallback",
+  };
+}
+
+export const estimateFoodMacros = createServerFn({ method: "POST" })
+  .validator((data: { description: string }) => data)
+  .handler(async (ctx: any): Promise<FoodMacroEstimate> => {
+    await requireAuthSession(ctx.request);
+    const description = String(ctx.data?.description || "").trim();
+    if (!description) {
+      return fallbackFoodMacros("");
+    }
+
+    const apiKey = await getGrokApiKey();
+    if (!apiKey) return fallbackFoodMacros(description);
+
+    const prompt = `You are a precise nutrition database. Estimate the nutrition facts for the food or meal described below.
+If the description includes a portion/quantity (e.g. "6 oz", "2 eggs", "1 cup"), estimate for that exact portion; otherwise assume ONE typical serving.
+
+Food: "${description}"
+
+Reply with ONLY one compact JSON object, no markdown:
+{ "name": "concise food name", "quantity": number, "unit": "serving|g|oz|cup|piece|slice", "calories": number, "protein": number, "carbs": number, "fat": number, "confidence": "low|medium|high" }
+
+Rules:
+- calories in kcal; protein, carbs, fat in grams — all for the TOTAL portion described.
+- Use realistic USDA-style values. Never return all zeros for a real food.
+- confidence reflects how identifiable the food is.`;
+
+    try {
+      const parsed = await completeJSON<any>(apiKey, {
+        model: "grok-3-mini",
+        messages: [
+          { role: "system", content: "Return strictly valid minified JSON only. No prose." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.2,
+        maxTokens: 200,
+      });
+
+      const num = (v: any) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+      };
+      const conf =
+        parsed.confidence === "high" || parsed.confidence === "medium" || parsed.confidence === "low"
+          ? parsed.confidence
+          : "medium";
+      const estimate: FoodMacroEstimate = {
+        name: String(parsed.name || description).trim().slice(0, 80) || description,
+        quantity: Number(parsed.quantity) > 0 ? Number(parsed.quantity) : 1,
+        unit: String(parsed.unit || "serving").trim().slice(0, 16) || "serving",
+        calories: num(parsed.calories),
+        protein: num(parsed.protein),
+        carbs: num(parsed.carbs),
+        fat: num(parsed.fat),
+        confidence: conf,
+        generatedBy: "ai",
+      };
+      // If the model returned nothing usable, fall back to text parsing.
+      if (estimate.calories === 0 && estimate.protein === 0 && estimate.carbs === 0 && estimate.fat === 0) {
+        return fallbackFoodMacros(description);
+      }
+      return estimate;
+    } catch (e) {
+      console.warn("[coach] food macro estimate failed, using fallback", e);
+      return fallbackFoodMacros(description);
     }
   });

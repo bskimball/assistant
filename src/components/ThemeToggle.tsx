@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Moon, Sun, SunMoon } from 'lucide-react'
 
 type ThemeMode = 'light' | 'dark' | 'auto'
 
@@ -62,10 +63,9 @@ export default function ThemeToggle() {
     window.localStorage.setItem('theme', nextMode)
   }
 
-  const label =
-    mode === 'auto'
-      ? 'Theme mode: auto (system). Click to switch to light mode.'
-      : `Theme mode: ${mode}. Click to switch mode.`
+  const next = mode === 'light' ? 'dark' : mode === 'dark' ? 'auto' : 'light'
+  const label = `Theme: ${mode}${mode === 'auto' ? ' (system)' : ''}. Click for ${next}.`
+  const Icon = mode === 'auto' ? SunMoon : mode === 'dark' ? Moon : Sun
 
   return (
     <button
@@ -73,9 +73,9 @@ export default function ThemeToggle() {
       onClick={toggleMode}
       aria-label={label}
       title={label}
-      className="rounded-md border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
-      {mode === 'auto' ? 'Auto' : mode === 'dark' ? 'Dark' : 'Light'}
+      <Icon className="size-4" />
     </button>
   )
 }
