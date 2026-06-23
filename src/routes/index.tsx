@@ -19,6 +19,8 @@ import {
   Plus,
   Check,
   ListTodo,
+  Minus,
+  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -500,6 +502,57 @@ function UnifiedDailyDashboard() {
     } catch (e) {
       console.error("[dashboard] add water failed", e);
       setFoodStatus("Couldn’t log water — try again.");
+      setTimeout(() => setFoodStatus(null), 3000);
+    }
+  }
+
+  async function handleRemoveWater(oz: number) {
+    if (!isToday || foodEstimating) return;
+    const removeMl = flOzToMl(oz);
+    if (!removeMl) return;
+    try {
+      const nextWaterMl = Math.max(0, (nutrition?.waterMl ?? 0) - removeMl);
+      const saved = await saveDailyNutrition({
+        data: {
+          date: selectedDate,
+          nutrition: {
+            mealLogs: nutrition?.mealLogs || [],
+            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            waterMl: nextWaterMl,
+          },
+        },
+      });
+      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setFoodStatus(`Removed ${oz} fl oz water — ${mlToFlOz(saved.waterMl) ?? 0} fl oz today`);
+      setTimeout(() => setFoodStatus(null), 3000);
+      refreshCoaching();
+    } catch (e) {
+      console.error("[dashboard] remove water failed", e);
+      setFoodStatus("Couldn’t remove water — try again.");
+      setTimeout(() => setFoodStatus(null), 3000);
+    }
+  }
+
+  async function handleDeleteMeal(id: string) {
+    if (!isToday || foodEstimating) return;
+    try {
+      const saved = await saveDailyNutrition({
+        data: {
+          date: selectedDate,
+          nutrition: {
+            mealLogs: (nutrition?.mealLogs || []).filter((meal) => meal.id !== id),
+            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            waterMl: nutrition?.waterMl,
+          },
+        },
+      });
+      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setFoodStatus("Removed food entry.");
+      setTimeout(() => setFoodStatus(null), 3000);
+      refreshCoaching();
+    } catch (e) {
+      console.error("[dashboard] delete meal failed", e);
+      setFoodStatus("Couldn’t remove that food — try again.");
       setTimeout(() => setFoodStatus(null), 3000);
     }
   }
@@ -1131,10 +1184,23 @@ function UnifiedDailyDashboard() {
                 />
               </div>
               {isToday && (
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   {[8, 16, 24].map((oz) => (
                     <Button
-                      key={oz}
+                      key={`remove-${oz}`}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      disabled={foodEstimating || waterOz <= 0}
+                      onClick={() => handleRemoveWater(oz)}
+                    >
+                      <Minus className="size-3.5" /> {oz} oz
+                    </Button>
+                  ))}
+                  {[8, 16, 24].map((oz) => (
+                    <Button
+                      key={`add-${oz}`}
                       type="button"
                       size="sm"
                       variant="outline"
@@ -1156,9 +1222,10 @@ function UnifiedDailyDashboard() {
                 </div>
                 <ul className="space-y-1 text-sm">
                   {nutrition!.mealLogs
+                    .filter((m) => !m.deletedAt)
                     .slice(-5)
                     .reverse()
-                    .map((m, idx) => {
+                    .map((m) => {
                       const items = m.foodItems || [];
                       const name =
                         items.length > 1
@@ -1167,8 +1234,8 @@ function UnifiedDailyDashboard() {
                       const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
                       const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
                       return (
-                        <li key={idx} className="flex items-center justify-between gap-2">
-                          <span className="truncate">
+                        <li key={m.id} className="flex items-end gap-2">
+                          <span className="min-w-0 truncate">
                             <span className="text-muted-foreground">
                               {new Date(m.timestamp).toLocaleTimeString([], {
                                 hour: "2-digit",
@@ -1177,9 +1244,24 @@ function UnifiedDailyDashboard() {
                             </span>{" "}
                             {name}
                           </span>
-                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                          <span className="mb-1 min-w-4 flex-1 border-b border-dotted border-muted-foreground/35" />
+                          <span className="ml-auto shrink-0 text-right tabular-nums text-muted-foreground">
                             {cals} cal · {prot}g
                           </span>
+                          {isToday && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                              disabled={foodEstimating}
+                              onClick={() => handleDeleteMeal(m.id)}
+                              aria-label={`Remove ${name}`}
+                              title="Remove food entry"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          )}
                         </li>
                       );
                     })}
