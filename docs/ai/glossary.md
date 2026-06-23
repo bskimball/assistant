@@ -100,6 +100,20 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 - Cloudflare D1 (SQLite) persists Better Auth tables only: `user`, `session`, `account`, `verification` (`DB` binding). Domain data stays in R2 — D1 is never a second source of truth for domain state.
 
+## Agent Navigation (ADR-015)
+
+**Server module**
+
+- `src/server` is the single server application module. Route-facing server functions live in `domain.ts`, `coach.ts`, and `todos.ts`; plain domain operations live in `domain-impl.ts`; shared persistence access lives in `store.ts`. Do not recreate `src/lib/server`; `src/lib` is for client-safe shared types/helpers.
+
+**Server adapters**
+
+- Cloudflare/API-specific implementations live under `src/server/adapters`. `r2.ts` owns R2 bucket access and key construction. `d1.ts` owns Better Auth's D1/Drizzle access. `ai.ts` owns Grok key lookup, transport, and JSON parsing. Domain modules should treat these as adapters behind store/auth/AI seams.
+
+**Domain implementation**
+
+- `src/server/domain.ts` is the route-facing server-function interface. `src/server/domain-impl.ts` is where daily aggregates, dashboard loading, voice execution, soft-delete maintenance, and legacy todo compatibility live. When adding server behavior, put plain logic in `domain-impl.ts` (or a deeper module it owns) and keep `createServerFn` wrappers thin.
+
 ## Cross-Cutting Concepts
 
 **Attachment**
@@ -151,7 +165,7 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 ---
 
-**Last updated**: 2026-06-22 (ADR-013 implemented: long-lived `UserProfile` + trailing 7-day `TrendSignals` feed the Coach Engine, making suggestions personalized and momentum-aware in both the AI and deterministic-fallback paths. Prior: ADR-010/011/012 — Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
+**Last updated**: 2026-06-22 (ADR-015 consolidated server code under `src/server`, added `store.ts` as the domain store interface, split plain domain operations into `domain-impl.ts`, and moved Grok transport behind `src/server/adapters/ai.ts`. ADR-013 implemented: long-lived `UserProfile` + trailing 7-day `TrendSignals` feed the Coach Engine, making suggestions personalized and momentum-aware in both the AI and deterministic-fallback paths. Prior: ADR-010/011/012 — Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
 
 **R2 paths for voice (ADR-004)**:
 

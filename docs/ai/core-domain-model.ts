@@ -39,6 +39,7 @@ export interface UserPreferences {
 export type Sex = "male" | "female" | "other";
 export type ActivityLevel = "sedentary" | "light" | "moderate" | "active" | "very_active";
 export type RiskTolerance = "conservative" | "moderate" | "aggressive";
+export type WorkoutStyle = "strength" | "calisthenics" | "yoga" | "conditioning";
 
 export interface UserProfile extends BaseEntity {
   // Identity
@@ -55,6 +56,8 @@ export interface UserProfile extends BaseEntity {
   injuries?: string[];
   trainingDaysPerWeek?: number;
   equipmentAccess?: string[];
+  /** Empty/undefined means balanced default: strength + calisthenics + yoga. */
+  preferredWorkoutStyles?: WorkoutStyle[];
   // Nutrition
   dietaryRestrictions?: string[];
   proteinTargetG?: number;
@@ -85,9 +88,21 @@ export interface WorkoutPlan extends BaseEntity {
   status: WorkoutPlanStatus;
   generatedBy: GeneratedBy;
   exercises: PlannedExercise[];
+  /** Monday/Sunday bounds for weekly AI plans. */
+  weekStartDate?: ISODate;
+  weekEndDate?: ISODate;
+  plannedSessions?: PlannedWorkoutSession[];
   goalAlignment?: string;
   activatedAt?: Timestamp;
   archivedAt?: Timestamp;
+}
+
+export interface PlannedWorkoutSession {
+  date: ISODate;
+  title: string;
+  focus: string;
+  estimatedMinutes: number;
+  exercises: PlannedExercise[];
 }
 
 /** Invariant: only ONE WorkoutPlan with status==='active' at any time. */
@@ -104,6 +119,9 @@ export interface WorkoutSession extends BaseEntity {
   planId?: string;
   exercises: PerformedExercise[];
   volume?: number; // total volume calculated
+  durationMinutes?: number;
+  effortRating?: 1 | 2 | 3 | 4 | 5;
+  sorenessRating?: 1 | 2 | 3 | 4 | 5;
   notes?: string;
   voiceTranscriptId?: string;
 }
@@ -198,6 +216,7 @@ export interface Transaction extends BaseEntity {
   amount: number;
   currency: string;
   account?: string;
+  category?: string;
   asset?: string;
   quantity?: number;
   notes?: string;
@@ -243,9 +262,29 @@ export interface DailyPlan extends BaseEntity {
   workoutPlanId?: string;
   nutritionTargets?: Partial<Macros>;
   topTaskIds: string[];
+  acceptedAt?: Timestamp;
+  acceptedSuggestionIds?: string[];
   aiSuggestions?: string[];
+  aiCoaching?: DailyCoachingSnapshot;
   voiceNoteIds?: string[];
   notes?: string;
+}
+
+export interface DailyCoachingSnapshot {
+  headline: string;
+  suggestions: {
+    domain: "focus" | "fitness" | "nutrition" | "finance" | "family" | "general";
+    text: string;
+    action?: string;
+  }[];
+  workout: {
+    title: string;
+    focus: string;
+    estimatedMinutes: number;
+    exercises: { name: string; sets: number; reps: string }[];
+  };
+  generatedBy: "ai" | "fallback";
+  updatedAt: Timestamp;
 }
 
 export interface WeeklyReview extends BaseEntity {

@@ -33,6 +33,7 @@ import {
   loadWorkoutSessions,
   loadTransactions,
   appendTransaction,
+  saveDailyNutrition,
   type DailyDashboardPayload,
 } from "@/server/domain";
 import {
@@ -49,7 +50,13 @@ import type {
   WorkoutSession,
   Transaction,
 } from "@/lib/domain";
-import { createProductivityTask, mlToFlOz, todayISO, toISODate } from "@/lib/domain";
+import {
+  createProductivityTask,
+  mlToFlOz,
+  newId,
+  todayISO,
+  toISODate,
+} from "@/lib/domain";
 import {
   productivityTasksCollection,
   hydrateProductivityTasks,
@@ -118,6 +125,11 @@ function UnifiedDailyDashboard() {
 
   // Local quick-add for tasks (Focus section)
   const [taskInput, setTaskInput] = useState("");
+
+  // Nutrition quick-add
+  const [foodName, setFoodName] = useState("");
+  const [foodProtein, setFoodProtein] = useState("");
+  const [foodCalories, setFoodCalories] = useState("");
 
   // Finance quick-add
   const [acctName, setAcctName] = useState("");
@@ -392,6 +404,54 @@ function UnifiedDailyDashboard() {
       refreshCoaching();
     } catch (e) {
       console.error("[dashboard] transaction save failed", e);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  // Add a meal/food item to today's nutrition log.
+  async function handleAddFood(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!isToday) return;
+    const name = foodName.trim();
+    if (!name) return;
+    const protein = parseFloat(foodProtein) || 0;
+    const calories = parseFloat(foodCalories) || 0;
+    setSyncing(true);
+    try {
+      const now = Date.now();
+      const foodItem = {
+        id: newId("food"),
+        name,
+        quantity: 1,
+        unit: "serving",
+        macros: { calories, protein, carbs: 0, fat: 0 },
+        source: "user" as const,
+      };
+      const mealLog = {
+        id: newId("meal"),
+        timestamp: now,
+        foodItems: [foodItem],
+        createdAt: now,
+        updatedAt: now,
+      };
+      const saved = await saveDailyNutrition({
+        data: {
+          date: selectedDate,
+          nutrition: {
+            mealLogs: [...(nutrition?.mealLogs || []), mealLog],
+            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            waterMl: nutrition?.waterMl,
+          },
+        },
+      });
+      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setFoodName("");
+      setFoodProtein("");
+      setFoodCalories("");
+      refreshCoaching();
+    } catch (e) {
+      console.error("[dashboard] save nutrition failed", e);
     } finally {
       setSyncing(false);
     }
@@ -996,8 +1056,39 @@ function UnifiedDailyDashboard() {
             )}
 
             {isToday && (
-              <div className="mt-2 text-[10px] text-muted-foreground/70">
-                Say “log 40g protein chicken” or “add water 12 oz”.
+              <div className="mt-3 space-y-2">
+                <form
+                  onSubmit={handleAddFood}
+                  className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_90px_90px_auto]"
+                >
+                  <Input
+                    value={foodName}
+                    onChange={(e) => setFoodName(e.target.value)}
+                    placeholder="Food (e.g. Chicken breast)"
+                  />
+                  <Input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={foodProtein}
+                    onChange={(e) => setFoodProtein(e.target.value)}
+                    placeholder="Protein g"
+                  />
+                  <Input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={foodCalories}
+                    onChange={(e) => setFoodCalories(e.target.value)}
+                    placeholder="Cal"
+                  />
+                  <Button type="submit" size="sm" className="gap-1" disabled={!foodName.trim()}>
+                    <Plus className="size-4" /> Food
+                  </Button>
+                </form>
+                <div className="text-[10px] text-muted-foreground/70">
+                  Or say “log 40g protein chicken” or “add water 12 oz”.
+                </div>
               </div>
             )}
           </CardContent>

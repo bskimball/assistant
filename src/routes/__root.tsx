@@ -3,6 +3,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles, UserCog, Compass } from 'lucide-react'
 import { AuthControl } from '@/components/AuthControl'
+import ThemeToggle from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
 
 import appCss from '../styles.css?url'
@@ -99,7 +100,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                   </Link>
                 ))}
               </nav>
-              <div className="ml-1 border-l pl-2">
+              <div className="ml-1 flex items-center gap-2 border-l pl-2">
+                <ThemeToggle />
                 <AuthControl />
               </div>
             </div>

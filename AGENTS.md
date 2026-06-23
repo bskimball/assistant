@@ -49,7 +49,7 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 - Finance is first-class (ADR-012): `loadDailyFinance`/`saveDailyFinance` daily aggregates + a net-worth snapshot on the dashboard (no longer "optional").
 - Closed-loop coaching (ADR-014): coach suggestions can be accepted into real daily tasks, voice meal logs parse explicit macros/calories instead of storing zeroes, workout sessions track duration/effort hooks, finance has a lightweight `transactions.json` cashflow ledger, analytics charts cashflow, and weekly review can schedule next-week focus tasks.
 - Authentication (ADR-010): Better Auth + Google OAuth backed by Cloudflare D1 (auth tables only — domain data stays on R2). `AuthControl` in the header; degrades gracefully when OAuth is unconfigured. Remote deploy needs a real D1 id + Google secrets.
-- Server module layout (ADR-015): server functions and server-side domain logic live under `src/server/*`; Cloudflare-specific R2/D1 integrations live under `src/server/adapters/*`; client-safe shared types/helpers remain under `src/lib/*`.
+- Server module layout (ADR-015): route-facing server functions live under `src/server/*`; plain domain operations live in `src/server/domain-impl.ts`; domain persistence goes through `src/server/store.ts`; Cloudflare/API integrations live under `src/server/adapters/*`; client-safe shared types/helpers remain under `src/lib/*`.
 - Weekly Review (`/weekly`) and Analytics (`/analytics`) are built on R2 daily aggregates (weekly rollup + editable review + AI narrative; multi-day trend charts).
 - Icons standardized on `lucide-react` (emoji/unicode glyphs removed from dashboard, Kanban, and nav).
 - Theme toggle, basic UI components

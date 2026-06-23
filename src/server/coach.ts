@@ -34,20 +34,21 @@ import {
   newId,
 } from "@/lib/domain";
 import {
-  loadDailyDashboard,
-  saveDailyPlan,
-  loadDailyPlan,
-  loadDailyNutrition,
-  loadProductivityTasksForDay,
-  saveProductivityTasksForDay,
-  loadDailyFinance,
-  loadTransactions,
-  loadWorkoutSessions,
-  loadWorkoutPlans,
-  saveWorkoutPlans,
-  loadUserProfile,
-} from "@/server/domain";
+  loadDailyDashboardImpl,
+  saveDailyPlanImpl,
+  loadDailyPlanImpl,
+  loadDailyNutritionImpl,
+  loadProductivityTasksForDayImpl,
+  saveProductivityTasksForDayImpl,
+  loadDailyFinanceImpl,
+  loadTransactionsImpl,
+  loadWorkoutSessionsImpl,
+  loadWorkoutPlansImpl,
+  saveWorkoutPlansImpl,
+  loadUserProfileImpl,
+} from "@/server/domain-impl";
 import { requireAuthSession } from "@/lib/auth";
+import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
 
 export type CoachDomain = "focus" | "fitness" | "nutrition" | "finance" | "family" | "general";
 
@@ -91,7 +92,7 @@ interface DaySignals {
 }
 
 async function collectSignals(date: ISODate, profile: UserProfile): Promise<DaySignals> {
-  const dash = await loadDailyDashboard({ data: date });
+  const dash = await loadDailyDashboardImpl(date);
   const tasks = (dash.productivity?.tasks || []).filter((t) => !t.deletedAt);
   const tasksDone = tasks.filter((t) => t.done).length;
   // Target precedence: the day's explicit plan target > the user's profile target > 150g default.
@@ -156,11 +157,11 @@ async function collectTrend(date: ISODate, proteinTarget: number, days = 7): Pro
 
   const [nutritionByDay, tasksByDay, financeByDay, sessionsStore, transactionsStore] =
     await Promise.all([
-      Promise.all(dates.map((d) => loadDailyNutrition({ data: d }))),
-      Promise.all(dates.map((d) => loadProductivityTasksForDay({ data: d }))),
-      Promise.all(dates.map((d) => loadDailyFinance({ data: d }))),
-      loadWorkoutSessions(),
-      loadTransactions(),
+      Promise.all(dates.map((d) => loadDailyNutritionImpl(d))),
+      Promise.all(dates.map((d) => loadProductivityTasksForDayImpl(d))),
+      Promise.all(dates.map((d) => loadDailyFinanceImpl(d))),
+      loadWorkoutSessionsImpl(),
+      loadTransactionsImpl(),
     ]);
 
   let activeDays = 0;
@@ -506,7 +507,7 @@ async function getOrCreateWeeklyWorkout(date: ISODate, profile: UserProfile): Pr
   workout: WorkoutSuggestion;
 }> {
   const { start, end } = weekBounds(date);
-  const store = await loadWorkoutPlans();
+  const store = await loadWorkoutPlansImpl();
   const existing = (store.plans || []).find(
     (p) =>
       !p.deletedAt &&
@@ -529,7 +530,7 @@ async function getOrCreateWeeklyWorkout(date: ISODate, profile: UserProfile): Pr
       ? { ...p, status: "archived" as const, archivedAt: now, updatedAt: now }
       : p,
   );
-  await saveWorkoutPlans({ data: { plans: [...plans, plan] } });
+  await saveWorkoutPlansImpl({ plans: [...plans, plan] });
   const session = plan.plannedSessions?.find((s) => s.date === date) || plan.plannedSessions![0];
   return { plan, workout: toWorkoutSuggestion(session) };
 }
@@ -680,17 +681,6 @@ function fallbackCoaching(
    GROK-BACKED COACH
    ============================================================ */
 
-async function getGrokKey(): Promise<string | undefined> {
-  let apiKey: string | undefined;
-  try {
-    const { env: cfEnv } = await import("cloudflare:workers");
-    apiKey = (cfEnv as any)?.GROK_API_KEY;
-  } catch {
-    /* not in CF env */
-  }
-  return apiKey || (globalThis as any).GROK_API_KEY || process?.env?.GROK_API_KEY;
-}
-
 function profileBlock(profile: UserProfile): string {
   const lines: string[] = [];
   const age = computeAge(profile.birthDate);
@@ -788,24 +778,15 @@ async function aiCoaching(
   apiKey: string,
   plannedWorkout: WorkoutSuggestion,
 ): Promise<CoachingResult> {
-  const resp = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const parsed = await completeJSON<any>(apiKey, {
       model: "grok-3-mini",
       messages: [
         { role: "system", content: "Return strictly valid minified JSON only. No prose." },
         { role: "user", content: buildCoachPrompt(signals, profile, trend, plannedWorkout) },
       ],
       temperature: 0.5,
-      max_tokens: 700,
-    }),
+      maxTokens: 700,
   });
-  if (!resp.ok) throw new Error("Grok HTTP " + resp.status);
-  const data: any = await resp.json();
-  const raw = (data.choices?.[0]?.message?.content || "{}").trim();
-  const cleaned = raw.replace(/^```json\s*|\s*```$/g, "").trim();
-  const parsed = JSON.parse(cleaned);
 
   const workout = plannedWorkout;
   const fbCoaching = fallbackCoaching(signals, profile, trend, plannedWorkout);
@@ -842,7 +823,7 @@ export const generateCoaching = createServerFn({ method: "POST" })
     await requireAuthSession(ctx.request);
     const { data } = ctx;
     const date = data.date || todayISO();
-    const existing = await loadDailyPlan({ data: date });
+    const existing = await loadDailyPlanImpl(date);
     if (!data.force && existing?.aiCoaching) {
       return {
         date,
@@ -854,13 +835,13 @@ export const generateCoaching = createServerFn({ method: "POST" })
       };
     }
 
-    const profile = await loadUserProfile();
+    const profile = await loadUserProfileImpl();
     const signals = await collectSignals(date, profile);
     const trend = await collectTrend(date, signals.proteinTarget);
     const weeklyWorkout = await getOrCreateWeeklyWorkout(date, profile);
 
     let result: CoachingResult;
-    const apiKey = await getGrokKey();
+    const apiKey = await getGrokApiKey();
     if (apiKey) {
       try {
         result = await aiCoaching(signals, profile, trend, apiKey, weeklyWorkout.workout);
@@ -874,8 +855,7 @@ export const generateCoaching = createServerFn({ method: "POST" })
 
     // Persist into the DailyPlan so reloads are free.
     try {
-      await saveDailyPlan({
-        data: {
+      await saveDailyPlanImpl({
           id: existing?.id || `plan-${date}`,
           createdAt: existing?.createdAt || Date.now(),
           date,
@@ -896,7 +876,6 @@ export const generateCoaching = createServerFn({ method: "POST" })
             generatedBy: result.generatedBy,
             updatedAt: result.updatedAt,
           },
-        },
       });
     } catch (e) {
       console.warn("[coach] failed to persist suggestions to DailyPlan", e);
@@ -913,7 +892,7 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
     await requireAuthSession(ctx.request);
     const { data } = ctx;
     const now = Date.now();
-    const existingTasks = await loadProductivityTasksForDay({ data: data.date });
+    const existingTasks = await loadProductivityTasksForDayImpl(data.date);
 
     const planTasks = (data.suggestions as CoachSuggestion[])
       .filter((s: CoachSuggestion) => s.text && s.domain !== "general")
@@ -938,11 +917,10 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
     });
 
     const tasks = [...(existingTasks?.tasks || []), workoutTask, ...planTasks];
-    await saveProductivityTasksForDay({ data: { date: data.date, tasks } });
+    await saveProductivityTasksForDayImpl({ date: data.date, tasks });
 
-    const existingPlan = await loadDailyPlan({ data: data.date });
-    const plan = await saveDailyPlan({
-      data: {
+    const existingPlan = await loadDailyPlanImpl(data.date);
+    const plan = await saveDailyPlanImpl({
         id: existingPlan?.id || `plan-${data.date}`,
         createdAt: existingPlan?.createdAt || now,
         date: data.date,
@@ -959,7 +937,6 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
         aiCoaching: existingPlan?.aiCoaching,
         voiceNoteIds: existingPlan?.voiceNoteIds,
         notes: existingPlan?.notes,
-      },
     });
 
     return { plan, tasksAdded: [workoutTask, ...planTasks] };
@@ -1044,9 +1021,9 @@ export const generateWeeklyNarrative = createServerFn({ method: "POST" })
   .handler(async (ctx: any): Promise<WeeklyNarrativeResult> => {
     await requireAuthSession(ctx.request);
     const { data } = ctx;
-    const apiKey = await getGrokKey();
+    const apiKey = await getGrokApiKey();
     if (!apiKey) return fallbackWeekly(data);
-    const profile = await loadUserProfile();
+    const profile = await loadUserProfileImpl();
 
     const completion =
       data.tasksTotal > 0 ? Math.round((data.tasksCompleted / data.tasksTotal) * 100) : 0;
@@ -1069,23 +1046,15 @@ Reply with ONLY one compact JSON object:
 Each array has 2-4 specific, actionable items referencing the numbers. Use US customary units for bodyweight, exercise loads, height, and hydration. No markdown.`;
 
     try {
-      const resp = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const parsed = await completeJSON<any>(apiKey, {
           model: "grok-3-mini",
           messages: [
             { role: "system", content: "Return strictly valid minified JSON only. No prose." },
             { role: "user", content: prompt },
           ],
           temperature: 0.5,
-          max_tokens: 600,
-        }),
+          maxTokens: 600,
       });
-      if (!resp.ok) throw new Error("Grok HTTP " + resp.status);
-      const json: any = await resp.json();
-      const raw = (json.choices?.[0]?.message?.content || "{}").trim();
-      const parsed = JSON.parse(raw.replace(/^```json\s*|\s*```$/g, "").trim());
       const arr = (v: any): string[] =>
         Array.isArray(v) ? v.map(String).filter(Boolean).slice(0, 4) : [];
       const fb = fallbackWeekly(data);

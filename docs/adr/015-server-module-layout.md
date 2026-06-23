@@ -21,6 +21,9 @@ Use `src/server` as the single server application module.
 - Cloudflare-specific implementations live under `src/server/adapters/*`.
 - R2 key construction remains centralized in `src/server/adapters/r2.ts` per ADR-003.
 - D1/Better Auth access remains auth-only in `src/server/adapters/d1.ts` per ADR-010.
+- `src/server/store.ts` exposes the domain store interface (`daily`, `weekly`, `ref`, `log`) so domain implementation modules do not depend on R2 key mechanics directly.
+- `src/server/domain-impl.ts` owns plain server-side domain operations; `src/server/domain.ts` remains the `createServerFn` interface layer for routes and components.
+- `src/server/adapters/ai.ts` owns Grok key lookup, transport, and JSON parsing. Coach and voice code keep deterministic fallbacks but no longer perform direct `fetch` calls.
 - Client-safe shared types and helpers remain under `src/lib/*`.
 
 ## Consequences
@@ -30,15 +33,16 @@ Use `src/server` as the single server application module.
 - One server root makes imports and ownership easier for agents to navigate.
 - Adapter modules now visibly sit behind the R2/D1 seams established by existing ADRs.
 - Route modules import the server-function interface from `src/server/*` instead of a second server-like folder.
-- Future extraction of store or AI client interfaces has a natural home under `src/server`.
+- Coach, voice, and dashboard composition can call plain implementation functions without crossing the server-function request interface.
+- Store and AI seams have a natural home under `src/server`.
 
 **Negative**
 
 - Existing handoff notes and ADRs need path updates from the old layout.
 - Git history shows file moves, so short-term diffs are larger than a logic-only change.
 
-## Next Steps
+## Follow-Ups
 
-1. Split the large `src/server/domain.ts` into deeper domain modules once behavior is covered by tests.
-2. Introduce a domain store interface so R2 key mechanics stop leaking into domain implementations.
-3. Move Grok transport behind a server AI adapter before migrating to TanStack AI.
+1. Split `src/server/domain-impl.ts` into deeper domain modules once behavior is covered by tests.
+2. Replace the Grok adapter implementation with TanStack AI behind the existing `completeJSON` interface.
+3. Remove any stale compatibility shims once legacy `todos.json` is fully absorbed into `ProductivityTask` daily aggregates.
