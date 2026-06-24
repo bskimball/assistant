@@ -52,6 +52,7 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 - Server module layout (ADR-015): route-facing server functions live under `src/server/*`; plain domain operations live in `src/server/domain-impl.ts`; domain persistence goes through `src/server/store.ts`; Cloudflare/API integrations live under `src/server/adapters/*`; client-safe shared types/helpers remain under `src/lib/*`.
 - Weekly Review (`/weekly`) and Analytics (`/analytics`) are built on R2 daily aggregates (weekly rollup + editable review + AI narrative; multi-day trend charts).
 - Icons standardized on `lucide-react` (emoji/unicode glyphs removed from dashboard, Kanban, and nav).
+- Installable PWA: branded web app manifest (`public/manifest.json`), maskable icons, app shortcuts, and a conservative service worker (`public/sw.js`) — network-first for HTML navigations with an offline fallback (`public/offline.html`), cache-first for content-hashed static assets, and never touching `/api`/server-function traffic so user data is never served stale. The SW registers in production only (skipped in dev to avoid fighting Vite HMR); manifest/PWA/theme-color meta is wired in `src/routes/__root.tsx`.
 - Theme toggle, basic UI components
 
 ## Priority Features (in order)

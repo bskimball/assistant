@@ -17,6 +17,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import type {
+  ExercisePhase,
   ISODate,
   ISOWeek,
   PlannedWorkoutSession,
@@ -65,7 +66,7 @@ export interface WorkoutSuggestion {
   title: string;
   focus: string;
   estimatedMinutes: number;
-  exercises: { name: string; sets: number; reps: string }[];
+  exercises: { name: string; sets: number; reps: string; phase?: ExercisePhase }[];
 }
 
 export interface CoachingResult {
@@ -344,6 +345,100 @@ const TEMPLATES = {
   },
 } satisfies Record<string, WorkoutTemplate>;
 
+/* ============================================================
+   SESSION ARC (warm-up → main → core → cooldown)
+   Every structured strength session is expanded so prep and recovery are
+   never skipped. Warm-ups and cooldowns are tailored to the area worked;
+   strength/calisthenics days also get a dedicated core finisher.
+   ============================================================ */
+
+type Ex = WorkoutSuggestion["exercises"][number];
+
+/** Dynamic warm-ups keyed by the area the main work taxes. */
+const WARMUPS: Record<"upper" | "lower" | "general", Ex[]> = {
+  upper: [
+    { name: "Jump rope or arm circles", sets: 1, reps: "3 min", phase: "warmup" },
+    { name: "Band pull-aparts", sets: 2, reps: "15", phase: "warmup" },
+    { name: "Scapular push-ups + cat-cow", sets: 2, reps: "10", phase: "warmup" },
+  ],
+  lower: [
+    { name: "Easy bike or brisk walk", sets: 1, reps: "3 min", phase: "warmup" },
+    { name: "Leg swings (front + side)", sets: 1, reps: "10/leg", phase: "warmup" },
+    { name: "Bodyweight squats + hip circles", sets: 2, reps: "12", phase: "warmup" },
+  ],
+  general: [
+    { name: "Easy row or bike", sets: 1, reps: "4 min", phase: "warmup" },
+    { name: "Dynamic leg swings + arm circles", sets: 1, reps: "10 each", phase: "warmup" },
+    { name: "World's greatest stretch", sets: 1, reps: "5/side", phase: "warmup" },
+  ],
+};
+
+/** Core/abs finisher that closes the strength portion. */
+const CORE_FINISHER: Ex[] = [
+  { name: "Plank", sets: 3, reps: "45s", phase: "core" },
+  { name: "Hanging knee raises", sets: 3, reps: "12", phase: "core" },
+  { name: "Dead bug", sets: 3, reps: "10/side", phase: "core" },
+];
+
+/** Cooldown stretching tailored to the area worked. */
+const COOLDOWNS: Record<"upper" | "lower" | "general", Ex[]> = {
+  upper: [
+    { name: "Doorway chest stretch", sets: 1, reps: "45s/side", phase: "cooldown" },
+    { name: "Cross-body shoulder + triceps stretch", sets: 1, reps: "30s/side", phase: "cooldown" },
+    { name: "Child's pose", sets: 1, reps: "60s", phase: "cooldown" },
+  ],
+  lower: [
+    { name: "Standing quad stretch", sets: 1, reps: "45s/side", phase: "cooldown" },
+    { name: "Seated hamstring forward fold", sets: 1, reps: "60s", phase: "cooldown" },
+    { name: "Figure-4 glute stretch", sets: 1, reps: "45s/side", phase: "cooldown" },
+  ],
+  general: [
+    { name: "Standing forward fold", sets: 1, reps: "60s", phase: "cooldown" },
+    { name: "Supine spinal twist", sets: 1, reps: "45s/side", phase: "cooldown" },
+    { name: "Child's pose", sets: 1, reps: "60s", phase: "cooldown" },
+  ],
+};
+
+function warmupKey(load: WorkoutTemplate["load"]): "upper" | "lower" | "general" {
+  if (load === "legs") return "lower";
+  if (load === "push" || load === "pull") return "upper";
+  return "general"; // full-body / light
+}
+
+/**
+ * Expand a template into a full session arc: warm-up → main → core → cooldown.
+ * Yoga/mobility sessions are already a self-contained flow (their own warm-up
+ * and deep stretch), so they pass through with their moves tagged as the main
+ * work and no extra blocks bolted on. Strength and calisthenics days also get
+ * a dedicated core finisher; conditioning already trains core in its circuit.
+ */
+function composeSession(t: WorkoutTemplate): WorkoutSuggestion {
+  const main: Ex[] = t.exercises.map((e) => ({ ...e, phase: "main" as const }));
+  if (t.style === "yoga") {
+    return {
+      title: t.title,
+      focus: t.focus,
+      estimatedMinutes: t.estimatedMinutes,
+      exercises: main,
+    };
+  }
+  const key = warmupKey(t.load);
+  const needsCore = t.style === "strength" || t.style === "calisthenics";
+  const exercises = [
+    ...WARMUPS[key],
+    ...main,
+    ...(needsCore ? CORE_FINISHER : []),
+    ...COOLDOWNS[key],
+  ];
+  return {
+    title: t.title,
+    focus: t.focus,
+    // Warm-up + cooldown add ~11 min; the core finisher adds ~6 more.
+    estimatedMinutes: t.estimatedMinutes + 11 + (needsCore ? 6 : 0),
+    exercises,
+  };
+}
+
 /**
  * Priority-ordered candidate sessions. The weekly planner filters this to the
  * user's preferred styles (or the balanced default), takes/cycles enough for
@@ -361,6 +456,13 @@ const SESSION_PRIORITY: WorkoutTemplate[] = [
 
 /** Default mix when the user hasn't set a preference. */
 const DEFAULT_WORKOUT_STYLES: WorkoutStyle[] = ["strength", "calisthenics", "yoga"];
+
+/**
+ * Bump when the session template structure changes so existing weekly plans are
+ * transparently rebuilt on next load. v2 introduced the warm-up → main → core →
+ * cooldown arc.
+ */
+const WORKOUT_PLAN_VERSION = 2;
 
 /** Two sessions conflict if they tax the same area heavily on adjacent days. */
 function loadsConflict(a: WorkoutTemplate["load"], b: WorkoutTemplate["load"]): boolean {
@@ -380,7 +482,7 @@ function fallbackWorkout(signals: DaySignals): WorkoutSuggestion {
     5: TEMPLATES.legs,
     6: TEMPLATES.conditioning,
   };
-  return byDay[signals.dayOfWeek] ?? TEMPLATES.push;
+  return composeSession(byDay[signals.dayOfWeek] ?? TEMPLATES.push);
 }
 
 function weekBounds(date: ISODate): { start: ISODate; end: ISODate } {
@@ -458,6 +560,7 @@ function toWorkoutSuggestion(session: PlannedWorkoutSession): WorkoutSuggestion 
       name: e.name,
       sets: e.sets ?? 3,
       reps: String(e.reps ?? "10"),
+      phase: e.phase ?? "main",
     })),
   };
 }
@@ -480,12 +583,14 @@ function buildWeeklyWorkoutPlan(
     const template = trainingDays.has(i)
       ? blend[trainingIndex++ % blend.length]
       : TEMPLATES.recoveryYoga;
+    // Expand each day into the full arc: warm-up → main → core → cooldown.
+    const session = composeSession(template);
     return {
       date: addDays(start, i),
-      title: template.title,
-      focus: template.focus,
-      estimatedMinutes: template.estimatedMinutes,
-      exercises: template.exercises,
+      title: session.title,
+      focus: session.focus,
+      estimatedMinutes: session.estimatedMinutes,
+      exercises: session.exercises,
     };
   });
 
@@ -494,6 +599,7 @@ function buildWeeklyWorkoutPlan(
     createdAt: now,
     status: "active",
     generatedBy: "ai",
+    planVersion: WORKOUT_PLAN_VERSION,
     weekStartDate: start,
     weekEndDate: end,
     plannedSessions,
@@ -515,7 +621,8 @@ async function getOrCreateWeeklyWorkout(date: ISODate, profile: UserProfile): Pr
       p.status === "active" &&
       p.weekStartDate === start &&
       p.weekEndDate === end &&
-      p.plannedSessions?.length,
+      p.plannedSessions?.length &&
+      (p.planVersion ?? 1) >= WORKOUT_PLAN_VERSION,
   );
 
   if (existing?.plannedSessions?.length) {
@@ -748,7 +855,10 @@ Last ${trend.days} days (trend):
 
 This week's workout plan assigns TODAY:
 - ${plannedWorkout.title} (${plannedWorkout.focus}, ~${plannedWorkout.estimatedMinutes} min)
-- Exercises: ${plannedWorkout.exercises.map((e) => `${e.name} ${e.sets}x${e.reps}`).join("; ")}
+- Structured warm-up → main → core → cooldown stretch:
+${plannedWorkout.exercises
+  .map((e) => `  [${e.phase ?? "main"}] ${e.name} ${e.sets}x${e.reps}`)
+  .join("\n")}
 
 Reply with ONLY one compact JSON object (no markdown):
 {
@@ -767,7 +877,7 @@ Reply with ONLY one compact JSON object (no markdown):
 Rules:
 - 4 to 6 suggestions, one per domain where relevant, each referencing his actual numbers.
 - Use US customary units for bodyweight, exercise loads, height, and hydration (lb, in, fl oz), not kg/cm/ml in user-facing text.
-- The workout must be the assigned weekly-plan session above; do not invent a different session.
+- The workout must be the assigned weekly-plan session above; do not invent a different session. Every session already runs a warm-up first and finishes with a core block and cooldown stretch — reinforce not skipping the warm-up or cooldown.
 - His program intentionally blends traditional strength, bodyweight calisthenics, and yoga across the week; the fitness suggestion should reinforce building BOTH strength and flexibility/mobility (not strength alone).
 - Be specific and encouraging. No fluff, no disclaimers.`;
 }
@@ -883,6 +993,22 @@ export const generateCoaching = createServerFn({ method: "POST" })
     }
 
     return result;
+  });
+
+/**
+ * Return the active weekly workout plan for the week containing `date`,
+ * building (and persisting) one from the user's profile if none exists yet.
+ * No LLM call — pure template composition — so the Workouts page can rely on
+ * a structured plan being present without paying for coaching generation.
+ */
+export const ensureWeeklyWorkoutPlan = createServerFn({ method: "POST" })
+  .validator((data: { date?: ISODate }) => data)
+  .handler(async (ctx: any): Promise<{ plan: WorkoutPlan }> => {
+    await requireAuthSession(ctx.request);
+    const date = ctx.data?.date || todayISO();
+    const profile = await loadUserProfileImpl();
+    const { plan } = await getOrCreateWeeklyWorkout(date, profile);
+    return { plan };
   });
 
 export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })

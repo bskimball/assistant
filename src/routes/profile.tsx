@@ -310,7 +310,7 @@ function ProfilePage() {
   ].filter(Boolean);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-24 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Settings</div>
@@ -345,7 +345,7 @@ function ProfilePage() {
         {loading ? (
           <div className="text-sm text-muted-foreground">Loading your profile…</div>
         ) : (
-          <form onSubmit={handleSave} className="space-y-4">
+          <form onSubmit={handleSave} className="space-y-6">
             {/* IDENTITY */}
             <Card>
               <CardHeader>

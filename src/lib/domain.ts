@@ -131,6 +131,20 @@ export function flOzToMl(flOz?: number): number | undefined {
 export type WorkoutPlanStatus = "draft" | "active" | "archived";
 export type GeneratedBy = "ai" | "manual";
 
+/**
+ * Where an exercise sits in the session arc. Every structured workout runs
+ * warm-up → main work → core → cooldown stretching so prep and recovery are
+ * never skipped (ADR-013 trainer guidance).
+ */
+export type ExercisePhase = "warmup" | "main" | "core" | "cooldown";
+
+export const EXERCISE_PHASES: { value: ExercisePhase; label: string }[] = [
+  { value: "warmup", label: "Warm-up" },
+  { value: "main", label: "Main" },
+  { value: "core", label: "Core" },
+  { value: "cooldown", label: "Cooldown" },
+];
+
 export interface PlannedExercise {
   exerciseId?: string;
   name: string;
@@ -139,12 +153,21 @@ export interface PlannedExercise {
   weightLb?: number;
   restSec?: number;
   notes?: string;
+  /** Session arc segment; defaults to "main" when omitted. */
+  phase?: ExercisePhase;
 }
 
 export interface WorkoutPlan extends BaseEntity {
   status: WorkoutPlanStatus;
   generatedBy: GeneratedBy;
   exercises: PlannedExercise[];
+  /**
+   * Template-structure version the plan was generated with. Lets the planner
+   * transparently rebuild a stale weekly plan when the session template format
+   * changes (e.g. adding the warm-up/core/cooldown arc) instead of leaving an
+   * old plan in place until the week rolls over.
+   */
+  planVersion?: number;
   /** Monday/Sunday bounds for weekly AI plans. */
   weekStartDate?: ISODate;
   weekEndDate?: ISODate;
@@ -351,7 +374,7 @@ export interface DailyCoachingSnapshot {
     title: string;
     focus: string;
     estimatedMinutes: number;
-    exercises: { name: string; sets: number; reps: string }[];
+    exercises: { name: string; sets: number; reps: string; phase?: ExercisePhase }[];
   };
   generatedBy: "ai" | "fallback";
   updatedAt: Timestamp;

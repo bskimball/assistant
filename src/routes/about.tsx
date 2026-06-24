@@ -72,7 +72,7 @@ const PRINCIPLES = [
 
 function About() {
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         {/* Hero */}
         <div className="mb-8">

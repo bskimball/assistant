@@ -220,10 +220,10 @@ function NutritionPage() {
     .sort((a, b) => b.timestamp - a.timestamp);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-24 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         {/* Header + date nav */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Link
               to="/"
@@ -300,7 +300,7 @@ function NutritionPage() {
         </div>
 
         {/* Macro summary tiles */}
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <MacroTile
             icon={Flame}
             label="Calories"
@@ -373,7 +373,7 @@ function NutritionPage() {
 
         {/* Add food */}
         {isToday && (
-          <Card className="mb-4">
+          <Card className="mb-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Sparkles className="size-4 text-primary" /> Log food

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkoutsRouteImport } from './routes/workouts'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as NutritionRouteImport } from './routes/nutrition'
@@ -17,8 +18,14 @@ import { Route as KanbanRouteImport } from './routes/kanban'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiExerciseImageSlugRouteImport } from './routes/api/exercise-image/$slug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
+const WorkoutsRoute = WorkoutsRouteImport.update({
+  id: '/workouts',
+  path: '/workouts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
   path: '/weekly',
@@ -59,6 +66,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiExerciseImageSlugRoute = ApiExerciseImageSlugRouteImport.update({
+  id: '/api/exercise-image/$slug',
+  path: '/api/exercise-image/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -74,7 +86,9 @@ export interface FileRoutesByFullPath {
   '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
+  '/workouts': typeof WorkoutsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -85,7 +99,9 @@ export interface FileRoutesByTo {
   '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
+  '/workouts': typeof WorkoutsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -97,7 +113,9 @@ export interface FileRoutesById {
   '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
+  '/workouts': typeof WorkoutsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -110,7 +128,9 @@ export interface FileRouteTypes {
     | '/nutrition'
     | '/profile'
     | '/weekly'
+    | '/workouts'
     | '/api/auth/$'
+    | '/api/exercise-image/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -121,7 +141,9 @@ export interface FileRouteTypes {
     | '/nutrition'
     | '/profile'
     | '/weekly'
+    | '/workouts'
     | '/api/auth/$'
+    | '/api/exercise-image/$slug'
   id:
     | '__root__'
     | '/'
@@ -132,7 +154,9 @@ export interface FileRouteTypes {
     | '/nutrition'
     | '/profile'
     | '/weekly'
+    | '/workouts'
     | '/api/auth/$'
+    | '/api/exercise-image/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -144,11 +168,20 @@ export interface RootRouteChildren {
   NutritionRoute: typeof NutritionRoute
   ProfileRoute: typeof ProfileRoute
   WeeklyRoute: typeof WeeklyRoute
+  WorkoutsRoute: typeof WorkoutsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiExerciseImageSlugRoute: typeof ApiExerciseImageSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/workouts': {
+      id: '/workouts'
+      path: '/workouts'
+      fullPath: '/workouts'
+      preLoaderRoute: typeof WorkoutsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/weekly': {
       id: '/weekly'
       path: '/weekly'
@@ -205,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/exercise-image/$slug': {
+      id: '/api/exercise-image/$slug'
+      path: '/api/exercise-image/$slug'
+      fullPath: '/api/exercise-image/$slug'
+      preLoaderRoute: typeof ApiExerciseImageSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -224,7 +264,9 @@ const rootRouteChildren: RootRouteChildren = {
   NutritionRoute: NutritionRoute,
   ProfileRoute: ProfileRoute,
   WeeklyRoute: WeeklyRoute,
+  WorkoutsRoute: WorkoutsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiExerciseImageSlugRoute: ApiExerciseImageSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

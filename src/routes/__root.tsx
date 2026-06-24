@@ -1,15 +1,22 @@
-import { HeadContent, Scripts, createRootRoute, redirect, useRouterState, Link } from '@tanstack/react-router'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import { LayoutDashboard, KanbanSquare, CalendarRange, BarChart3, Sparkles, UserCog, Compass } from 'lucide-react'
-import { AuthControl } from '@/components/AuthControl'
-import ThemeToggle from '@/components/ThemeToggle'
-import { Button } from '@/components/ui/button'
-import { getSessionState } from '@/server/session'
+import { useEffect } from "react";
+import {
+  HeadContent,
+  Scripts,
+  createRootRoute,
+  redirect,
+  useRouterState,
+  Link,
+} from "@tanstack/react-router";
+import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { LayoutDashboard, Compass } from "lucide-react";
+import { AppNav } from "@/components/AppNav";
+import { Button } from "@/components/ui/button";
+import { getSessionState } from "@/server/session";
 
-import appCss from '../styles.css?url'
+import appCss from "../styles.css?url";
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
 export const Route = createRootRoute({
   // Gate the whole app: unauthenticated users are redirected to /login.
@@ -17,37 +24,53 @@ export const Route = createRootRoute({
   // without re-fetching. When auth isn't configured (no Google/secret env in
   // dev) there's no way to sign in, so we don't gate — the dev escape hatch.
   beforeLoad: async ({ location }) => {
-    const auth = await getSessionState()
-    const isAuthRoute =
-      location.pathname === '/login' || location.pathname.startsWith('/api/')
+    const auth = await getSessionState();
+    const isAuthRoute = location.pathname === "/login" || location.pathname.startsWith("/api/");
     if (auth.configured && !auth.authenticated && !isAuthRoute) {
-      throw redirect({ to: '/login' })
+      throw redirect({ to: "/login" });
     }
-    return { auth }
+    return { auth };
   },
   head: () => ({
     meta: [
       {
-        charSet: 'utf-8',
+        charSet: "utf-8",
       },
       {
-        name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5",
       },
       {
-        title: 'Life Assistant — Your AI Coach',
+        title: "Life Assistant — Your AI Coach",
       },
+      {
+        name: "description",
+        content: "A personal AI life coach for fitness, nutrition, finance, and productivity.",
+      },
+      // PWA / installability
+      { name: "application-name", content: "Life Assistant" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Life Assistant" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
+      // Adaptive toolbar color: blends with the app background in each scheme.
+      { name: "theme-color", content: "#f4f1ec", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#13151d", media: "(prefers-color-scheme: dark)" },
     ],
     links: [
       {
-        rel: 'stylesheet',
+        rel: "stylesheet",
         href: appCss,
       },
+      { rel: "manifest", href: "/manifest.json" },
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+      { rel: "icon", type: "image/png", sizes: "192x192", href: "/logo192.png" },
+      { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
     ],
   }),
   shellComponent: RootDocument,
   notFoundComponent: NotFound,
-})
+});
 
 function NotFound() {
   return (
@@ -75,12 +98,26 @@ function NotFound() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const showNav = pathname !== '/login'
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const showNav = pathname !== "/login";
+
+  // Register the service worker for installability + offline fallback. Only in
+  // production builds — in dev the SW would cache HMR assets and fight Vite.
+  useEffect(() => {
+    if (!import.meta.env.PROD) return;
+    if (!("serviceWorker" in navigator)) return;
+    const register = () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        // Registration is best-effort; the app works without it.
+      });
+    };
+    if (document.readyState === "complete") register();
+    else window.addEventListener("load", register, { once: true });
+  }, []);
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -89,50 +126,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
         {/* Persistent nav (hidden on the login gate) */}
-        {showNav && (
-        <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur px-4 py-2 text-sm sm:px-6">
-          <div className="mx-auto flex w-full max-w-page items-center justify-between gap-3">
-            <Link to="/" className="flex items-center gap-1.5 font-semibold tracking-tight">
-              <Sparkles className="size-4 text-primary" />
-              Life&nbsp;Assistant
-            </Link>
-            <div className="flex items-center gap-2">
-              <nav className="flex items-center gap-1 font-medium">
-                {[
-                  { to: '/', label: 'Dashboard', Icon: LayoutDashboard },
-                  { to: '/kanban', label: 'Kanban', Icon: KanbanSquare },
-                  { to: '/weekly', label: 'Weekly', Icon: CalendarRange },
-                  { to: '/analytics', label: 'Analytics', Icon: BarChart3 },
-                  { to: '/profile', label: 'Profile', Icon: UserCog },
-                ].map(({ to, label, Icon }) => (
-                  <Link
-                    key={to}
-                    to={to}
-                    activeOptions={{ exact: to === '/' }}
-                    className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    activeProps={{ className: 'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 bg-muted text-foreground' }}
-                  >
-                    <Icon className="size-4" />
-                    <span className="hidden sm:inline">{label}</span>
-                  </Link>
-                ))}
-              </nav>
-              <div className="ml-1 flex items-center gap-2 border-l pl-2">
-                <ThemeToggle />
-                <AuthControl />
-              </div>
-            </div>
-          </div>
-        </header>
-        )}
+        {showNav && <AppNav />}
         {children}
         <TanStackDevtools
           config={{
-            position: 'bottom-right',
+            position: "bottom-right",
           }}
           plugins={[
             {
-              name: 'Tanstack Router',
+              name: "Tanstack Router",
               render: <TanStackRouterDevtoolsPanel />,
             },
           ]}
@@ -140,5 +142,5 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Scripts />
       </body>
     </html>
-  )
+  );
 }

@@ -1,25 +1,60 @@
 {
-  "short_name": "TanStack App",
-  "name": "Create TanStack App Sample",
+  "id": "/",
+  "name": "Life Assistant — Your AI Coach",
+  "short_name": "Life Assistant",
+  "description": "A personal AI life coach for fitness, nutrition, finance, and productivity — track your day, get coaching, and improve.",
+  "categories": ["health", "fitness", "lifestyle", "productivity"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#f4f1ec",
+  "background_color": "#f4f1ec",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "/favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
     {
-      "src": "logo192.png",
+      "src": "/logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
-      "src": "logo512.png",
+      "src": "/logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
   ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "shortcuts": [
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "description": "Your daily improvement dashboard",
+      "url": "/"
+    },
+    {
+      "name": "Workouts",
+      "short_name": "Workouts",
+      "description": "Workout tracking and plans",
+      "url": "/workouts"
+    },
+    {
+      "name": "Nutrition",
+      "short_name": "Nutrition",
+      "description": "Log meals and track macros",
+      "url": "/nutrition"
+    }
+  ]
 }

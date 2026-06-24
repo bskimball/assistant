@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -196,15 +196,12 @@ function KanbanBoard() {
   }, [tasks])
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-12 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-baseline gap-3">
-            <div>
-              <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Tasks &amp; Reminders</div>
-              <div className="text-3xl font-semibold tracking-tighter">Kanban Board</div>
-            </div>
-            <Link to="/" className="hidden text-sm text-primary hover:underline sm:inline">← Back to Dashboard</Link>
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Tasks &amp; Reminders</div>
+            <div className="text-3xl font-semibold tracking-tighter">Kanban Board</div>
           </div>
 
           <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
@@ -284,7 +281,7 @@ function KanbanBoard() {
 
         {/* Quick add */}
         {isToday && (
-          <Card className="mb-4">
+          <Card className="mb-6">
             <CardContent className="pt-4">
               <form onSubmit={handleQuickAdd} className="space-y-2">
                 <div className="flex gap-2">
@@ -385,7 +382,6 @@ function KanbanBoard() {
 
         <div className="mt-3 text-xs text-muted-foreground">
           Drag cards or use arrows. Tasks are saved per day.{syncing && ' • syncing…'} Use voice on dashboard or here for quick adds.
-          <Link to="/" className="ml-2 underline">Back to dashboard</Link>
         </div>
       </div>
     </div>

@@ -285,9 +285,9 @@ function Weekly() {
     stats && stats.tasksTotal > 0 ? Math.round((stats.tasksCompleted / stats.tasksTotal) * 100) : 0;
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Weekly Review
@@ -362,7 +362,7 @@ function Weekly() {
         </div>
 
         {/* Stat tiles */}
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile
             icon={Target}
             label="Task completion"
@@ -390,7 +390,7 @@ function Weekly() {
         </div>
 
         {/* Per-day completion bars */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">Daily task completion</CardTitle>
           </CardHeader>
@@ -425,7 +425,7 @@ function Weekly() {
         </Card>
 
         {/* AI review */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">

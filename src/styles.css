@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap");
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -55,84 +55,86 @@
   --container-page: 64rem;
 }
 
-/* Warm editorial palette (light only) per DESIGN.md */
+/* Jewel palette — light mode on a warm TAUPE ground.
+   Primary Rose, secondary Indigo, accent Amber. Domain hues live in --chart-*. */
 :root {
-  --background: oklch(0.96 0.008 75);
-  --foreground: oklch(0.22 0.012 50);
-  --card: oklch(0.985 0.003 75);
-  --card-foreground: oklch(0.22 0.012 50);
-  --popover: oklch(0.985 0.003 75);
-  --popover-foreground: oklch(0.22 0.012 50);
-  --primary: oklch(0.52 0.16 35); /* terracotta */
-  --primary-foreground: oklch(0.98 0.004 75);
-  --secondary: oklch(0.92 0.006 75);
-  --secondary-foreground: oklch(0.22 0.012 50);
-  --muted: oklch(0.93 0.005 75);
-  --muted-foreground: oklch(0.50 0.008 60);
-  --accent: oklch(0.52 0.16 35 / 0.08);
-  --accent-foreground: oklch(0.22 0.012 50);
-  --destructive: oklch(0.50 0.18 25);
-  --destructive-foreground: oklch(0.98 0.004 75);
-  --border: oklch(0.88 0.006 75);
-  --input: oklch(0.88 0.006 75);
-  --ring: oklch(0.52 0.16 35);
+  --background: oklch(0.965 0.006 75); /* taupe 50 */
+  --foreground: oklch(0.24 0.012 60);
+  --card: oklch(0.992 0.003 75);
+  --card-foreground: oklch(0.24 0.012 60);
+  --popover: oklch(0.992 0.003 75);
+  --popover-foreground: oklch(0.24 0.012 60);
+  --primary: oklch(0.505 0.205 18); /* deep rose-red, grounds on taupe */
+  --primary-foreground: oklch(0.99 0.005 75);
+  --secondary: oklch(0.93 0.006 75); /* calm taupe surface */
+  --secondary-foreground: oklch(0.24 0.012 60);
+  --muted: oklch(0.935 0.005 75);
+  --muted-foreground: oklch(0.52 0.012 65);
+  --accent: oklch(0.93 0.035 16); /* soft rose tint */
+  --accent-foreground: oklch(0.28 0.11 18);
+  --destructive: oklch(0.55 0.20 28); /* orange-red, distinct from rose */
+  --destructive-foreground: oklch(0.99 0.005 75);
+  --border: oklch(0.90 0.006 75);
+  --input: oklch(0.90 0.006 75);
+  --ring: oklch(0.505 0.205 18);
   --radius: 0.625rem;
-  --ledger-done: oklch(0.48 0.06 155); /* sage */
-  --chart-1: oklch(0.52 0.16 35);
-  --chart-2: oklch(0.48 0.06 155);
-  --chart-3: oklch(0.60 0.10 75);
-  --chart-4: oklch(0.50 0.008 60);
-  --chart-5: oklch(0.40 0.012 50);
-  --sidebar: oklch(0.96 0.008 75);
-  --sidebar-foreground: oklch(0.22 0.012 50);
-  --sidebar-primary: oklch(0.52 0.16 35);
-  --sidebar-primary-foreground: oklch(0.98 0.004 75);
-  --sidebar-accent: oklch(0.93 0.005 75);
-  --sidebar-accent-foreground: oklch(0.22 0.012 50);
-  --sidebar-border: oklch(0.88 0.006 75);
-  --sidebar-ring: oklch(0.52 0.16 35);
+  --ledger-done: oklch(0.62 0.14 160); /* success green */
+  /* Per-domain hues: rose / emerald / amber / indigo / violet */
+  --chart-1: oklch(0.62 0.21 13);
+  --chart-2: oklch(0.70 0.15 165);
+  --chart-3: oklch(0.80 0.15 80);
+  --chart-4: oklch(0.55 0.20 268);
+  --chart-5: oklch(0.62 0.20 300);
+  --sidebar: oklch(0.965 0.006 75);
+  --sidebar-foreground: oklch(0.24 0.012 60);
+  --sidebar-primary: oklch(0.505 0.205 18);
+  --sidebar-primary-foreground: oklch(0.99 0.005 75);
+  --sidebar-accent: oklch(0.935 0.005 75);
+  --sidebar-accent-foreground: oklch(0.24 0.012 60);
+  --sidebar-border: oklch(0.90 0.006 75);
+  --sidebar-ring: oklch(0.505 0.205 18);
 
-  /* Fonts */
-  --font-display: "Fraunces", Georgia, serif;
+  /* Fonts — modernized to an all-sans system */
+  --font-display: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Warm editorial palette — dark counterpart. Same hues/chroma as :root,
-   lightness inverted so the terracotta + sage identity carries over. */
+/* Jewel palette — dark mode on a cool MIST ground (deep blue-slate).
+   Rose lifts for contrast; indigo/amber/emerald domain hues stay vivid. */
 .dark {
-  --background: oklch(0.21 0.008 75);
-  --foreground: oklch(0.92 0.008 75);
-  --card: oklch(0.24 0.008 75);
-  --card-foreground: oklch(0.92 0.008 75);
-  --popover: oklch(0.24 0.008 75);
-  --popover-foreground: oklch(0.92 0.008 75);
-  --primary: oklch(0.62 0.15 35); /* terracotta, lifted for dark */
-  --primary-foreground: oklch(0.18 0.012 50);
-  --secondary: oklch(0.28 0.008 75);
-  --secondary-foreground: oklch(0.92 0.008 75);
-  --muted: oklch(0.27 0.008 75);
-  --muted-foreground: oklch(0.68 0.008 60);
-  --accent: oklch(0.62 0.15 35 / 0.16);
-  --accent-foreground: oklch(0.92 0.008 75);
-  --destructive: oklch(0.58 0.18 25);
-  --destructive-foreground: oklch(0.98 0.004 75);
-  --border: oklch(0.32 0.008 75);
-  --input: oklch(0.32 0.008 75);
-  --ring: oklch(0.62 0.15 35);
-  --ledger-done: oklch(0.62 0.07 155); /* sage */
-  --chart-1: oklch(0.62 0.15 35);
-  --chart-2: oklch(0.62 0.07 155);
-  --chart-3: oklch(0.70 0.10 75);
-  --chart-4: oklch(0.68 0.008 60);
-  --chart-5: oklch(0.80 0.012 50);
-  --sidebar: oklch(0.21 0.008 75);
-  --sidebar-foreground: oklch(0.92 0.008 75);
-  --sidebar-primary: oklch(0.62 0.15 35);
-  --sidebar-primary-foreground: oklch(0.18 0.012 50);
-  --sidebar-accent: oklch(0.27 0.008 75);
-  --sidebar-accent-foreground: oklch(0.92 0.008 75);
-  --sidebar-border: oklch(0.32 0.008 75);
-  --sidebar-ring: oklch(0.62 0.15 35);
+  --background: oklch(0.175 0.024 264); /* mist 950 */
+  --foreground: oklch(0.96 0.008 250);
+  --card: oklch(0.215 0.025 264); /* mist 900 */
+  --card-foreground: oklch(0.96 0.008 250);
+  --popover: oklch(0.215 0.025 264);
+  --popover-foreground: oklch(0.96 0.008 250);
+  --primary: oklch(0.63 0.21 14); /* rose, lifted for dark */
+  --primary-foreground: oklch(0.99 0.01 14);
+  --secondary: oklch(0.27 0.022 264);
+  --secondary-foreground: oklch(0.95 0.008 250);
+  --muted: oklch(0.255 0.022 264);
+  --muted-foreground: oklch(0.70 0.015 255);
+  --accent: oklch(0.32 0.05 8); /* rose tint on mist */
+  --accent-foreground: oklch(0.95 0.008 250);
+  --destructive: oklch(0.62 0.20 28);
+  --destructive-foreground: oklch(0.99 0.005 75);
+  --border: oklch(0.30 0.022 264);
+  --input: oklch(0.30 0.022 264);
+  --ring: oklch(0.63 0.21 14);
+  --ledger-done: oklch(0.70 0.13 162); /* success green */
+  --chart-1: oklch(0.66 0.20 14);
+  --chart-2: oklch(0.74 0.14 165);
+  --chart-3: oklch(0.82 0.14 82);
+  --chart-4: oklch(0.66 0.18 268);
+  --chart-5: oklch(0.70 0.18 300);
+  --sidebar: oklch(0.175 0.024 264);
+  --sidebar-foreground: oklch(0.96 0.008 250);
+  --sidebar-primary: oklch(0.63 0.21 14);
+  --sidebar-primary-foreground: oklch(0.99 0.01 14);
+  --sidebar-accent: oklch(0.255 0.022 264);
+  --sidebar-accent-foreground: oklch(0.95 0.008 250);
+  --sidebar-border: oklch(0.30 0.022 264);
+  --sidebar-ring: oklch(0.63 0.21 14);
 }
 
 @layer base {
@@ -143,17 +145,21 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    /* Subtle paper texture for editorial feel */
-    background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.15 0 0 0 0 0.12 0 0 0 0 0.08 0 0 0 0.025 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-repeat: repeat;
+  }
+
+  /* Headings balance across lines; body text avoids orphans */
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
   }
 }
 
-/* Typography hierarchy matching DESIGN.md */
+/* Typography hierarchy — modernized all-sans, flat surfaces */
 .display-title {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 

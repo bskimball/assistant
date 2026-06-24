@@ -66,6 +66,19 @@ export async function getObjectText(key: string): Promise<string | null> {
 }
 
 /**
+ * Read an object's raw bytes + stored content type (or null if missing).
+ * Used for binary assets such as generated exercise silhouettes.
+ */
+export async function getObjectBytes(
+  key: string,
+): Promise<{ data: ArrayBuffer; contentType?: string } | null> {
+  const bucket = await getR2Bucket();
+  const obj = await bucket.get(key);
+  if (!obj) return null;
+  return { data: await obj.arrayBuffer(), contentType: obj.httpMetadata?.contentType };
+}
+
+/**
  * Read and JSON-parse. Returns null if missing or invalid.
  */
 export async function getJSON<T>(key: string): Promise<T | null> {

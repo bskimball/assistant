@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f1ec" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#13151d" media="(prefers-color-scheme: dark)" />
+    <title>Offline — Life Assistant</title>
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f4f1ec;
+        --fg: #2a2622;
+        --muted: #6b635b;
+        --card: #ffffff;
+        --border: #e4ddd3;
+        --primary: #b42d3f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #13151d;
+          --fg: #e9e7ee;
+          --muted: #9a97a4;
+          --card: #1b1e28;
+          --border: #2a2e3a;
+          --primary: #e0566a;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 26rem;
+        text-align: center;
+      }
+      .badge {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--primary);
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 0 auto;
+        max-width: 22rem;
+        color: var(--muted);
+        font-size: 0.925rem;
+        line-height: 1.5;
+      }
+      button {
+        margin-top: 20px;
+        appearance: none;
+        border: none;
+        cursor: pointer;
+        background: var(--primary);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        font-size: 0.875rem;
+        padding: 0.6rem 1.1rem;
+        border-radius: 0.6rem;
+        transition: opacity 0.15s ease;
+      }
+      button:hover { opacity: 0.9; }
+      .eyebrow {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12.5 7 8l4 4 5-5 6 6" />
+          <path d="M2 19h20" opacity="0.5" />
+        </svg>
+      </div>
+      <div class="eyebrow">Offline</div>
+      <h1>You're not connected</h1>
+      <p>
+        Life Assistant needs a connection to load fresh data. Check your network
+        and try again — your synced data will be right where you left it.
+      </p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

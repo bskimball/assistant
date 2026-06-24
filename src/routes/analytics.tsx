@@ -107,9 +107,9 @@ function Analytics() {
   const netCashflow = points.reduce((sum, p) => sum + p.cashflow, 0);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-6 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Analytics</div>
             <div className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
@@ -131,7 +131,7 @@ function Analytics() {
         </div>
 
         {/* Summary tiles */}
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SummaryTile
             icon={Target}
             label="Avg task completion"
@@ -176,7 +176,7 @@ function Analytics() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <ChartCard icon={Target} title="Task completion %" color="var(--primary)">
               <LineChart points={points} sel={(p) => p.completionPct} max={100} unit="%" />
             </ChartCard>

@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VoiceInput, speakAssistant } from "@/components/VoiceInput";
+import { WorkoutCarousel } from "@/components/WorkoutCarousel";
 import {
   processVoiceInput,
   loadDailyDashboard,
@@ -89,6 +90,16 @@ const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
   finance: Wallet,
   family: Users,
   general: Brain,
+};
+
+// Subtle per-domain icon colors (icons only — bars/cards stay neutral/primary).
+const DOMAIN_COLOR: Record<CoachDomain, string> = {
+  focus: "text-rose-500",
+  fitness: "text-emerald-500",
+  nutrition: "text-amber-500",
+  finance: "text-green-600 dark:text-green-500",
+  family: "text-violet-500",
+  general: "text-indigo-500",
 };
 
 function UnifiedDailyDashboard() {
@@ -731,10 +742,10 @@ function UnifiedDailyDashboard() {
       : "No activity recorded for this day.");
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-24 pt-6 sm:px-6">
+    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         {/* Top nav + date */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Daily Dashboard
@@ -914,11 +925,11 @@ function UnifiedDailyDashboard() {
         )}
 
         {/* AI COACH SUGGESTIONS */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Sparkles className="size-4 text-primary" /> Coach Suggestions
+                <Sparkles className="size-4 text-indigo-500" /> Coach Suggestions
               </span>
               <Button
                 variant="ghost"
@@ -939,7 +950,9 @@ function UnifiedDailyDashboard() {
                   const Icon = DOMAIN_ICON[s.domain] || Brain;
                   return (
                     <li key={i} className="flex gap-2.5 text-sm">
-                      <Icon className="mt-0.5 size-4 shrink-0 text-primary/80" />
+                      <Icon
+                        className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-indigo-500"}`}
+                      />
                       <div className="min-w-0">
                         <span>{s.text}</span>
                         {s.action && isToday && (
@@ -994,10 +1007,15 @@ function UnifiedDailyDashboard() {
         </Card>
 
         {/* WORKOUT SUGGESTION */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Dumbbell className="size-4 text-primary" /> Today’s Workout
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Dumbbell className="size-4 text-emerald-500" /> Today’s Workout
+              </span>
+              <Link to="/workouts" className="text-sm font-normal text-primary hover:underline">
+                Open workouts →
+              </Link>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1015,29 +1033,16 @@ function UnifiedDailyDashboard() {
             </div>
             {coaching?.workout ? (
               <div>
-                <div className="flex items-baseline justify-between">
-                  <div className="font-medium">{coaching.workout.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {coaching.workout.focus} • ~{coaching.workout.estimatedMinutes} min
-                  </div>
-                </div>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {coaching.workout.exercises.map((ex, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
-                    >
-                      <span>{ex.name}</span>
-                      <span className="tabular-nums text-xs text-muted-foreground">
-                        {ex.sets} × {ex.reps}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <WorkoutCarousel
+                  title={coaching.workout.title}
+                  focus={coaching.workout.focus}
+                  estimatedMinutes={coaching.workout.estimatedMinutes}
+                  exercises={coaching.workout.exercises}
+                />
                 {isToday && (
                   <Button
                     size="sm"
-                    className="mt-3 gap-1.5"
+                    className="mt-1 gap-1.5"
                     onClick={logSuggestedWorkout}
                     disabled={syncing}
                   >
@@ -1056,7 +1061,7 @@ function UnifiedDailyDashboard() {
         </Card>
 
         {/* FOCUS & TASKS */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">
@@ -1109,11 +1114,11 @@ function UnifiedDailyDashboard() {
         </Card>
 
         {/* NUTRITION */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Utensils className="size-4 text-primary" /> Nutrition
+                <Utensils className="size-4 text-amber-500" /> Nutrition
               </span>
               <Link
                 to="/nutrition"
@@ -1185,32 +1190,26 @@ function UnifiedDailyDashboard() {
               </div>
               {isToday && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {[8, 16, 24].map((oz) => (
-                    <Button
-                      key={`remove-${oz}`}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      disabled={foodEstimating || waterOz <= 0}
-                      onClick={() => handleRemoveWater(oz)}
-                    >
-                      <Minus className="size-3.5" /> {oz} oz
-                    </Button>
-                  ))}
-                  {[8, 16, 24].map((oz) => (
-                    <Button
-                      key={`add-${oz}`}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      disabled={foodEstimating}
-                      onClick={() => handleAddWater(oz)}
-                    >
-                      <Droplet className="size-3.5" /> +{oz} oz
-                    </Button>
-                  ))}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    disabled={foodEstimating || waterOz <= 0}
+                    onClick={() => handleRemoveWater(8)}
+                  >
+                    <Minus className="size-3.5" /> 8 oz
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    disabled={foodEstimating}
+                    onClick={() => handleAddWater(8)}
+                  >
+                    <Droplet className="size-3.5" /> +8 oz
+                  </Button>
                 </div>
               )}
             </div>
@@ -1307,11 +1306,11 @@ function UnifiedDailyDashboard() {
         </Card>
 
         {/* FINANCE — first-class snapshot */}
-        <Card className="mb-4">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Wallet className="size-4 text-primary" /> Finance Snapshot
+                <Wallet className="size-4 text-green-600 dark:text-green-500" /> Finance Snapshot
               </span>
               <span className="text-lg font-semibold tabular-nums">
                 ${(finance?.netWorth ?? 0).toLocaleString()}
@@ -1423,7 +1422,7 @@ function UnifiedDailyDashboard() {
         </Card>
 
         {/* RECENT ACTIVITY */}
-        <Card className="mb-8">
+        <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base">Recent Activity</CardTitle>
           </CardHeader>
