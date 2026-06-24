@@ -117,8 +117,17 @@ export async function getAuth() {
       enabled: true,
     },
 
-    // Security: in production you may force secure cookies via advanced
-    // advanced: { useSecureCookies: true },
+    advanced: {
+      // Cloudflare terminates the connection, so the trusted client IP is in
+      // `cf-connecting-ip`. Without this, Better Auth can't determine a client
+      // IP and rate-limits every request into one shared per-path bucket.
+      // `x-forwarded-for` is a fallback for local/proxied dev.
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+      },
+      // Security: in production you may force secure cookies via
+      // useSecureCookies: true,
+    },
   }) as any;
 
   return _auth;

@@ -11,7 +11,11 @@ export default defineConfig(({ mode }) => {
   const isVitest = mode === "test" || process.env.VITEST === "true";
 
   const __config = {
-    resolve: { tsconfigPaths: true },
+    // Dedupe React so the client environment always resolves a single instance.
+    // Prevents "Invalid hook call" / null hook dispatcher when Vite re-optimizes
+    // deps mid-session and a page ends up with react + react-dom from different
+    // optimize passes (mismatched ?v= hashes).
+    resolve: { tsconfigPaths: true, dedupe: ["react", "react-dom"] },
     plugins: [
       devtools(),
       tailwindcss(),

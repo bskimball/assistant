@@ -25,12 +25,13 @@ import {
 import { ensureWeeklyWorkoutPlan } from "@/server/coach";
 import {
   todayISO,
+  type ExercisePhase,
   type PlannedExercise,
   type PlannedWorkoutSession,
   type WorkoutPlan,
   type WorkoutSession,
 } from "@/lib/domain";
-import { PHASE_META, PHASE_ORDER } from "@/lib/workout-phases";
+import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 
 export const Route = createFileRoute("/workouts")({
   component: WorkoutsPage,
@@ -492,7 +493,7 @@ function WorkoutsPage() {
   );
 }
 
-/** Renders exercises grouped by phase in session order. */
+/** Renders exercises grouped by phase in session order, with silhouette thumbnails. */
 function PhasedExerciseList({ exercises }: { exercises: PlannedExercise[] }) {
   const groups = PHASE_ORDER.map((phase) => ({
     phase,
@@ -500,31 +501,76 @@ function PhasedExerciseList({ exercises }: { exercises: PlannedExercise[] }) {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+    <div className="space-y-5">
       {groups.map(({ phase, items }) => {
         const meta = PHASE_META[phase];
         return (
           <div key={phase}>
-            <div className="mb-1 flex items-center gap-1.5">
+            <div className="mb-2 flex items-center gap-1.5">
               <span className={`size-1.5 rounded-full ${meta.dot}`} />
               <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>
                 {meta.label}
               </span>
+              <span className="h-px flex-1 bg-border" />
             </div>
-            <ul className="space-y-0.5">
+            <ul className="space-y-1.5">
               {items.map((e, i) => (
-                <li key={i} className="flex items-baseline justify-between gap-2 text-sm">
-                  <span className="min-w-0 truncate">{e.name}</span>
-                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
-                    {e.sets ?? 1} × {String(e.reps ?? "—")}
-                  </span>
-                </li>
+                <ExerciseRow key={i} exercise={e} phase={phase} />
               ))}
             </ul>
           </div>
         );
       })}
     </div>
+  );
+}
+
+/** A single exercise: silhouette thumbnail + name + sets × reps. */
+function ExerciseRow({
+  exercise,
+  phase,
+}: {
+  exercise: PlannedExercise;
+  phase: ExercisePhase;
+}) {
+  const meta = PHASE_META[phase];
+  const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
+  const reps = exercise.reps ?? "—";
+  const sets = exercise.sets ?? 1;
+
+  return (
+    <li className="group flex items-center gap-3 rounded-xl p-1.5 transition-colors hover:bg-muted/50">
+      {/* Silhouette thumbnail — dark frame so one art style reads in both themes. */}
+      <div className="relative size-14 shrink-0 overflow-hidden rounded-lg bg-slate-900 outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
+        {state !== "error" && (
+          <img
+            src={exerciseImageUrl(exercise.name)}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onLoad={() => setState("loaded")}
+            onError={() => setState("error")}
+            className={`size-full object-contain transition-opacity duration-300 ${
+              state === "loaded" ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        )}
+        {state !== "loaded" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Dumbbell
+              className={`size-5 ${meta.text} ${state === "loading" ? "animate-pulse opacity-50" : "opacity-40"}`}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium leading-snug">{exercise.name}</div>
+        <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+          {sets} <span className="text-muted-foreground/60">×</span> {String(reps)}
+        </div>
+      </div>
+    </li>
   );
 }
 

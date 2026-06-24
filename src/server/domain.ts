@@ -25,10 +25,11 @@ import type {
   WeeklyReview,
   AIInteraction,
   VoiceTranscript,
-  VoiceIntent,
   ExerciseLibrary,
   UserProfile,
   ISOWeek,
+  ISODate,
+  BaseEntity,
 } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
 import * as impl from "@/server/domain-impl";
@@ -116,21 +117,6 @@ export const loadDailyNutrition = createServerFn({ method: "GET" })
   .handler(async ({ data: date }) => {
     return impl.loadDailyNutritionImpl(date);
   });
-
-function emptyMacros(): Macros {
-  return impl.emptyMacros();
-}
-
-function addMacros(a: Macros, b: Partial<Macros>): Macros {
-  return impl.addMacros(a, b);
-}
-
-function estimateMacrosFromText(text: string): {
-  macros: Macros;
-  confidence: "low" | "medium" | "high";
-} {
-  return impl.estimateMacrosFromText(text);
-}
 
 export const saveDailyNutrition = createServerFn({ method: "POST" })
   .validator(

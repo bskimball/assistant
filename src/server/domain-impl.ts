@@ -32,7 +32,8 @@ import {
   type Macros,
 } from "@/lib/domain";
 import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
-import { getDomainStore, type SoftDeleteRecord } from "@/server/store";
+import { getDomainStore } from "@/server/store";
+import type { SoftDeleteRecord } from "@/server/adapters/r2";
 import { loadTodosImpl, saveTodosImpl } from "@/server/todos";
 
 export type WorkoutPlansStore = {
@@ -314,8 +315,8 @@ export async function appendTransactionImpl(
   const transaction: Transaction = {
     id: newId("txn"),
     createdAt: now,
-    currency: "USD",
     ...data,
+    currency: data.currency ?? "USD",
     timestamp: data.timestamp ?? now,
   };
   await saveTransactionsImpl({ transactions: [...stored.transactions, transaction] });
