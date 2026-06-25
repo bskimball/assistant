@@ -29,13 +29,13 @@ export async function getGrokApiKey(): Promise<string | undefined> {
 }
 
 export function stripJsonFence(raw: string): string {
-  return raw.trim().replace(/^```json\s*|\s*```$/g, "").trim();
+  return raw
+    .trim()
+    .replace(/^```json\s*|\s*```$/g, "")
+    .trim();
 }
 
-export async function completeJSON<T>(
-  apiKey: string,
-  request: JSONChatRequest,
-): Promise<T> {
+export async function completeJSON<T>(apiKey: string, request: JSONChatRequest): Promise<T> {
   const resp = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: {

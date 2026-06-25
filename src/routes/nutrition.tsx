@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Utensils,
@@ -12,7 +12,6 @@ import {
   Sparkles,
   RefreshCw,
   Trash2,
-  ArrowLeft,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -110,7 +109,12 @@ function NutritionPage() {
         date: selectedDate,
         nutrition: {
           mealLogs: next.mealLogs,
-          totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+          totals: nutrition?.totals || {
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+          },
           waterMl: next.waterMl,
         },
       },
@@ -212,7 +216,12 @@ function NutritionPage() {
     }
   }
 
-  const totals = nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  const totals = nutrition?.totals || {
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  };
   const waterOz = mlToFlOz(nutrition?.waterMl ?? 0) ?? 0;
   const meals = (nutrition?.mealLogs || [])
     .filter((m) => !m.deletedAt)
@@ -225,17 +234,8 @@ function NutritionPage() {
         {/* Header + date nav */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Link
-              to="/"
-              search={{ date: isToday ? undefined : selectedDate }}
-              className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft className="size-3.5" /> Dashboard
-            </Link>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Nutrition</div>
-            <div className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
-              <Utensils className="size-7 text-primary" /> {dateLabel}
-            </div>
+            <div className="text-3xl font-semibold tracking-tighter">{dateLabel}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Button
@@ -278,7 +278,10 @@ function NutritionPage() {
                   value={selectedDate}
                   onChange={(e) => {
                     const v = e.target.value as ISODate;
-                    if (v) navigate({ search: { date: v === today ? undefined : v } });
+                    if (v)
+                      navigate({
+                        search: { date: v === today ? undefined : v },
+                      });
                   }}
                   className="pointer-events-none absolute inset-0 size-full opacity-0"
                   tabIndex={-1}

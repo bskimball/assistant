@@ -609,7 +609,10 @@ function buildWeeklyWorkoutPlan(
   };
 }
 
-async function getOrCreateWeeklyWorkout(date: ISODate, profile: UserProfile): Promise<{
+async function getOrCreateWeeklyWorkout(
+  date: ISODate,
+  profile: UserProfile,
+): Promise<{
   plan: WorkoutPlan;
   workout: WorkoutSuggestion;
 }> {
@@ -811,7 +814,9 @@ function profileBlock(profile: UserProfile): string {
   if (profile.trainingDaysPerWeek)
     lines.push(`- Target training days/week: ${profile.trainingDaysPerWeek}`);
   if (profile.preferredWorkoutStyles?.length)
-    lines.push(`- Preferred workout styles (emphasize these): ${profile.preferredWorkoutStyles.join(", ")}`);
+    lines.push(
+      `- Preferred workout styles (emphasize these): ${profile.preferredWorkoutStyles.join(", ")}`,
+    );
   if (profile.dietaryRestrictions?.length)
     lines.push(`- Dietary restrictions (MUST respect): ${profile.dietaryRestrictions.join(", ")}`);
   if (profile.riskTolerance) lines.push(`- Investing risk tolerance: ${profile.riskTolerance}`);
@@ -890,13 +895,13 @@ async function aiCoaching(
   plannedWorkout: WorkoutSuggestion,
 ): Promise<CoachingResult> {
   const parsed = await completeJSON<any>(apiKey, {
-      model: "grok-3-mini",
-      messages: [
-        { role: "system", content: "Return strictly valid minified JSON only. No prose." },
-        { role: "user", content: buildCoachPrompt(signals, profile, trend, plannedWorkout) },
-      ],
-      temperature: 0.5,
-      maxTokens: 700,
+    model: "grok-3-mini",
+    messages: [
+      { role: "system", content: "Return strictly valid minified JSON only. No prose." },
+      { role: "user", content: buildCoachPrompt(signals, profile, trend, plannedWorkout) },
+    ],
+    temperature: 0.5,
+    maxTokens: 700,
   });
 
   const workout = plannedWorkout;
@@ -967,26 +972,26 @@ export const generateCoaching = createServerFn({ method: "POST" })
     // Persist into the DailyPlan so reloads are free.
     try {
       await saveDailyPlanImpl({
-          id: existing?.id || `plan-${date}`,
-          createdAt: existing?.createdAt || Date.now(),
-          date,
-          topTaskIds: existing?.topTaskIds || [],
-          workoutPlanId: weeklyWorkout.plan.id,
-          nutritionTargets: existing?.nutritionTargets ?? { protein: signals.proteinTarget },
-          voiceNoteIds: existing?.voiceNoteIds,
-          notes: existing?.notes,
-          acceptedAt: existing?.acceptedAt,
-          acceptedSuggestionIds: existing?.acceptedSuggestionIds,
-          aiSuggestions: result.suggestions.map(
-            (s) => `[${s.domain}] ${s.text}` + (s.action ? `  (try: "${s.action}")` : ""),
-          ),
-          aiCoaching: {
-            headline: result.headline,
-            suggestions: result.suggestions,
-            workout: result.workout,
-            generatedBy: result.generatedBy,
-            updatedAt: result.updatedAt,
-          },
+        id: existing?.id || `plan-${date}`,
+        createdAt: existing?.createdAt || Date.now(),
+        date,
+        topTaskIds: existing?.topTaskIds || [],
+        workoutPlanId: weeklyWorkout.plan.id,
+        nutritionTargets: existing?.nutritionTargets ?? { protein: signals.proteinTarget },
+        voiceNoteIds: existing?.voiceNoteIds,
+        notes: existing?.notes,
+        acceptedAt: existing?.acceptedAt,
+        acceptedSuggestionIds: existing?.acceptedSuggestionIds,
+        aiSuggestions: result.suggestions.map(
+          (s) => `[${s.domain}] ${s.text}` + (s.action ? `  (try: "${s.action}")` : ""),
+        ),
+        aiCoaching: {
+          headline: result.headline,
+          suggestions: result.suggestions,
+          workout: result.workout,
+          generatedBy: result.generatedBy,
+          updatedAt: result.updatedAt,
+        },
       });
     } catch (e) {
       console.warn("[coach] failed to persist suggestions to DailyPlan", e);
@@ -1048,22 +1053,22 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
 
     const existingPlan = await loadDailyPlanImpl(data.date);
     const plan = await saveDailyPlanImpl({
-        id: existingPlan?.id || `plan-${data.date}`,
-        createdAt: existingPlan?.createdAt || now,
-        date: data.date,
-        workoutPlanId: existingPlan?.workoutPlanId,
-        nutritionTargets: existingPlan?.nutritionTargets,
-        topTaskIds: [workoutTask.id, ...planTasks.slice(0, 3).map((t) => t.id)],
-        acceptedAt: now,
-        acceptedSuggestionIds: planTasks.map((t) => t.id),
-        aiSuggestions:
-          existingPlan?.aiSuggestions ||
-          (data.suggestions as CoachSuggestion[]).map(
-            (s: CoachSuggestion) => `[${s.domain}] ${s.text}`,
-          ),
-        aiCoaching: existingPlan?.aiCoaching,
-        voiceNoteIds: existingPlan?.voiceNoteIds,
-        notes: existingPlan?.notes,
+      id: existingPlan?.id || `plan-${data.date}`,
+      createdAt: existingPlan?.createdAt || now,
+      date: data.date,
+      workoutPlanId: existingPlan?.workoutPlanId,
+      nutritionTargets: existingPlan?.nutritionTargets,
+      topTaskIds: [workoutTask.id, ...planTasks.slice(0, 3).map((t) => t.id)],
+      acceptedAt: now,
+      acceptedSuggestionIds: planTasks.map((t) => t.id),
+      aiSuggestions:
+        existingPlan?.aiSuggestions ||
+        (data.suggestions as CoachSuggestion[]).map(
+          (s: CoachSuggestion) => `[${s.domain}] ${s.text}`,
+        ),
+      aiCoaching: existingPlan?.aiCoaching,
+      voiceNoteIds: existingPlan?.voiceNoteIds,
+      notes: existingPlan?.notes,
     });
 
     return { plan, tasksAdded: [workoutTask, ...planTasks] };
@@ -1174,13 +1179,13 @@ Each array has 2-4 specific, actionable items referencing the numbers. Use US cu
 
     try {
       const parsed = await completeJSON<any>(apiKey, {
-          model: "grok-3-mini",
-          messages: [
-            { role: "system", content: "Return strictly valid minified JSON only. No prose." },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.5,
-          maxTokens: 600,
+        model: "grok-3-mini",
+        messages: [
+          { role: "system", content: "Return strictly valid minified JSON only. No prose." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.5,
+        maxTokens: 600,
       });
       const arr = (v: any): string[] =>
         Array.isArray(v) ? v.map(String).filter(Boolean).slice(0, 4) : [];
@@ -1279,13 +1284,21 @@ Rules:
         return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
       };
       const conf =
-        parsed.confidence === "high" || parsed.confidence === "medium" || parsed.confidence === "low"
+        parsed.confidence === "high" ||
+        parsed.confidence === "medium" ||
+        parsed.confidence === "low"
           ? parsed.confidence
           : "medium";
       const estimate: FoodMacroEstimate = {
-        name: String(parsed.name || description).trim().slice(0, 80) || description,
+        name:
+          String(parsed.name || description)
+            .trim()
+            .slice(0, 80) || description,
         quantity: Number(parsed.quantity) > 0 ? Number(parsed.quantity) : 1,
-        unit: String(parsed.unit || "serving").trim().slice(0, 16) || "serving",
+        unit:
+          String(parsed.unit || "serving")
+            .trim()
+            .slice(0, 16) || "serving",
         calories: num(parsed.calories),
         protein: num(parsed.protein),
         carbs: num(parsed.carbs),
@@ -1294,7 +1307,12 @@ Rules:
         generatedBy: "ai",
       };
       // If the model returned nothing usable, fall back to text parsing.
-      if (estimate.calories === 0 && estimate.protein === 0 && estimate.carbs === 0 && estimate.fat === 0) {
+      if (
+        estimate.calories === 0 &&
+        estimate.protein === 0 &&
+        estimate.carbs === 0 &&
+        estimate.fat === 0
+      ) {
         return fallbackFoodMacros(description);
       }
       return estimate;

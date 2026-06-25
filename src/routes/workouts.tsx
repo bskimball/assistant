@@ -40,7 +40,10 @@ export const Route = createFileRoute("/workouts")({
 const WEEKDAY = (iso: string) =>
   new Date(iso + "T00:00:00").toLocaleDateString([], { weekday: "short" });
 const DAYNUM = (iso: string) =>
-  new Date(iso + "T00:00:00").toLocaleDateString([], { month: "short", day: "numeric" });
+  new Date(iso + "T00:00:00").toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
 
 /** Local-date key for a timestamp, to match a session to a planned day. */
 function dayKey(ts: number): string {
@@ -96,8 +99,7 @@ function WorkoutsPage() {
 
   const weekStart = plan?.weekStartDate;
   const weekEnd = plan?.weekEndDate;
-  const weekRangeLabel =
-    weekStart && weekEnd ? `${DAYNUM(weekStart)} – ${DAYNUM(weekEnd)}` : "";
+  const weekRangeLabel = weekStart && weekEnd ? `${DAYNUM(weekStart)} – ${DAYNUM(weekEnd)}` : "";
 
   // Dates within this week that already have a logged session.
   const loggedDays = new Set(sessions.map((s) => dayKey(s.performedAt)));
@@ -153,9 +155,7 @@ function WorkoutsPage() {
     // Past planned days are stamped at noon that day; today uses now. Future
     // days can't be logged (a session can't be performed in the future).
     const performedAt =
-      session.date === today
-        ? Date.now()
-        : new Date(session.date + "T12:00:00").getTime();
+      session.date === today ? Date.now() : new Date(session.date + "T12:00:00").getTime();
     void logSession({
       title: session.title,
       durationMinutes: session.estimatedMinutes,
@@ -204,9 +204,7 @@ function WorkoutsPage() {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Fitness</div>
-            <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
-              <Dumbbell className="size-7 text-primary" /> Workouts
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tighter">Workouts</h1>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">
               Your week of training — warm-up, main work, core, and cooldown stretch — plus a full
               history of everything you’ve logged.
@@ -227,7 +225,12 @@ function WorkoutsPage() {
             value={`${weekWorkouts}`}
             sub={`of ${targetDays} target`}
           />
-          <StatTile icon={Dumbbell} label="Total logged" value={`${sessions.length}`} sub="sessions" />
+          <StatTile
+            icon={Dumbbell}
+            label="Total logged"
+            value={`${sessions.length}`}
+            sub="sessions"
+          />
           <StatTile
             icon={Clock}
             label="Avg length"
@@ -351,7 +354,10 @@ function WorkoutsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleQuickLog} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
+            <form
+              onSubmit={handleQuickLog}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto]"
+            >
               <Input
                 value={logTitle}
                 onChange={(e) => setLogTitle(e.target.value)}
@@ -526,13 +532,7 @@ function PhasedExerciseList({ exercises }: { exercises: PlannedExercise[] }) {
 }
 
 /** A single exercise: silhouette thumbnail + name + sets × reps. */
-function ExerciseRow({
-  exercise,
-  phase,
-}: {
-  exercise: PlannedExercise;
-  phase: ExercisePhase;
-}) {
+function ExerciseRow({ exercise, phase }: { exercise: PlannedExercise; phase: ExercisePhase }) {
   const meta = PHASE_META[phase];
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   const reps = exercise.reps ?? "—";
@@ -617,5 +617,8 @@ function relativeDay(ts: number, today: string) {
   yest.setDate(yest.getDate() - 1);
   const y = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, "0")}-${String(yest.getDate()).padStart(2, "0")}`;
   if (key === y) return "Yest.";
-  return new Date(ts).toLocaleDateString([], { month: "short", day: "numeric" });
+  return new Date(ts).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
 }

@@ -6,7 +6,6 @@ import {
   Users,
   ListTodo,
   Mic,
-  Sparkles,
   Brain,
   ShieldCheck,
   Target,
@@ -77,8 +76,8 @@ function About() {
         {/* Hero */}
         <div className="mb-8">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">About</div>
-          <h1 className="mt-1 flex items-center gap-2 text-3xl font-semibold tracking-tighter sm:text-4xl">
-            <Sparkles className="size-7 text-primary" /> Your personal life-improvement assistant
+          <h1 className="mt-1 text-3xl font-semibold tracking-tighter sm:text-4xl">
+            Your personal life-improvement assistant
           </h1>
           <p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
             A voice-native AI coach that brings a life coach, personal trainer, and financial

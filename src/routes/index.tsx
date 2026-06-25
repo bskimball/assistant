@@ -34,11 +34,11 @@ import {
   appendWorkoutSession,
   saveDailyFinance,
   loadWorkoutSessions,
-  loadTransactions,
   appendTransaction,
   saveDailyNutrition,
   type DailyDashboardPayload,
 } from "@/server/domain";
+import { loadFinanceHub, type FinanceHubPayload } from "@/server/finance";
 import {
   acceptDailyCoachingPlan,
   generateCoaching,
@@ -153,6 +153,7 @@ function UnifiedDailyDashboard() {
   const [txnCategory, setTxnCategory] = useState("");
   const [txnNote, setTxnNote] = useState("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [financeHub, setFinanceHub] = useState<FinanceHubPayload | null>(null);
   const [workoutSessions, setWorkoutSessions] = useState<WorkoutSession[]>([]);
 
   // Subscribe to productivity collection for instant updates
@@ -168,7 +169,7 @@ function UnifiedDailyDashboard() {
 
   // Derived headline signals (no extra LLM)
   const nutrition = dashboard?.nutrition as (DailyNutrition & { updatedAt?: number }) | null;
-  const finance = dashboard?.finance ?? null;
+  const finance = financeHub?.snapshot ?? dashboard?.finance ?? null;
   const focusScore = (dashboard?.focus || null) as
     | (DailyFocusScore & { updatedAt?: number })
     | null;
@@ -193,14 +194,21 @@ function UnifiedDailyDashboard() {
   const weekWorkoutCount = workoutSessions.filter(
     (s) => s.performedAt >= selectedDayStart - 6 * 86400000 && s.performedAt <= selectedDayEnd,
   ).length;
+  const selectedMonth = selectedDate.slice(0, 7);
+  const monthTransactions = transactions.filter(
+    (t) => new Date(t.timestamp).toISOString().slice(0, 7) === selectedMonth,
+  );
   const dayTransactions = transactions.filter(
     (t) => t.timestamp >= selectedDayStart && t.timestamp <= selectedDayEnd,
   );
-  const cashIn = dayTransactions
-    .filter((t) => ["deposit", "dividend", "sell"].includes(t.type))
-    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const cashOut = dayTransactions
-    .filter((t) => ["withdrawal", "buy", "fee", "other"].includes(t.type))
+  const importedIncome = monthTransactions
+    .filter((t) => t.amount > 0)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const takeHome = financeHub?.budget?.monthlyTakeHome ?? 0;
+  const usePlannedIncome = takeHome > 0;
+  const financeIncome = usePlannedIncome ? takeHome : importedIncome;
+  const financeSpend = monthTransactions
+    .filter((t) => t.amount < 0)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   // Date nav
@@ -224,10 +232,10 @@ function UnifiedDailyDashboard() {
   async function loadForDate(date: ISODate) {
     setIsLoading(true);
     try {
-      const [data, sessionsStore, txnStore] = await Promise.all([
+      const [data, sessionsStore, hub] = await Promise.all([
         loadDailyDashboard({ data: date }),
         loadWorkoutSessions(),
-        loadTransactions(),
+        loadFinanceHub({ data: date }),
       ]);
       setDashboard(data);
       setCoaching(
@@ -244,7 +252,8 @@ function UnifiedDailyDashboard() {
       );
       hydrateProductivityTasks(data.productivity?.tasks || []);
       setWorkoutSessions((sessionsStore?.sessions || []).filter((s) => !s.deletedAt));
-      setTransactions((txnStore?.transactions || []).filter((t) => !t.deletedAt));
+      setFinanceHub(hub);
+      setTransactions((hub.transactions || []).filter((t) => !t.deletedAt));
     } catch (e) {
       console.warn("[dashboard] loadDailyDashboard failed for", date, e);
       setDashboard({
@@ -256,6 +265,7 @@ function UnifiedDailyDashboard() {
         focus: null,
         recent: { interactions: [], transcripts: [] },
       });
+      setFinanceHub(null);
       hydrateProductivityTasks([]);
     } finally {
       setIsLoading(false);
@@ -271,7 +281,9 @@ function UnifiedDailyDashboard() {
   async function refreshCoaching(force = true) {
     setCoachLoading(true);
     try {
-      const result = await generateCoaching({ data: { date: selectedDate, force } });
+      const result = await generateCoaching({
+        data: { date: selectedDate, force },
+      });
       setCoaching(result);
       await loadForDate(selectedDate);
     } catch (e) {
@@ -369,6 +381,7 @@ function UnifiedDailyDashboard() {
         },
       });
       setDashboard((d) => (d ? { ...d, finance: saved } : d));
+      setFinanceHub((hub) => (hub ? { ...hub, snapshot: saved } : hub));
       setAcctName("");
       setAcctAmount("");
       refreshCoaching();
@@ -419,6 +432,14 @@ function UnifiedDailyDashboard() {
         },
       });
       setTransactions((items) => [...items, transaction]);
+      setFinanceHub((hub) =>
+        hub
+          ? {
+              ...hub,
+              transactions: [...hub.transactions, transaction],
+            }
+          : hub,
+      );
       setTxnAmount("");
       setTxnCategory("");
       setTxnNote("");
@@ -468,7 +489,12 @@ function UnifiedDailyDashboard() {
           date: selectedDate,
           nutrition: {
             mealLogs: [...(nutrition?.mealLogs || []), mealLog],
-            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            totals: nutrition?.totals || {
+              calories: 0,
+              protein: 0,
+              carbs: 0,
+              fat: 0,
+            },
             waterMl: nutrition?.waterMl,
           },
         },
@@ -501,7 +527,12 @@ function UnifiedDailyDashboard() {
           date: selectedDate,
           nutrition: {
             mealLogs: nutrition?.mealLogs || [],
-            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            totals: nutrition?.totals || {
+              calories: 0,
+              protein: 0,
+              carbs: 0,
+              fat: 0,
+            },
             waterMl: (nutrition?.waterMl ?? 0) + addMl,
           },
         },
@@ -528,7 +559,12 @@ function UnifiedDailyDashboard() {
           date: selectedDate,
           nutrition: {
             mealLogs: nutrition?.mealLogs || [],
-            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            totals: nutrition?.totals || {
+              calories: 0,
+              protein: 0,
+              carbs: 0,
+              fat: 0,
+            },
             waterMl: nextWaterMl,
           },
         },
@@ -552,7 +588,12 @@ function UnifiedDailyDashboard() {
           date: selectedDate,
           nutrition: {
             mealLogs: (nutrition?.mealLogs || []).filter((meal) => meal.id !== id),
-            totals: nutrition?.totals || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+            totals: nutrition?.totals || {
+              calories: 0,
+              protein: 0,
+              carbs: 0,
+              fat: 0,
+            },
             waterMl: nutrition?.waterMl,
           },
         },
@@ -573,13 +614,18 @@ function UnifiedDailyDashboard() {
     setIsVoiceProcessing(true);
     setVoiceStatus("Processing…");
     try {
-      const result = await processVoiceInput({ data: { transcriptText: text } });
+      const result = await processVoiceInput({
+        data: { transcriptText: text },
+      });
       setVoiceStatus(result.spokenText || "Done");
       await loadForDate(selectedDate);
       if (result.success) {
         speakAssistant(result.spokenText || "Done");
       } else if (result.intent?.requiresConfirmation) {
-        setPendingConfirm({ transcript: text, intentText: result.intent.action });
+        setPendingConfirm({
+          transcript: text,
+          intentText: result.intent.action,
+        });
         speakAssistant(result.spokenText);
       } else {
         speakAssistant(result.spokenText);
@@ -888,7 +934,10 @@ function UnifiedDailyDashboard() {
                   <div
                     key={i}
                     className="w-1.5 animate-pulse rounded bg-primary"
-                    style={{ height: 12 + (i % 3) * 7, animationDelay: `${i * 110}ms` }}
+                    style={{
+                      height: 12 + (i % 3) * 7,
+                      animationDelay: `${i * 110}ms`,
+                    }}
                   />
                 ))}
               </div>
@@ -1309,9 +1358,12 @@ function UnifiedDailyDashboard() {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
+              <Link
+                to="/finance"
+                className="flex items-center gap-2 transition-colors hover:text-primary"
+              >
                 <Wallet className="size-4 text-green-600 dark:text-green-500" /> Finance Snapshot
-              </span>
+              </Link>
               <span className="text-lg font-semibold tabular-nums">
                 ${(finance?.netWorth ?? 0).toLocaleString()}
               </span>
@@ -1323,13 +1375,20 @@ function UnifiedDailyDashboard() {
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
               <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">Cash in</div>
-                <div className="font-medium tabular-nums">${cashIn.toLocaleString()}</div>
+                <div className="text-muted-foreground">
+                  {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
+                </div>
+                <div className="font-medium tabular-nums">${financeIncome.toLocaleString()}</div>
               </div>
               <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">Cash out</div>
-                <div className="font-medium tabular-nums">${cashOut.toLocaleString()}</div>
+                <div className="text-muted-foreground">Spending (mo)</div>
+                <div className="font-medium tabular-nums">${financeSpend.toLocaleString()}</div>
               </div>
+            </div>
+            <div className="mt-1 text-[10px] text-muted-foreground">
+              {monthTransactions.length
+                ? `${monthTransactions.length} transaction${monthTransactions.length === 1 ? "" : "s"} in ${selectedMonth}`
+                : `No transactions imported for ${selectedMonth}`}
             </div>
 
             {finance?.accounts?.length ? (
@@ -1428,7 +1487,10 @@ function UnifiedDailyDashboard() {
           </CardHeader>
           <CardContent>
             {(() => {
-              const rec = dashboard?.recent || { interactions: [], transcripts: [] };
+              const rec = dashboard?.recent || {
+                interactions: [],
+                transcripts: [],
+              };
               const combined = [
                 ...(rec.interactions || []).map((i) => ({
                   ts: i.timestamp,

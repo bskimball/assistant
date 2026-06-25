@@ -14,9 +14,7 @@ export const Route = createFileRoute("/api/exercise-image/$slug")({
   server: {
     handlers: {
       GET: async ({ request, params }) => {
-        const { getOrCreateExerciseImage, slugifyExercise } = await import(
-          "@/server/exercise-art"
-        );
+        const { getOrCreateExerciseImage, slugifyExercise } = await import("@/server/exercise-art");
         const url = new URL(request.url);
         const name = url.searchParams.get("name") || params.slug.replace(/-/g, " ");
         const slug = params.slug || slugifyExercise(name);

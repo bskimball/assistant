@@ -19,13 +19,15 @@ const DEFAULT_CONTENT_TYPE = "image/png";
 
 /** Stable, filesystem-safe key fragment for an exercise name. */
 export function slugifyExercise(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/['’]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "exercise";
+  return (
+    name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "exercise"
+  );
 }
 
 function artKey(slug: string): string {
@@ -56,9 +58,7 @@ function base64ToArrayBuffer(b64: string): ArrayBuffer {
 }
 
 /** Call Grok Imagine and return image bytes + mime type, or null on failure. */
-async function generate(
-  name: string,
-): Promise<{ data: ArrayBuffer; contentType: string } | null> {
+async function generate(name: string): Promise<{ data: ArrayBuffer; contentType: string } | null> {
   const apiKey = await getGrokApiKey();
   if (!apiKey) return null;
   try {

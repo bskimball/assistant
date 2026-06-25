@@ -22,9 +22,9 @@ Implement an **optional nightly reflection pipeline** plus a **client-side weekl
 ### 1. Trigger & Scheduling Model (Hybrid)
 
 - A scheduled Cloudflare Worker / Workflow runs nightly at ~23:30 local time.
-- The job checks whether `daily/{YYYY-MM-DD}/reflection.json` already exists for the *completed* day.
+- The job checks whether `daily/{YYYY-MM-DD}/reflection.json` already exists for the _completed_ day.
 - If absent (or older than a configurable TTL), it generates a fresh reflection using the hybrid template + lightweight LLM approach.
-- For the *current mutable day*, the user can explicitly request “refresh today’s reflection” via voice (“Hey assistant, give me today’s reflection”) or a UI button; this triggers an immediate on-demand generation that overwrites the existing file.
+- For the _current mutable day_, the user can explicitly request “refresh today’s reflection” via voice (“Hey assistant, give me today’s reflection”) or a UI button; this triggers an immediate on-demand generation that overwrites the existing file.
 - Past days remain read-only unless the user explicitly triggers regeneration.
 
 ### 2. Reflection Content & Synthesis Model (Template + Lightweight LLM)

@@ -1,6 +1,6 @@
-import { createCollection, localOnlyCollectionOptions } from '@tanstack/db'
-import type { ProductivityTask, ISODate } from '@/lib/domain'
-import { todayISO } from '@/lib/domain'
+import { createCollection, localOnlyCollectionOptions } from "@tanstack/db";
+import type { ProductivityTask, ISODate } from "@/lib/domain";
+import { todayISO } from "@/lib/domain";
 
 /**
  * Client-only TanStack DB collections for the Unified Daily Dashboard (ADR-005).
@@ -14,38 +14,40 @@ import { todayISO } from '@/lib/domain'
 
 export const productivityTasksCollection = createCollection(
   localOnlyCollectionOptions<ProductivityTask>({
-    id: 'productivity-tasks',
+    id: "productivity-tasks",
     getKey: (t) => t.id,
-  })
-)
+  }),
+);
 
 export function hydrateProductivityTasks(tasks: ProductivityTask[]) {
-  const currentIds = Array.from(productivityTasksCollection.state.keys())
+  const currentIds = Array.from(productivityTasksCollection.state.keys());
   if (currentIds.length) {
-    productivityTasksCollection.delete(currentIds)
+    productivityTasksCollection.delete(currentIds);
   }
   if (tasks.length) {
-    productivityTasksCollection.insert(tasks)
+    productivityTasksCollection.insert(tasks);
   }
 }
 
 export function upsertProductivityTaskClient(task: ProductivityTask) {
   if (productivityTasksCollection.state.has(task.id)) {
     productivityTasksCollection.update(task.id, (draft) => {
-      Object.assign(draft, task)
-    })
+      Object.assign(draft, task);
+    });
   } else {
-    productivityTasksCollection.insert(task)
+    productivityTasksCollection.insert(task);
   }
 }
 
 export function deleteProductivityTaskClient(id: string) {
-  productivityTasksCollection.delete(id)
+  productivityTasksCollection.delete(id);
 }
 
 /** Return tasks for a specific date (caller filters view) */
 export function getTasksForDate(date: ISODate): ProductivityTask[] {
-  return Array.from(productivityTasksCollection.state.values()).filter((t) => t.date === date && !t.deletedAt) as ProductivityTask[]
+  return Array.from(productivityTasksCollection.state.values()).filter(
+    (t) => t.date === date && !t.deletedAt,
+  ) as ProductivityTask[];
 }
 
 /**
@@ -57,5 +59,5 @@ export function getTasksForDate(date: ISODate): ProductivityTask[] {
  */
 
 export function todayKey(): ISODate {
-  return todayISO()
+  return todayISO();
 }

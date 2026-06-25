@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import {
-  BarChart3,
   Target,
   Utensils,
   Droplet,
@@ -112,9 +111,7 @@ function Analytics() {
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Analytics</div>
-            <div className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
-              <BarChart3 className="size-7 text-primary" /> Trends
-            </div>
+            <div className="text-3xl font-semibold tracking-tighter">Trends</div>
           </div>
           <div className="flex items-center gap-1">
             {([7, 14, 30] as const).map((r) => (

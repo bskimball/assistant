@@ -1,6 +1,8 @@
 import type {
   AIInteraction,
   BaseEntity,
+  Budget,
+  CategoryGroup,
   DailyFinanceSnapshot,
   DailyFocusScore,
   DailyNutrition,
@@ -9,6 +11,7 @@ import type {
   ISODate,
   ISOWeek,
   ProductivityTask,
+  Subscription,
   Transaction,
   UserProfile,
   VoiceTranscript,
@@ -84,7 +87,8 @@ export async function loadUserProfileImpl(): Promise<UserProfile> {
 
 export async function saveUserProfileImpl(data: Partial<UserProfile>): Promise<UserProfile> {
   const store = await getDomainStore();
-  const existing = (await store.ref.get<UserProfile>("user-profile.json")) ?? createDefaultUserProfile();
+  const existing =
+    (await store.ref.get<UserProfile>("user-profile.json")) ?? createDefaultUserProfile();
   const now = Date.now();
   const next: UserProfile = {
     ...existing,
@@ -99,15 +103,22 @@ export async function saveUserProfileImpl(data: Partial<UserProfile>): Promise<U
 
 export async function loadWorkoutPlansImpl(): Promise<WorkoutPlansStore> {
   const store = await getDomainStore();
-  return (await store.ref.get<WorkoutPlansStore>("workout-plans.json")) ?? {
-    plans: [],
-    updatedAt: Date.now(),
-  };
+  return (
+    (await store.ref.get<WorkoutPlansStore>("workout-plans.json")) ?? {
+      plans: [],
+      updatedAt: Date.now(),
+    }
+  );
 }
 
-export async function saveWorkoutPlansImpl(data: { plans: WorkoutPlan[] }): Promise<WorkoutPlansStore> {
+export async function saveWorkoutPlansImpl(data: {
+  plans: WorkoutPlan[];
+}): Promise<WorkoutPlansStore> {
   assertSingleActiveWorkoutPlan(data.plans);
-  const payload: WorkoutPlansStore = { plans: data.plans, updatedAt: Date.now() };
+  const payload: WorkoutPlansStore = {
+    plans: data.plans,
+    updatedAt: Date.now(),
+  };
   const store = await getDomainStore();
   await store.ref.put("workout-plans.json", payload);
   return payload;
@@ -120,10 +131,12 @@ export async function getActiveWorkoutPlanImpl(): Promise<WorkoutPlan | null> {
 
 export async function loadWorkoutSessionsImpl(): Promise<WorkoutSessionsStore> {
   const store = await getDomainStore();
-  return (await store.ref.get<WorkoutSessionsStore>("workout-sessions.json")) ?? {
-    sessions: [],
-    updatedAt: Date.now(),
-  };
+  return (
+    (await store.ref.get<WorkoutSessionsStore>("workout-sessions.json")) ?? {
+      sessions: [],
+      updatedAt: Date.now(),
+    }
+  );
 }
 
 export async function saveWorkoutSessionsImpl(data: {
@@ -133,7 +146,10 @@ export async function saveWorkoutSessionsImpl(data: {
   data.sessions.forEach((s) => {
     if (!s.deletedAt) assertValidWorkoutSessionDate(s.performedAt, now);
   });
-  const payload: WorkoutSessionsStore = { sessions: data.sessions, updatedAt: now };
+  const payload: WorkoutSessionsStore = {
+    sessions: data.sessions,
+    updatedAt: now,
+  };
   const store = await getDomainStore();
   await store.ref.put("workout-sessions.json", payload);
   return payload;
@@ -264,7 +280,10 @@ export async function loadDailyFinanceImpl(date: ISODate): Promise<DailyFinanceP
 
 export async function saveDailyFinanceImpl(data: {
   date: ISODate;
-  finance: Omit<DailyFinanceSnapshot, "id" | "createdAt" | "updatedAt" | "deletedAt" | "netWorth"> & {
+  finance: Omit<
+    DailyFinanceSnapshot,
+    "id" | "createdAt" | "updatedAt" | "deletedAt" | "netWorth"
+  > & {
     netWorth?: number;
   };
 }): Promise<DailyFinancePayload> {
@@ -292,16 +311,21 @@ export async function saveDailyFinanceImpl(data: {
 
 export async function loadTransactionsImpl(): Promise<TransactionsStore> {
   const store = await getDomainStore();
-  return (await store.ref.get<TransactionsStore>("transactions.json")) ?? {
-    transactions: [],
-    updatedAt: Date.now(),
-  };
+  return (
+    (await store.ref.get<TransactionsStore>("transactions.json")) ?? {
+      transactions: [],
+      updatedAt: Date.now(),
+    }
+  );
 }
 
 export async function saveTransactionsImpl(data: {
   transactions: Transaction[];
 }): Promise<TransactionsStore> {
-  const payload: TransactionsStore = { transactions: data.transactions, updatedAt: Date.now() };
+  const payload: TransactionsStore = {
+    transactions: data.transactions,
+    updatedAt: Date.now(),
+  };
   const store = await getDomainStore();
   await store.ref.put("transactions.json", payload);
   return payload;
@@ -319,25 +343,116 @@ export async function appendTransactionImpl(
     currency: data.currency ?? "USD",
     timestamp: data.timestamp ?? now,
   };
-  await saveTransactionsImpl({ transactions: [...stored.transactions, transaction] });
+  await saveTransactionsImpl({
+    transactions: [...stored.transactions, transaction],
+  });
   return transaction;
+}
+
+/* ---------- Budget (50/30/20) ---------- */
+
+export type BudgetPayload = Budget & { updatedAt: number };
+
+export async function loadBudgetImpl(): Promise<BudgetPayload | null> {
+  const store = await getDomainStore();
+  return store.ref.get<BudgetPayload>("budget.json");
+}
+
+export async function saveBudgetImpl(data: {
+  budget: Omit<Budget, "id" | "createdAt" | "updatedAt" | "deletedAt">;
+}): Promise<BudgetPayload> {
+  const now = Date.now();
+  const existing = await loadBudgetImpl();
+  const payload: BudgetPayload = {
+    id: "budget",
+    ...data.budget,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  const store = await getDomainStore();
+  await store.ref.put("budget.json", payload);
+  return payload;
+}
+
+/* ---------- Subscriptions ---------- */
+
+export type SubscriptionsStore = {
+  subscriptions: Subscription[];
+  updatedAt: number;
+};
+
+export async function loadSubscriptionsImpl(): Promise<SubscriptionsStore> {
+  const store = await getDomainStore();
+  return (
+    (await store.ref.get<SubscriptionsStore>("subscriptions.json")) ?? {
+      subscriptions: [],
+      updatedAt: Date.now(),
+    }
+  );
+}
+
+export async function saveSubscriptionsImpl(data: {
+  subscriptions: Subscription[];
+}): Promise<SubscriptionsStore> {
+  const payload: SubscriptionsStore = {
+    subscriptions: data.subscriptions,
+    updatedAt: Date.now(),
+  };
+  const store = await getDomainStore();
+  await store.ref.put("subscriptions.json", payload);
+  return payload;
+}
+
+/* ---------- Category rules (learned overrides) ---------- */
+
+export type CategoryRulesStore = {
+  /** Lowercased merchant/keyword → 50/30/20 group. */
+  rules: Record<string, CategoryGroup>;
+  updatedAt: number;
+};
+
+export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
+  const store = await getDomainStore();
+  return (
+    (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
+      rules: {},
+      updatedAt: Date.now(),
+    }
+  );
+}
+
+export async function saveCategoryRulesImpl(data: {
+  rules: Record<string, CategoryGroup>;
+}): Promise<CategoryRulesStore> {
+  const payload: CategoryRulesStore = {
+    rules: data.rules,
+    updatedAt: Date.now(),
+  };
+  const store = await getDomainStore();
+  await store.ref.put("category-rules.json", payload);
+  return payload;
 }
 
 export async function loadProductivityTasksForDayImpl(
   date: ISODate,
 ): Promise<ProductivityTasksPayload> {
   const store = await getDomainStore();
-  return (await store.daily.get<ProductivityTasksPayload>("productivity-tasks", date)) ?? {
-    tasks: [],
-    updatedAt: Date.now(),
-  };
+  return (
+    (await store.daily.get<ProductivityTasksPayload>("productivity-tasks", date)) ?? {
+      tasks: [],
+      updatedAt: Date.now(),
+    }
+  );
 }
 
 export async function saveProductivityTasksForDayImpl(data: {
   date: ISODate;
   tasks: ProductivityTask[];
 }): Promise<ProductivityTasksPayload> {
-  const payload: ProductivityTasksPayload = { tasks: data.tasks, updatedAt: Date.now() };
+  const payload: ProductivityTasksPayload = {
+    tasks: data.tasks,
+    updatedAt: Date.now(),
+  };
   const store = await getDomainStore();
   await store.daily.put("productivity-tasks", data.date, payload);
   return payload;
@@ -418,7 +533,11 @@ export async function appendAIInteractionImpl(
   data: Omit<AIInteraction, "id" | "createdAt" | "updatedAt" | "deletedAt">,
 ): Promise<AIInteraction> {
   const now = Date.now();
-  const record: AIInteraction = { id: `ai-${now}`, createdAt: now, ...data } as AIInteraction;
+  const record: AIInteraction = {
+    id: `ai-${now}`,
+    createdAt: now,
+    ...data,
+  } as AIInteraction;
   const day = new Date(now).toISOString().slice(0, 10);
   const store = await getDomainStore();
   await store.log.append("ai-interactions", day, record);
@@ -506,10 +625,10 @@ function fallbackParseIntent(text: string, _today: ISODate): VoiceIntent {
       unit.includes("ml") || unit.includes("milli")
         ? amount
         : unit.includes("cup")
-          ? flOzToMl(amount * 8) ?? 237
+          ? (flOzToMl(amount * 8) ?? 237)
           : unit.includes("glass")
-            ? flOzToMl(amount * 8) ?? 237
-            : flOzToMl(amount) ?? 237;
+            ? (flOzToMl(amount * 8) ?? 237)
+            : (flOzToMl(amount) ?? 237);
     return {
       action: "logWater",
       payload: { milliliters: ml },
@@ -557,7 +676,10 @@ async function extractVoiceIntentImpl(
     const parsed = await completeJSON<any>(apiKey, {
       model: "grok-3-mini",
       messages: [
-        { role: "system", content: "Return strictly valid minified JSON only. No prose." },
+        {
+          role: "system",
+          content: "Return strictly valid minified JSON only. No prose.",
+        },
         { role: "user", content: buildIntentPrompt(transcriptText, today) },
       ],
       temperature: 0.1,
@@ -590,7 +712,10 @@ async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
       case "createTask": {
         const text = (intent.payload.text || intent.payload.query || "").toString().trim();
         if (!text) throw new Error("Missing task text");
-        const targetDate = resolveVoiceTargetDate(intent.payload.date ?? intent.payload.when, today);
+        const targetDate = resolveVoiceTargetDate(
+          intent.payload.date ?? intent.payload.when,
+          today,
+        );
         const prodTask = createProductivityTask({
           text,
           date: targetDate,
@@ -606,9 +731,15 @@ async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
 
         const legacy = legacyTodoFromProductivityTask(prodTask);
         const currentTodos = await loadTodosImpl();
-        await saveTodosImpl({ items: [...(currentTodos?.items || []), legacy] });
+        await saveTodosImpl({
+          items: [...(currentTodos?.items || []), legacy],
+        });
 
-        return { spokenText: `Task added: ${text}`, success: true, legacyTodo: legacy };
+        return {
+          spokenText: `Task added: ${text}`,
+          success: true,
+          legacyTodo: legacy,
+        };
       }
 
       case "logWater": {
@@ -625,7 +756,10 @@ async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
             updatedAt: now,
           } as any,
         });
-        return { spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.`, success: true };
+        return {
+          spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.`,
+          success: true,
+        };
       }
 
       case "logMeal": {
@@ -669,7 +803,10 @@ async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
         };
         await saveDailyNutritionImpl({
           date,
-          nutrition: { ...nutrition, mealLogs: [...(nutrition.mealLogs || []), mealLog] } as any,
+          nutrition: {
+            ...nutrition,
+            mealLogs: [...(nutrition.mealLogs || []), mealLog],
+          } as any,
         });
         return { spokenText: `Logged meal: ${desc}`, success: true };
       }
@@ -680,10 +817,19 @@ async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
         const payload = await loadProductivityTasksForDayImpl(targetDate);
         const updatedTasks = (payload?.tasks || []).map((t) =>
           t.text.toLowerCase().includes(matchText) || matchText.includes(t.text.toLowerCase())
-            ? { ...t, status: "done" as const, done: true, completedAt: now, updatedAt: now }
+            ? {
+                ...t,
+                status: "done" as const,
+                done: true,
+                completedAt: now,
+                updatedAt: now,
+              }
             : t,
         );
-        await saveProductivityTasksForDayImpl({ date: targetDate, tasks: updatedTasks });
+        await saveProductivityTasksForDayImpl({
+          date: targetDate,
+          tasks: updatedTasks,
+        });
 
         const todos = await loadTodosImpl();
         const updatedLegacy = (todos?.items || []).map((t) =>
@@ -701,7 +847,10 @@ async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
           (t) =>
             !(t.text.toLowerCase().includes(matchText) || matchText.includes(t.text.toLowerCase())),
         );
-        await saveProductivityTasksForDayImpl({ date: targetDate, tasks: filtered });
+        await saveProductivityTasksForDayImpl({
+          date: targetDate,
+          tasks: filtered,
+        });
 
         const todos = await loadTodosImpl();
         const filteredLegacy = (todos?.items || []).filter(
@@ -784,14 +933,22 @@ export async function processVoiceInputImpl(data: {
     timestamp: now,
     intent: intent.action,
     prompt: `voice:${text.slice(0, 120)}`,
-    response: JSON.stringify({ intent, executed: shouldExecute, result: exec.spokenText }),
+    response: JSON.stringify({
+      intent,
+      executed: shouldExecute,
+      result: exec.spokenText,
+    }),
     model: "grok-voice-pipeline",
     tokensIn: undefined,
     tokensOut: undefined,
   };
   await store.putAIInteraction(interaction);
   await store.log.append("ai-interactions", dayForLog, interaction);
-  await store.putVoiceTranscript({ ...transcript, aiInteractionId: interactionId, updatedAt: now });
+  await store.putVoiceTranscript({
+    ...transcript,
+    aiInteractionId: interactionId,
+    updatedAt: now,
+  });
 
   return {
     transcriptId,

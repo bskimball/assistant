@@ -19,32 +19,38 @@ The grilling questions:
 Promote finance to a **first-class daily snapshot**, persisted and surfaced exactly like nutrition and tasks.
 
 ### 1. Persistence (R2 daily aggregate)
+
 - Add `loadDailyFinance(date)` / `saveDailyFinance({ date, finance })` server functions following the established daily-aggregate pattern, stored at `assistant/brian/daily-finance/{YYYY-MM-DD}.json` (ADR-003).
 - `netWorth` is **derived server-side** from `accounts` + `positions` totals when not explicitly provided, so the headline number can't silently drift from its components.
 - Finance is included in the unified `loadDailyDashboard` payload so the dashboard fetches it in one round trip.
 
 ### 2. UI (no longer "optional")
+
 - The dashboard shows a **Finance Snapshot** card with net worth as the headline figure, a per-account list, and an inline quick-add (account name + balance) that upserts by name.
 - Saving a balance re-runs the AI Coach (ADR-011) so finance advice reflects the new numbers immediately.
 
 ### 3. Granularity (v1)
+
 - v1 is a **daily snapshot of balances**, not a full transaction ledger. `positions` and `Transaction` remain in the model for later but are not yet surfaced. This matches personal cadence (update balances occasionally) and keeps the UI light.
 
 ## Consequences
 
 **Positive**
+
 - Net worth is visible and one tap to update — the measurement baseline the coach needs.
 - Finance uses the same daily-aggregate mechanics as every other domain (no special-casing).
 - Coaching becomes genuinely cross-domain: finance suggestions are now grounded in real balances.
 
 **Negative**
+
 - A daily snapshot can't answer "where did the money go" — no transaction history yet.
 - Manual balance entry is low-friction but also low-fidelity (no account sync/import).
 - Net worth trend across days depends on the user actually updating balances.
 
 **Risks & Mitigations**
-- *Stale balances skew trends* → analytics (ADR-008) carries the latest non-zero value forward; coach phrases finance advice around presence/automation rather than precise deltas.
-- *Derived vs. provided net worth confusion* → server always recomputes from components unless an explicit override is passed.
+
+- _Stale balances skew trends_ → analytics (ADR-008) carries the latest non-zero value forward; coach phrases finance advice around presence/automation rather than precise deltas.
+- _Derived vs. provided net worth confusion_ → server always recomputes from components unless an explicit override is passed.
 
 ## Alternatives Considered
 

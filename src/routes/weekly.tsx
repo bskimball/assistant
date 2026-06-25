@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  CalendarRange,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -77,7 +76,10 @@ function Weekly() {
   const weekLabel = `${dates[0]} → ${dates[6]}`;
   const isCurrentWeek = week === toISOWeek(mondayOf(todayISO()));
   const fmtDay = (d: ISODate) =>
-    new Date(d + "T00:00:00").toLocaleDateString([], { month: "short", day: "numeric" });
+    new Date(d + "T00:00:00").toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
   const rangeLabel = `${fmtDay(dates[0])} – ${fmtDay(dates[6])}`;
 
   const [stats, setStats] = useState<WeekStats | null>(null);
@@ -292,9 +294,7 @@ function Weekly() {
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Weekly Review
             </div>
-            <div className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
-              <CalendarRange className="size-7 text-primary" /> {week}
-            </div>
+            <div className="text-3xl font-semibold tracking-tighter">{week}</div>
             <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{weekLabel}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
@@ -408,7 +408,10 @@ function Weekly() {
                       <div className="flex w-full flex-1 items-end">
                         <div
                           className="w-full rounded-t bg-primary transition-all"
-                          style={{ height: `${Math.max(4, d.pct)}%`, opacity: d.total ? 1 : 0.2 }}
+                          style={{
+                            height: `${Math.max(4, d.pct)}%`,
+                            opacity: d.total ? 1 : 0.2,
+                          }}
                           title={`${d.pct}% (${d.total} tasks)`}
                         />
                       </div>

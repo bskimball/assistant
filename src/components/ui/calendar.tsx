@@ -1,9 +1,9 @@
-import * as React from "react"
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
-import { DayPicker, getDefaultClassNames } from "react-day-picker"
+import * as React from "react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { DayPicker, getDefaultClassNames } from "react-day-picker";
 
-import { cn } from "@/lib/utils"
-import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
 
 function Calendar({
   className,
@@ -12,7 +12,7 @@ function Calendar({
   captionLayout = "label",
   ...props
 }: React.ComponentProps<typeof DayPicker>) {
-  const defaultClassNames = getDefaultClassNames()
+  const defaultClassNames = getDefaultClassNames();
 
   return (
     <DayPicker
@@ -89,13 +89,13 @@ function Calendar({
               ? ChevronLeft
               : orientation === "right"
                 ? ChevronRight
-                : ChevronDown
-          return <Icon className={cn("size-4", chevClassName)} />
+                : ChevronDown;
+          return <Icon className={cn("size-4", chevClassName)} />;
         },
       }}
       {...props}
     />
-  )
+  );
 }
 
-export { Calendar }
+export { Calendar };

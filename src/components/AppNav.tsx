@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { useEffect, useRef, useState } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   HeartPulse,
@@ -8,6 +8,7 @@ import {
   KanbanSquare,
   CalendarRange,
   BarChart3,
+  Wallet,
   Sparkles,
   ChevronDown,
   UserCog,
@@ -15,57 +16,63 @@ import {
   LogOut,
   LogIn,
   Loader2,
-} from 'lucide-react'
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
-import { Button } from '@/components/ui/button'
-import ThemeToggle from '@/components/ThemeToggle'
-import { signIn, signOut, useSession } from '@/lib/auth-client'
+} from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/components/ThemeToggle";
+import { signIn, signOut, useSession } from "@/lib/auth-client";
 
-type Leaf = { to: string; label: string; Icon: typeof LayoutDashboard }
+type Leaf = { to: string; label: string; Icon: typeof LayoutDashboard };
 type Tab =
-  | { kind: 'link'; to: string; label: string; Icon: typeof LayoutDashboard }
-  | { kind: 'group'; label: string; Icon: typeof LayoutDashboard; items: Leaf[] }
+  | { kind: "link"; to: string; label: string; Icon: typeof LayoutDashboard }
+  | {
+      kind: "group";
+      label: string;
+      Icon: typeof LayoutDashboard;
+      items: Leaf[];
+    };
 
 // Top-level destinations, left→right. Health groups the body domains (Workouts
 // + Nutrition); Insights groups the review/analytics views. Grouping keeps the
 // bar at four tabs even as those areas grow.
 const TABS: Tab[] = [
-  { kind: 'link', to: '/', label: 'Today', Icon: LayoutDashboard },
+  { kind: "link", to: "/", label: "Today", Icon: LayoutDashboard },
   {
-    kind: 'group',
-    label: 'Health',
+    kind: "group",
+    label: "Health",
     Icon: HeartPulse,
     items: [
-      { to: '/workouts', label: 'Workouts', Icon: Dumbbell },
-      { to: '/nutrition', label: 'Nutrition', Icon: Utensils },
+      { to: "/workouts", label: "Workouts", Icon: Dumbbell },
+      { to: "/nutrition", label: "Nutrition", Icon: Utensils },
     ],
   },
-  { kind: 'link', to: '/kanban', label: 'Tasks', Icon: KanbanSquare },
+  { kind: "link", to: "/kanban", label: "Tasks", Icon: KanbanSquare },
+  { kind: "link", to: "/finance", label: "Money", Icon: Wallet },
   {
-    kind: 'group',
-    label: 'Insights',
+    kind: "group",
+    label: "Insights",
     Icon: BarChart3,
     items: [
-      { to: '/weekly', label: 'Weekly', Icon: CalendarRange },
-      { to: '/analytics', label: 'Trends', Icon: BarChart3 },
+      { to: "/weekly", label: "Weekly", Icon: CalendarRange },
+      { to: "/analytics", label: "Trends", Icon: BarChart3 },
     ],
   },
-]
+];
 
 // Index of the active top-level tab (-1 = none), matching TABS order.
 function activeIndexFor(pathname: string): number {
   return TABS.findIndex((t) =>
-    t.kind === 'link'
-      ? t.to === '/'
-        ? pathname === '/'
+    t.kind === "link"
+      ? t.to === "/"
+        ? pathname === "/"
         : pathname.startsWith(t.to)
       : t.items.some((it) => pathname.startsWith(it.to)),
-  )
+  );
 }
 
 export function AppNav() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const activeIndex = activeIndexFor(pathname)
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const activeIndex = activeIndexFor(pathname);
 
   return (
     <>
@@ -90,35 +97,38 @@ export function AppNav() {
 
       <BottomBar activeIndex={activeIndex} />
     </>
-  )
+  );
 }
 
 // --- Desktop: pill tabs with a sliding active indicator -------------------
 
 function DesktopTabs({ activeIndex }: { activeIndex: number }) {
-  const navRef = useRef<HTMLDivElement>(null)
-  const [openGroup, setOpenGroup] = useState<number | null>(null)
-  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
+  const navRef = useRef<HTMLDivElement>(null);
+  const [openGroup, setOpenGroup] = useState<number | null>(null);
+  const [indicator, setIndicator] = useState<{
+    left: number;
+    width: number;
+  } | null>(null);
 
   // Measure the active tab and slide the indicator to it. Re-measures on
   // navigation and on resize. Hidden entirely when no tab is active.
   useEffect(() => {
     function measure() {
-      const container = navRef.current
-      if (!container) return
-      const tabs = container.querySelectorAll<HTMLElement>('[data-tab]')
-      const el = activeIndex >= 0 ? tabs[activeIndex] : null
-      setIndicator(el ? { left: el.offsetLeft, width: el.offsetWidth } : null)
+      const container = navRef.current;
+      if (!container) return;
+      const tabs = container.querySelectorAll<HTMLElement>("[data-tab]");
+      const el = activeIndex >= 0 ? tabs[activeIndex] : null;
+      setIndicator(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
     }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [activeIndex])
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [activeIndex]);
 
   const tabClass = (active: boolean) =>
     `relative z-10 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${
-      active ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-    }`
+      active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+    }`;
 
   return (
     <div ref={navRef} className="relative hidden items-center gap-1 sm:flex">
@@ -126,71 +136,76 @@ function DesktopTabs({ activeIndex }: { activeIndex: number }) {
         <span
           aria-hidden
           className="pointer-events-none absolute inset-y-0 z-0 rounded-lg bg-primary transition-[transform,width] duration-300 ease-out"
-          style={{ transform: `translateX(${indicator.left}px)`, width: indicator.width }}
+          style={{
+            transform: `translateX(${indicator.left}px)`,
+            width: indicator.width,
+          }}
         />
       )}
 
       {TABS.map((tab, i) => {
-        const active = activeIndex === i
-        if (tab.kind === 'link') {
+        const active = activeIndex === i;
+        if (tab.kind === "link") {
           return (
             <Link key={tab.label} to={tab.to} data-tab className={tabClass(active)}>
               <tab.Icon className="size-4" />
               {tab.label}
             </Link>
-          )
+          );
         }
-        const open = openGroup === i
+        const open = openGroup === i;
         return (
-          <Popover
-            key={tab.label}
-            open={open}
-            onOpenChange={(o) => setOpenGroup(o ? i : null)}
-          >
+          <Popover key={tab.label} open={open} onOpenChange={(o) => setOpenGroup(o ? i : null)}>
             <PopoverTrigger asChild>
               <button type="button" data-tab className={tabClass(active)}>
                 <tab.Icon className="size-4" />
                 {tab.label}
                 <ChevronDown
-                  className={`size-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+                  className={`size-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
                 />
               </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-44 p-1">
               {tab.items.map(({ to, label, Icon }) => (
-                <MenuLink key={to} to={to} Icon={Icon} label={label} onSelect={() => setOpenGroup(null)} />
+                <MenuLink
+                  key={to}
+                  to={to}
+                  Icon={Icon}
+                  label={label}
+                  onSelect={() => setOpenGroup(null)}
+                />
               ))}
             </PopoverContent>
           </Popover>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 // --- Mobile: fixed bottom tab bar -----------------------------------------
 
 function BottomBar({ activeIndex }: { activeIndex: number }) {
-  const [openGroup, setOpenGroup] = useState<number | null>(null)
+  const [openGroup, setOpenGroup] = useState<number | null>(null);
 
   const itemClass = (active: boolean) =>
     `flex flex-1 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[10px] font-medium transition-colors ${
-      active ? 'text-primary' : 'text-muted-foreground'
-    }`
+      active ? "text-primary" : "text-muted-foreground"
+    }`;
   const iconWrap = (active: boolean) =>
     `flex size-8 items-center justify-center rounded-full transition-all duration-200 ${
-      active ? '-translate-y-0.5 bg-primary/15' : ''
-    }`
+      active ? "-translate-y-0.5 bg-primary/15" : ""
+    }`;
 
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/90 backdrop-blur sm:hidden"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <div className="mx-auto flex max-w-page items-stretch justify-around px-2 py-1.5">
         {TABS.map((tab, i) => {
-          const active = activeIndex === i
-          if (tab.kind === 'link') {
+          const active = activeIndex === i;
+          if (tab.kind === "link") {
             return (
               <Link key={tab.label} to={tab.to} className={itemClass(active)}>
                 <span className={iconWrap(active)}>
@@ -198,15 +213,11 @@ function BottomBar({ activeIndex }: { activeIndex: number }) {
                 </span>
                 {tab.label}
               </Link>
-            )
+            );
           }
-          const open = openGroup === i
+          const open = openGroup === i;
           return (
-            <Popover
-              key={tab.label}
-              open={open}
-              onOpenChange={(o) => setOpenGroup(o ? i : null)}
-            >
+            <Popover key={tab.label} open={open} onOpenChange={(o) => setOpenGroup(o ? i : null)}>
               <PopoverTrigger asChild>
                 <button type="button" className={itemClass(active)}>
                   <span className={iconWrap(active)}>
@@ -227,22 +238,22 @@ function BottomBar({ activeIndex }: { activeIndex: number }) {
                 ))}
               </PopoverContent>
             </Popover>
-          )
+          );
         })}
       </div>
     </nav>
-  )
+  );
 }
 
 // --- Account (avatar) menu ------------------------------------------------
 
 function AccountMenu() {
-  const { data: session, isPending } = useSession()
-  const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const { data: session, isPending } = useSession();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   if (isPending) {
-    return <Loader2 className="size-4 animate-spin text-muted-foreground" />
+    return <Loader2 className="size-4 animate-spin text-muted-foreground" />;
   }
 
   if (!session?.user) {
@@ -252,23 +263,23 @@ function AccountMenu() {
         size="sm"
         className="h-8 gap-1.5"
         onClick={() => {
-          signIn.social({ provider: 'google', callbackURL: '/' }).catch(() => {})
+          signIn.social({ provider: "google", callbackURL: "/" }).catch(() => {});
         }}
       >
         <LogIn className="size-3.5" /> Sign in
       </Button>
-    )
+    );
   }
 
-  const u = session.user
-  const initial = (u.name || u.email || '?').slice(0, 1).toUpperCase()
+  const u = session.user;
+  const initial = (u.name || u.email || "?").slice(0, 1).toUpperCase();
 
   async function handleSignOut() {
-    setBusy(true)
+    setBusy(true);
     try {
-      await signOut()
+      await signOut();
     } finally {
-      window.location.assign('/login')
+      window.location.assign("/login");
     }
   }
 
@@ -297,7 +308,7 @@ function AccountMenu() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-1">
         <div className="border-b px-2.5 py-2">
-          <div className="truncate text-sm font-medium">{u.name || 'Signed in'}</div>
+          <div className="truncate text-sm font-medium">{u.name || "Signed in"}</div>
           {u.email && <div className="truncate text-xs text-muted-foreground">{u.email}</div>}
         </div>
         <div className="py-1">
@@ -311,13 +322,13 @@ function AccountMenu() {
             disabled={busy}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />} Sign
-            out
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}{" "}
+            Sign out
           </button>
         </div>
       </PopoverContent>
     </Popover>
-  )
+  );
 }
 
 function MenuLink({
@@ -326,12 +337,12 @@ function MenuLink({
   label,
   onSelect,
 }: {
-  to: string
-  Icon: typeof UserCog
-  label: string
-  onSelect: () => void
+  to: string;
+  Icon: typeof UserCog;
+  label: string;
+  onSelect: () => void;
 }) {
-  const base = 'flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors'
+  const base = "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors";
   return (
     <Link
       to={to}
@@ -341,5 +352,5 @@ function MenuLink({
     >
       <Icon className="size-4 text-primary" /> {label}
     </Link>
-  )
+  );
 }

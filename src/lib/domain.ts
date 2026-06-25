@@ -39,8 +39,16 @@ export type ActivityLevel = "sedentary" | "light" | "moderate" | "active" | "ver
 export type RiskTolerance = "conservative" | "moderate" | "aggressive";
 /** User-facing workout categories the trainer can emphasize (ADR-013). */
 export type WorkoutStyle = "strength" | "calisthenics" | "yoga" | "conditioning";
-export const WORKOUT_STYLES: { value: WorkoutStyle; label: string; hint: string }[] = [
-  { value: "strength", label: "Strength", hint: "Weights — push / pull / legs" },
+export const WORKOUT_STYLES: {
+  value: WorkoutStyle;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "strength",
+    label: "Strength",
+    hint: "Weights — push / pull / legs",
+  },
   { value: "calisthenics", label: "Calisthenics", hint: "Bodyweight strength" },
   { value: "yoga", label: "Yoga & mobility", hint: "Flexibility + recovery" },
   { value: "conditioning", label: "Conditioning", hint: "Cardio + core" },
@@ -299,6 +307,13 @@ export type TransactionType =
   | "fee"
   | "other";
 
+/**
+ * The 50/30/20 bucket a transaction (or category) rolls up into.
+ * `income` and `transfer` are excluded from the spend buckets so internal
+ * money movement and paychecks don't distort needs/wants/savings.
+ */
+export type CategoryGroup = "needs" | "wants" | "savings" | "income" | "transfer";
+
 export interface Transaction extends BaseEntity {
   timestamp: Timestamp;
   type: TransactionType;
@@ -306,9 +321,107 @@ export interface Transaction extends BaseEntity {
   currency: string;
   account?: string;
   category?: string;
+  /** 50/30/20 bucket; assigned on import by the categorizer, user-overridable. */
+  categoryGroup?: CategoryGroup;
   asset?: string;
   quantity?: number;
   notes?: string;
+  /** Stable hash (date+amount+description+account) used to de-dupe re-imports. */
+  dedupeKey?: string;
+  /** Where this transaction came from. */
+  source?: "manual" | "import";
+  /**
+   * One-off charges (legal fees, a single big purchase) the user has marked so
+   * they don't count against the recurring 50/30/20 monthly plan. Still shown
+   * in lists and totals like spending; only the budget comparison ignores them.
+   */
+  excludeFromBudget?: boolean;
+}
+
+/* ---------- Budget (50/30/20) — ref object `budget.json` ---------- */
+
+/** Default 50/30/20 split (needs / wants / savings) as fractions of take-home. */
+export const DEFAULT_BUDGET_TARGETS = {
+  needs: 0.5,
+  wants: 0.3,
+  savings: 0.2,
+} as const;
+
+export interface Budget extends BaseEntity {
+  /** Monthly take-home (post-tax) pay the percentages apply to. */
+  monthlyTakeHome: number;
+  /** Target fractions; default 50/30/20. Should sum to ~1. */
+  targets: { needs: number; wants: number; savings: number };
+  /** Optional per-category dollar limits for power use (envelope-style). */
+  categoryLimits?: Record<string, number>;
+}
+
+/* ---------- Subscriptions — ref object `subscriptions.json` ---------- */
+
+export type SubscriptionCadence = "weekly" | "monthly" | "annual";
+export type SubscriptionStatus = "active" | "canceled";
+
+export interface Subscription extends BaseEntity {
+  name: string;
+  amount: number;
+  cadence: SubscriptionCadence;
+  /** Next expected charge (ISO date), when known. */
+  nextChargeDate?: ISODate;
+  account?: string;
+  category?: string;
+  status: SubscriptionStatus;
+  /** How this entry originated. */
+  source: "detected" | "manual";
+  /** Last time a matching charge was seen in the ledger (ms epoch). */
+  lastSeen?: Timestamp;
+  /**
+   * Which 50/30/20 bucket this recurring item belongs to. Fixed obligations
+   * like a mortgage or car payment are "needs" (we surface them as Bills);
+   * streaming/discretionary recurring charges default to "wants". When unset,
+   * treat as "wants" for backward compatibility.
+   */
+  group?: CategoryGroup;
+}
+
+/**
+ * A "bill" is a recurring item that rolls into the Needs bucket (mortgage,
+ * car payment, insurance, etc.) — kept distinct from discretionary
+ * subscriptions so the subscription total stays meaningful.
+ */
+export function isBillSubscription(sub: Pick<Subscription, "group">): boolean {
+  return sub.group === "needs";
+}
+
+/* ---------- AI growth advisor (ADR-016) ---------- */
+
+export type FinanceAdviceCategory = "budget" | "subscriptions" | "investing" | "earn";
+
+export interface FinanceAdviceItem {
+  category: FinanceAdviceCategory;
+  /** One specific, actionable recommendation. */
+  text: string;
+  /** Short imperative label, used as the task title when accepted. */
+  action?: string;
+}
+
+/** Normalize a subscription's cost to a monthly figure for totals/comparison. */
+export function subscriptionMonthlyCost(sub: Pick<Subscription, "amount" | "cadence">): number {
+  switch (sub.cadence) {
+    case "weekly":
+      return (sub.amount * 52) / 12;
+    case "annual":
+      return sub.amount / 12;
+    default:
+      return sub.amount;
+  }
+}
+
+/** Which 50/30/20 bucket a category group counts toward, or null if excluded. */
+export function spendBucketOf(
+  group: CategoryGroup | undefined,
+): "needs" | "wants" | "savings" | null {
+  if (group === "needs" || group === "wants" || group === "savings") return group;
+  return null;
 }
 
 /* ===================== PRODUCTIVITY ===================== */
@@ -374,7 +487,12 @@ export interface DailyCoachingSnapshot {
     title: string;
     focus: string;
     estimatedMinutes: number;
-    exercises: { name: string; sets: number; reps: string; phase?: ExercisePhase }[];
+    exercises: {
+      name: string;
+      sets: number;
+      reps: string;
+      phase?: ExercisePhase;
+    }[];
   };
   generatedBy: "ai" | "fallback";
   updatedAt: Timestamp;
@@ -659,6 +777,8 @@ export type DomainEntity =
   | MealLog
   | DailyFinanceSnapshot
   | Transaction
+  | Budget
+  | Subscription
   | ProductivityTask
   | DailyFocusScore
   | DailyPlan

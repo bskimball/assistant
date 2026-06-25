@@ -71,6 +71,7 @@ assistant/brian/{domain}/{YYYY-MM-DD}.json
 ```
 
 Examples:
+
 - `assistant/brian/daily-nutrition/2026-06-22.json`
 - `assistant/brian/daily-plan/2026-06-22.json`
 - `assistant/brian/productivity-tasks/2026-06-22.json`
@@ -104,6 +105,7 @@ Daily aggregate objects are the primary read surface.
 This is the compaction strategy for v1.
 
 Rationale:
+
 - Daily objects stay small at personal scale.
 - Single `get` + `put` is the cheapest and simplest R2 operation.
 - No separate compaction worker or eager event merging required for correctness.
@@ -119,7 +121,11 @@ Rationale:
   `meta/deleted/{YYYY-MM-DD}.json`
   Record shape (example):
   ```json
-  { "key": "assistant/brian/daily-nutrition/2026-06-22.json", "deletedAt": 1750000000000, "domain": "daily-nutrition" }
+  {
+    "key": "assistant/brian/daily-nutrition/2026-06-22.json",
+    "deletedAt": 1750000000000,
+    "domain": "daily-nutrition"
+  }
   ```
 - The nightly (or periodic) hard-delete worker:
   1. For the last 8 date shards (today + previous 7 days), read each `meta/deleted/{date}.json`.

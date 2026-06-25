@@ -6,7 +6,7 @@
 
 ## Context
 
-The mission (AGENTS.md) is an assistant that doesn't just *track* but *coaches* — it should "recommend and plan" across fitness, nutrition, finance, family, and productivity. In practice the dashboard rendered a `DailyPlan.aiSuggestions` list, but **nothing ever produced those suggestions**. There was no suggestion generator, no workout recommender, and the "Plan & AI Suggestions" card was almost always empty. The voice pipeline (ADR-004) classifies intents but does not give proactive advice.
+The mission (AGENTS.md) is an assistant that doesn't just _track_ but _coaches_ — it should "recommend and plan" across fitness, nutrition, finance, family, and productivity. In practice the dashboard rendered a `DailyPlan.aiSuggestions` list, but **nothing ever produced those suggestions**. There was no suggestion generator, no workout recommender, and the "Plan & AI Suggestions" card was almost always empty. The voice pipeline (ADR-004) classifies intents but does not give proactive advice.
 
 The grilling questions that shaped this ADR:
 
@@ -20,45 +20,55 @@ The grilling questions that shaped this ADR:
 Introduce a single **AI Coach engine** (`src/server/coach.ts`) that acts as the user's "advisory board" (life coach + strength coach + financial advisor) and produces structured, actionable output from the day's real numbers.
 
 ### 1. One engine, structured output
+
 `generateCoaching({ date })` returns a typed `CoachingResult`:
+
 - `headline` — a short, data-aware motivational line.
 - `suggestions[]` — 4–6 `CoachSuggestion`s, each tagged with a `domain` (`focus | fitness | nutrition | finance | family | general`), one actionable sentence, and an optional `action` voice-command hint (e.g. `"log 40g protein"`).
 - `workout` — a `WorkoutSuggestion` (title, focus, estimated minutes, exercises with sets/reps).
 - `generatedBy: 'ai' | 'fallback'` + `updatedAt`.
 
 ### 2. Data-grounded
+
 The engine first collects `DaySignals` (tasks done/total, protein vs target, water, net worth presence, meals logged, weekday) from the existing `loadDailyDashboard` aggregate. Every suggestion references those numbers rather than offering generic tips.
 
 ### 3. Works with zero config (deterministic fallback)
+
 - If `GROK_API_KEY` is present, the engine asks Grok (`grok-3-mini`) for the structured JSON and validates/normalizes the result, backfilling any missing pieces from the fallback.
 - If no key (or on any LLM error), a **deterministic rules-based coach** produces real coaching from the same signals. The app is fully useful offline; the LLM is an upgrade, not a dependency.
 
 ### 4. Workout rotation
+
 A weekday-mapped push/pull/legs + conditioning + recovery rotation provides a sensible default session. The AI may override it, but the fallback guarantees a coherent plan every day. Completing the suggested session logs a `WorkoutSession` (ADR-002 invariant: no future `performedAt`).
 
 ### 5. Cheap reloads
+
 After generation, suggestions are persisted into the day's `DailyPlan.aiSuggestions`. Reloads render instantly from R2 without another LLM call; the user explicitly triggers regeneration via a Refresh control, and finance edits re-run it.
 
 ### 6. Weekly extension
+
 `generateWeeklyNarrative(WeeklyStatsInput)` applies the same pattern at week granularity: it takes pre-computed weekly stats (so it doesn't re-load seven days server-side) and returns `reflection / wins / blockers / nextWeekFocus`, again AI-backed with a deterministic fallback. It powers the Weekly Review (ADR-006 surface).
 
 ## Consequences
 
 **Positive**
-- The app finally *coaches*: proactive, cross-domain, specific to today's data.
+
+- The app finally _coaches_: proactive, cross-domain, specific to today's data.
 - No hard dependency on an API key — immediate value, predictable cost.
 - A single prompt/model call per generation keeps advice coherent and cheap; persistence makes reloads free.
 - Suggestion `action` hints close the loop back into the voice pipeline.
 
 **Negative**
+
 - The deterministic fallback's quality is bounded by its hand-written rules; it is good, not brilliant.
 - Two code paths (AI + fallback) must be kept behaviorally consistent (shared types, fallback backfill).
 - Prompt/response coupling to Grok's JSON formatting; mitigated by tolerant parsing + fallback.
 
 **Risks & Mitigations**
-- *LLM returns malformed JSON* → strip code fences, `try/parse`, fall back on error; normalize/clamp fields.
-- *Suggestions feel stale* → persisted but regenerable on demand; finance edits auto-refresh.
-- *Token cost creep* → `max_tokens` capped, `grok-3-mini`, one call per explicit generation, results cached in `DailyPlan`.
+
+- _LLM returns malformed JSON_ → strip code fences, `try/parse`, fall back on error; normalize/clamp fields.
+- _Suggestions feel stale_ → persisted but regenerable on demand; finance edits auto-refresh.
+- _Token cost creep_ → `max_tokens` capped, `grok-3-mini`, one call per explicit generation, results cached in `DailyPlan`.
 
 ## Alternatives Considered
 

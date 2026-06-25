@@ -1,21 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Mic, MicOff, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Mic, MicOff, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
-type VoiceState = 'idle' | 'listening' | 'processing' | 'confirming' | 'speaking'
+type VoiceState = "idle" | "listening" | "processing" | "confirming" | "speaking";
 
 interface VoiceInputProps {
   /** Called with the final spoken transcript text (before processing). */
-  onTranscript?: (text: string) => void
+  onTranscript?: (text: string) => void;
   /** Optional className for the mic button wrapper. */
-  className?: string
+  className?: string;
   /** When true the mic is in "confirm yes/no" mode. */
-  confirmMode?: boolean
+  confirmMode?: boolean;
   /** The question/prompt text to show during confirmation. */
-  confirmPrompt?: string
+  confirmPrompt?: string;
   /** Callback when user confirms or denies via voice or buttons. */
-  onConfirm?: (confirmed: boolean) => void
+  onConfirm?: (confirmed: boolean) => void;
 }
 
 /**
@@ -33,158 +40,160 @@ export function VoiceInput({
   confirmPrompt,
   onConfirm,
 }: VoiceInputProps) {
-  const [state, setState] = useState<VoiceState>('idle')
-  const [transcript, setTranscript] = useState('')
-  const [interim, setInterim] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [showConfirm, setShowConfirm] = useState(false)
+  const [state, setState] = useState<VoiceState>("idle");
+  const [transcript, setTranscript] = useState("");
+  const [interim, setInterim] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const recognitionRef = useRef<any>(null)
-  const synthRef = useRef<SpeechSynthesis | null>(null)
+  const recognitionRef = useRef<any>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
 
   // Detect Web Speech support AFTER mount. Computing it during render would
   // disagree between SSR (no `window` → unsupported) and the client's first
   // (hydration) render, causing a hydration mismatch on the button's
   // `disabled`/`title`. Start unsupported (matching the server) and flip in an
   // effect once hydrated.
-  const [isSupported, setIsSupported] = useState(false)
+  const [isSupported, setIsSupported] = useState(false);
   useEffect(() => {
-    setIsSupported('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
-  }, [])
+    setIsSupported("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  }, []);
 
   const speak = useCallback((text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     try {
-      const synth = window.speechSynthesis
-      synthRef.current = synth
-      synth.cancel()
-      const utter = new SpeechSynthesisUtterance(text)
-      utter.rate = 1.02
-      utter.pitch = 1.0
-      utter.onend = () => setState((s) => (s === 'speaking' ? 'idle' : s))
-      setState('speaking')
-      synth.speak(utter)
+      const synth = window.speechSynthesis;
+      synthRef.current = synth;
+      synth.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.02;
+      utter.pitch = 1.0;
+      utter.onend = () => setState((s) => (s === "speaking" ? "idle" : s));
+      setState("speaking");
+      synth.speak(utter);
     } catch {
       // ignore TTS errors
-      setState('idle')
+      setState("idle");
     }
-  }, [])
+  }, []);
 
   const stopListening = useCallback(() => {
-    const rec = recognitionRef.current
+    const rec = recognitionRef.current;
     if (rec) {
       try {
-        rec.onresult = null
-        rec.onerror = null
-        rec.onend = null
-        rec.stop()
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.stop();
       } catch {}
-      recognitionRef.current = null
+      recognitionRef.current = null;
     }
-    setInterim('')
-  }, [])
+    setInterim("");
+  }, []);
 
   const startListening = useCallback(
     (forConfirm = false) => {
       if (!isSupported) {
-        setError('Voice not supported in this browser. Use Chrome/Edge or text input.')
-        return
+        setError("Voice not supported in this browser. Use Chrome/Edge or text input.");
+        return;
       }
-      setError(null)
-      setTranscript('')
-      setInterim('')
+      setError(null);
+      setTranscript("");
+      setInterim("");
 
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      const rec = new SR()
-      recognitionRef.current = rec
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const rec = new SR();
+      recognitionRef.current = rec;
 
-      rec.continuous = false
-      rec.interimResults = true
-      rec.lang = 'en-US'
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.lang = "en-US";
 
       rec.onresult = (event: any) => {
-        let finalText = ''
-        let currentInterim = ''
+        let finalText = "";
+        let currentInterim = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i]
+          const res = event.results[i];
           if (res.isFinal) {
-            finalText += res[0].transcript
+            finalText += res[0].transcript;
           } else {
-            currentInterim += res[0].transcript
+            currentInterim += res[0].transcript;
           }
         }
-        if (currentInterim) setInterim(currentInterim.trim())
+        if (currentInterim) setInterim(currentInterim.trim());
         if (finalText) {
-          const cleaned = finalText.trim()
-          setTranscript(cleaned)
-          setInterim('')
-          stopListening()
+          const cleaned = finalText.trim();
+          setTranscript(cleaned);
+          setInterim("");
+          stopListening();
 
           if (forConfirm) {
-            const isYes = /\byes\b|\byep\b|\bcorrect\b|\bdo it\b|\bokay\b/.test(cleaned.toLowerCase())
-            const isNo = /\bno\b|\bcancel\b|\bstop\b|\bnevermind\b/.test(cleaned.toLowerCase())
+            const isYes = /\byes\b|\byep\b|\bcorrect\b|\bdo it\b|\bokay\b/.test(
+              cleaned.toLowerCase(),
+            );
+            const isNo = /\bno\b|\bcancel\b|\bstop\b|\bnevermind\b/.test(cleaned.toLowerCase());
             if (isYes) {
-              onConfirm?.(true)
-              setShowConfirm(false)
-              setState('idle')
-              speak('Confirmed.')
+              onConfirm?.(true);
+              setShowConfirm(false);
+              setState("idle");
+              speak("Confirmed.");
             } else if (isNo) {
-              onConfirm?.(false)
-              setShowConfirm(false)
-              setState('idle')
-              speak('Cancelled.')
+              onConfirm?.(false);
+              setShowConfirm(false);
+              setState("idle");
+              speak("Cancelled.");
             } else {
               // Ask again
-              setState('confirming')
-              speak(confirmPrompt || 'Please say yes or no.')
+              setState("confirming");
+              speak(confirmPrompt || "Please say yes or no.");
               // restart for confirm after short delay
-              setTimeout(() => startListening(true), 650)
+              setTimeout(() => startListening(true), 650);
             }
           } else {
-            onTranscript?.(cleaned)
-            setState('processing')
+            onTranscript?.(cleaned);
+            setState("processing");
           }
         }
-      }
+      };
 
       rec.onerror = (e: any) => {
-        stopListening()
-        const msg = e?.error === 'no-speech' ? 'No speech detected.' : 'Voice recognition error.'
-        setError(msg)
-        setState('idle')
-      }
+        stopListening();
+        const msg = e?.error === "no-speech" ? "No speech detected." : "Voice recognition error.";
+        setError(msg);
+        setState("idle");
+      };
 
       rec.onend = () => {
-        recognitionRef.current = null
-        if (state === 'listening' || state === 'confirming') {
-          setState('idle')
+        recognitionRef.current = null;
+        if (state === "listening" || state === "confirming") {
+          setState("idle");
         }
-      }
+      };
 
       try {
-        rec.start()
-        setState(forConfirm ? 'confirming' : 'listening')
+        rec.start();
+        setState(forConfirm ? "confirming" : "listening");
       } catch (e) {
-        setError('Could not start microphone.')
-        setState('idle')
+        setError("Could not start microphone.");
+        setState("idle");
       }
     },
-    [isSupported, onTranscript, onConfirm, confirmPrompt, speak, stopListening, state]
-  )
+    [isSupported, onTranscript, onConfirm, confirmPrompt, speak, stopListening, state],
+  );
 
   const handleMicClick = () => {
-    if (state === 'listening' || state === 'confirming') {
-      stopListening()
-      setState('idle')
-      return
+    if (state === "listening" || state === "confirming") {
+      stopListening();
+      setState("idle");
+      return;
     }
     if (confirmMode) {
-      setShowConfirm(true)
-      startListening(true)
+      setShowConfirm(true);
+      startListening(true);
     } else {
-      startListening(false)
+      startListening(false);
     }
-  }
+  };
 
   // Expose speak to parent via ref? For now, parent can call global or we process results here too.
   // When parent finishes processing a result, call speak via a small side effect pattern:
@@ -193,21 +202,21 @@ export function VoiceInput({
   // When not in confirm, if transcript and parent hasn't taken over, auto process.
   // In practice parent (page) wires the call to processVoiceInput and speaks result.
 
-  const processing = state === 'processing'
-  const listening = state === 'listening' || state === 'confirming'
-  const speaking = state === 'speaking'
+  const processing = state === "processing";
+  const listening = state === "listening" || state === "confirming";
+  const speaking = state === "speaking";
 
   return (
     <>
       <div className={className}>
         <Button
           type="button"
-          variant={listening ? 'default' : 'outline'}
+          variant={listening ? "default" : "outline"}
           size="icon"
           onClick={handleMicClick}
           disabled={!isSupported || processing || speaking}
-          aria-label={listening ? 'Stop listening' : 'Start voice input'}
-          title={isSupported ? (listening ? 'Stop' : 'Speak') : 'Voice unsupported'}
+          aria-label={listening ? "Stop listening" : "Start voice input"}
+          title={isSupported ? (listening ? "Stop" : "Speak") : "Voice unsupported"}
           className="size-9"
         >
           {processing || speaking ? (
@@ -227,24 +236,29 @@ export function VoiceInput({
       </div>
 
       {/* Confirmation dialog (also used for destructive intents) */}
-      <Dialog open={showConfirm} onOpenChange={(o) => {
-        if (!o) {
-          stopListening()
-          setShowConfirm(false)
-          setState('idle')
-          onConfirm?.(false)
-        }
-      }}>
+      <Dialog
+        open={showConfirm}
+        onOpenChange={(o) => {
+          if (!o) {
+            stopListening();
+            setShowConfirm(false);
+            setState("idle");
+            onConfirm?.(false);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm with your voice</DialogTitle>
             <DialogDescription>
-              {confirmPrompt || 'Say “yes” to proceed or “no” to cancel.'}
+              {confirmPrompt || "Say “yes” to proceed or “no” to cancel."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-3 text-sm">
-            {transcript && <div className="italic text-muted-foreground">Heard: “{transcript}”</div>}
+            {transcript && (
+              <div className="italic text-muted-foreground">Heard: “{transcript}”</div>
+            )}
             {interim && <div className="text-muted-foreground">Listening… {interim}</div>}
           </div>
 
@@ -252,45 +266,45 @@ export function VoiceInput({
             <Button
               variant="outline"
               onClick={() => {
-                stopListening()
-                setShowConfirm(false)
-                setState('idle')
-                onConfirm?.(false)
-                speak('Cancelled.')
+                stopListening();
+                setShowConfirm(false);
+                setState("idle");
+                onConfirm?.(false);
+                speak("Cancelled.");
               }}
             >
               No, cancel
             </Button>
             <Button
               onClick={() => {
-                stopListening()
-                setShowConfirm(false)
-                setState('idle')
-                onConfirm?.(true)
-                speak('Confirmed.')
+                stopListening();
+                setShowConfirm(false);
+                setState("idle");
+                onConfirm?.(true);
+                speak("Confirmed.");
               }}
             >
               Yes, do it
             </Button>
             <Button variant="ghost" onClick={() => startListening(true)} disabled={listening}>
-              {listening ? 'Listening…' : 'Speak yes / no'}
+              {listening ? "Listening…" : "Speak yes / no"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
-  )
+  );
 }
 
 /** Helper to speak assistant text from anywhere (TTS). Safe no-op when unsupported. */
 export function speakAssistant(text: string) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   try {
-    const synth = window.speechSynthesis
-    synth.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    u.rate = 1.02
-    synth.speak(u)
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.02;
+    synth.speak(u);
   } catch {
     /* no-op */
   }

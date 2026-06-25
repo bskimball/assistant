@@ -37,7 +37,7 @@ export async function getDb(): Promise<D1Db> {
   if (!d1) {
     throw new Error(
       'D1 binding "DB" is not available. Ensure wrangler.jsonc has the d1_databases ' +
-        'binding (see ADR-010). Local dev: run `vp dev` (the Cloudflare Vite plugin ' +
+        "binding (see ADR-010). Local dev: run `vp dev` (the Cloudflare Vite plugin " +
         "emulates D1 under .wrangler/state). Remote: `npx wrangler d1 create assistant-db` " +
         "then paste the id into wrangler.jsonc.",
     );

@@ -3,7 +3,6 @@ name: tanstack-devtools
 description: Centralized, extensible devtools panel for TanStack libraries with a plugin architecture.
 ---
 
-
 ## Overview
 
 TanStack Devtools provides a unified debugging interface that consolidates devtools for TanStack Query, Router, and other libraries into a single panel. It features a framework-agnostic plugin architecture, real-time state inspection, and support for custom plugins. Built with Solid.js for lightweight performance.
@@ -21,10 +20,10 @@ npm install @tanstack/react-devtools
 ## Basic Setup
 
 ```tsx
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient();
 
 function App() {
   return (
@@ -33,7 +32,7 @@ function App() {
       {/* Your app content */}
       <MyApp />
     </QueryClientProvider>
-  )
+  );
 }
 ```
 
@@ -42,8 +41,8 @@ function App() {
 ### Query Devtools
 
 ```tsx
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 
 function App() {
   return (
@@ -51,45 +50,45 @@ function App() {
       <TanStackDevtools
         plugins={[
           {
-            id: 'react-query',
-            name: 'React Query',
+            id: "react-query",
+            name: "React Query",
             render: () => <ReactQueryDevtoolsPanel />,
           },
         ]}
       />
       <MyApp />
     </QueryClientProvider>
-  )
+  );
 }
 ```
 
 ### Router Devtools
 
 ```tsx
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 function App() {
   return (
     <TanStackDevtools
       plugins={[
         {
-          id: 'router',
-          name: 'Router',
+          id: "router",
+          name: "Router",
           render: () => <TanStackRouterDevtoolsPanel router={router} />,
         },
       ]}
     />
-  )
+  );
 }
 ```
 
 ### Combined Setup
 
 ```tsx
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
+import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 function App() {
   return (
@@ -97,20 +96,20 @@ function App() {
       <TanStackDevtools
         plugins={[
           {
-            id: 'react-query',
-            name: 'React Query',
+            id: "react-query",
+            name: "React Query",
             render: () => <ReactQueryDevtoolsPanel />,
           },
           {
-            id: 'router',
-            name: 'Router',
+            id: "router",
+            name: "Router",
             render: () => <TanStackRouterDevtoolsPanel router={router} />,
           },
         ]}
       />
       <MyApp />
     </QueryClientProvider>
-  )
+  );
 }
 ```
 
@@ -119,25 +118,26 @@ function App() {
 For debugging TanStack AI workflows:
 
 ```tsx
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import { AIDevtoolsPanel } from '@tanstack/ai-react/devtools'
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { AIDevtoolsPanel } from "@tanstack/ai-react/devtools";
 
 function App() {
   return (
     <TanStackDevtools
       plugins={[
         {
-          id: 'ai',
-          name: 'AI',
+          id: "ai",
+          name: "AI",
           render: () => <AIDevtoolsPanel />,
         },
       ]}
     />
-  )
+  );
 }
 ```
 
 AI Devtools features:
+
 - **Message Inspector** - View full conversation history with metadata
 - **Token Usage** - Track input/output tokens and costs per request
 - **Streaming Visualization** - Real-time view of streaming chunks
@@ -151,45 +151,38 @@ AI Devtools features:
 
 ```typescript
 interface DevtoolsPlugin {
-  id: string          // Unique identifier
-  name: string        // Display name in the devtools panel
-  render: () => JSX.Element  // React component to render
+  id: string; // Unique identifier
+  name: string; // Display name in the devtools panel
+  render: () => JSX.Element; // React component to render
 }
 ```
 
 ### Custom Plugins
 
 ```tsx
-import { TanStackDevtools } from '@tanstack/react-devtools'
+import { TanStackDevtools } from "@tanstack/react-devtools";
 
 // Custom state inspector plugin
 const stateInspectorPlugin = {
-  id: 'state-inspector',
-  name: 'State',
+  id: "state-inspector",
+  name: "State",
   render: () => (
-    <div style={{ padding: '16px' }}>
+    <div style={{ padding: "16px" }}>
       <h3>Application State</h3>
       <pre>{JSON.stringify(appState, null, 2)}</pre>
     </div>
   ),
-}
+};
 
 // Custom network logger plugin
 const networkLoggerPlugin = {
-  id: 'network-logger',
-  name: 'Network',
+  id: "network-logger",
+  name: "Network",
   render: () => <NetworkLoggerPanel />,
-}
+};
 
 function App() {
-  return (
-    <TanStackDevtools
-      plugins={[
-        stateInspectorPlugin,
-        networkLoggerPlugin,
-      ]}
-    />
-  )
+  return <TanStackDevtools plugins={[stateInspectorPlugin, networkLoggerPlugin]} />;
 }
 ```
 
@@ -197,24 +190,24 @@ function App() {
 
 ```tsx
 function App() {
-  const [plugins, setPlugins] = useState<DevtoolsPlugin[]>([])
+  const [plugins, setPlugins] = useState<DevtoolsPlugin[]>([]);
 
   useEffect(() => {
     // Register plugins conditionally
-    const activePlugins: DevtoolsPlugin[] = []
+    const activePlugins: DevtoolsPlugin[] = [];
 
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === "development") {
       activePlugins.push({
-        id: 'debug',
-        name: 'Debug',
+        id: "debug",
+        name: "Debug",
         render: () => <DebugPanel />,
-      })
+      });
     }
 
-    setPlugins(activePlugins)
-  }, [])
+    setPlugins(activePlugins);
+  }, []);
 
-  return <TanStackDevtools plugins={plugins} />
+  return <TanStackDevtools plugins={plugins} />;
 }
 ```
 
@@ -222,14 +215,12 @@ function App() {
 
 ```typescript
 // vite.config.ts
-import { defineConfig } from 'vite'
-import { tanstackDevtools } from '@tanstack/devtools/vite'
+import { defineConfig } from "vite";
+import { tanstackDevtools } from "@tanstack/devtools/vite";
 
 export default defineConfig({
-  plugins: [
-    tanstackDevtools(),
-  ],
-})
+  plugins: [tanstackDevtools()],
+});
 ```
 
 ## Production Considerations
@@ -239,28 +230,26 @@ export default defineConfig({
 function App() {
   return (
     <>
-      {process.env.NODE_ENV === 'development' && (
-        <TanStackDevtools plugins={plugins} />
-      )}
+      {process.env.NODE_ENV === "development" && <TanStackDevtools plugins={plugins} />}
       <MyApp />
     </>
-  )
+  );
 }
 
 // Or use lazy loading
 const TanStackDevtools = lazy(() =>
-  import('@tanstack/react-devtools').then((m) => ({ default: m.TanStackDevtools }))
-)
+  import("@tanstack/react-devtools").then((m) => ({ default: m.TanStackDevtools })),
+);
 ```
 
 ## Framework Support
 
-| Framework | Package | Status |
-|-----------|---------|--------|
-| React | `@tanstack/react-devtools` | Alpha |
-| Solid | `@tanstack/solid-devtools` | Planned |
-| Vue | `@tanstack/vue-devtools` | Planned |
-| Angular | `@tanstack/angular-devtools` | Planned |
+| Framework | Package                      | Status  |
+| --------- | ---------------------------- | ------- |
+| React     | `@tanstack/react-devtools`   | Alpha   |
+| Solid     | `@tanstack/solid-devtools`   | Planned |
+| Vue       | `@tanstack/vue-devtools`     | Planned |
+| Angular   | `@tanstack/angular-devtools` | Planned |
 
 ## Features
 

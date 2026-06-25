@@ -133,16 +133,8 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
 
       {/* Viewport + edge arrows */}
       <div className="relative">
-        <CarouselArrow
-          dir="prev"
-          disabled={!canPrev}
-          onClick={() => step(-1)}
-        />
-        <CarouselArrow
-          dir="next"
-          disabled={!canNext}
-          onClick={() => step(1)}
-        />
+        <CarouselArrow dir="prev" disabled={!canPrev} onClick={() => step(-1)} />
+        <CarouselArrow dir="next" disabled={!canNext} onClick={() => step(1)} />
 
         <div
           ref={scrollerRef}
@@ -175,7 +167,9 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
               aria-label={`Go to exercise ${i + 1}`}
               onClick={() => scrollToIndex(i)}
               className={`h-1.5 rounded-full transition-all duration-200 ${
-                isActive ? `w-4 ${meta.dot}` : "w-1.5 bg-muted-foreground/25 hover:bg-muted-foreground/50"
+                isActive
+                  ? `w-4 ${meta.dot}`
+                  : "w-1.5 bg-muted-foreground/25 hover:bg-muted-foreground/50"
               }`}
             />
           );

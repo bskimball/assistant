@@ -192,7 +192,11 @@ function BirthDatePicker({
   const selected = parseISODate(value);
   const today = new Date();
   const label = selected
-    ? selected.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+    ? selected.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
     : "Pick a date";
 
   return (
@@ -314,9 +318,7 @@ function ProfilePage() {
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Settings</div>
-          <div className="flex items-center gap-2 text-3xl font-semibold tracking-tighter">
-            <User className="size-7 text-primary" /> Your Profile
-          </div>
+          <div className="text-3xl font-semibold tracking-tighter">Your Profile</div>
           <p className="mt-1 text-sm text-muted-foreground">
             Everything here personalizes your coach — it respects your injuries and dietary
             restrictions, uses your own targets, and references your goals. All fields are optional.
@@ -362,10 +364,7 @@ function ProfilePage() {
                   />
                 </Field>
                 <Field label={`Birth date${age != null ? ` (age ${age})` : ""}`}>
-                  <BirthDatePicker
-                    value={form.birthDate}
-                    onChange={(v) => set("birthDate", v)}
-                  />
+                  <BirthDatePicker value={form.birthDate} onChange={(v) => set("birthDate", v)} />
                 </Field>
                 <Field label="Sex">
                   <select

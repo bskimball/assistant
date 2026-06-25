@@ -3,7 +3,6 @@ name: tanstack-ranger
 description: Headless utilities for building range and multi-range sliders in TS/JS, React, Vue, Solid, Svelte & Angular.
 ---
 
-
 ## Overview
 
 TanStack Ranger provides headless utilities for building fully accessible range and multi-range slider components. It handles all the complex logic for single value, range, and multi-thumb sliders while giving you complete control over styling and markup.
@@ -21,10 +20,10 @@ npm install @tanstack/react-ranger
 ## Core Pattern
 
 ```tsx
-import { useRanger } from '@tanstack/react-ranger'
+import { useRanger } from "@tanstack/react-ranger";
 
 function RangeSlider() {
-  const [values, setValues] = useState([25, 75])
+  const [values, setValues] = useState([25, 75]);
 
   const rangerInstance = useRanger({
     getRangerElement: () => rangerRef.current,
@@ -33,19 +32,19 @@ function RangeSlider() {
     max: 100,
     stepSize: 1,
     onChange: (instance) => setValues(instance.sortedValues),
-  })
+  });
 
-  const rangerRef = useRef<HTMLDivElement>(null)
+  const rangerRef = useRef<HTMLDivElement>(null);
 
   return (
     <div
       ref={rangerRef}
       style={{
-        position: 'relative',
-        height: '8px',
-        background: '#ddd',
-        borderRadius: '4px',
-        width: '100%',
+        position: "relative",
+        height: "8px",
+        background: "#ddd",
+        borderRadius: "4px",
+        width: "100%",
       }}
     >
       {/* Track segments */}
@@ -53,12 +52,12 @@ function RangeSlider() {
         <div
           key={i}
           style={{
-            position: 'absolute',
+            position: "absolute",
             left: `${left}%`,
             width: `${width}%`,
-            height: '100%',
-            background: i === 1 ? '#3b82f6' : '#ddd',
-            borderRadius: '4px',
+            height: "100%",
+            background: i === 1 ? "#3b82f6" : "#ddd",
+            borderRadius: "4px",
           }}
         />
       ))}
@@ -69,20 +68,20 @@ function RangeSlider() {
           key={i}
           {...handle.getHandleProps()}
           style={{
-            position: 'absolute',
+            position: "absolute",
             left: `${handle.getPercentage()}%`,
-            transform: 'translateX(-50%)',
-            width: '20px',
-            height: '20px',
-            borderRadius: '50%',
-            background: '#3b82f6',
-            border: '2px solid white',
-            cursor: 'grab',
+            transform: "translateX(-50%)",
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            background: "#3b82f6",
+            border: "2px solid white",
+            cursor: "grab",
           }}
         />
       ))}
     </div>
-  )
+  );
 }
 ```
 
@@ -90,24 +89,24 @@ function RangeSlider() {
 
 ### Required
 
-| Option | Type | Description |
-|--------|------|-------------|
+| Option             | Type                    | Description                      |
+| ------------------ | ----------------------- | -------------------------------- |
 | `getRangerElement` | `() => Element \| null` | Returns the slider track element |
-| `values` | `number[]` | Current thumb values |
-| `min` | `number` | Minimum value |
-| `max` | `number` | Maximum value |
-| `onChange` | `(instance) => void` | Called when values change |
+| `values`           | `number[]`              | Current thumb values             |
+| `min`              | `number`                | Minimum value                    |
+| `max`              | `number`                | Maximum value                    |
+| `onChange`         | `(instance) => void`    | Called when values change        |
 
 ### Optional
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `stepSize` | `number` | `1` | Step increment between values |
-| `steps` | `number[]` | - | Custom step positions (overrides stepSize) |
-| `tickSize` | `number` | - | Size of tick marks |
-| `ticks` | `number[]` | - | Custom tick positions |
-| `interpolator` | `Interpolator` | linear | Value interpolation function |
-| `onDrag` | `(instance) => void` | - | Called during drag operations |
+| Option         | Type                 | Default | Description                                |
+| -------------- | -------------------- | ------- | ------------------------------------------ |
+| `stepSize`     | `number`             | `1`     | Step increment between values              |
+| `steps`        | `number[]`           | -       | Custom step positions (overrides stepSize) |
+| `tickSize`     | `number`             | -       | Size of tick marks                         |
+| `ticks`        | `number[]`           | -       | Custom tick positions                      |
+| `interpolator` | `Interpolator`       | linear  | Value interpolation function               |
+| `onDrag`       | `(instance) => void` | -       | Called during drag operations              |
 
 ## Ranger Instance API
 
@@ -133,22 +132,22 @@ rangerInstance.setValues(newValues: number[])
 ```typescript
 interface Handle {
   // Get percentage position on track (0-100)
-  getPercentage(): number
+  getPercentage(): number;
 
   // Get the current value
-  getValue(): number
+  getValue(): number;
 
   // Get props to spread on handle element
   getHandleProps(): {
-    role: 'slider'
-    tabIndex: number
-    'aria-valuemin': number
-    'aria-valuemax': number
-    'aria-valuenow': number
-    onKeyDown: (e: KeyboardEvent) => void
-    onMouseDown: (e: MouseEvent) => void
-    onTouchStart: (e: TouchEvent) => void
-  }
+    role: "slider";
+    tabIndex: number;
+    "aria-valuemin": number;
+    "aria-valuemax": number;
+    "aria-valuenow": number;
+    onKeyDown: (e: KeyboardEvent) => void;
+    onMouseDown: (e: MouseEvent) => void;
+    onTouchStart: (e: TouchEvent) => void;
+  };
 }
 ```
 
@@ -156,7 +155,7 @@ interface Handle {
 
 ```tsx
 function SingleSlider() {
-  const [values, setValues] = useState([50])
+  const [values, setValues] = useState([50]);
 
   const rangerInstance = useRanger({
     getRangerElement: () => rangerRef.current,
@@ -165,9 +164,9 @@ function SingleSlider() {
     max: 100,
     stepSize: 1,
     onChange: (instance) => setValues(instance.sortedValues),
-  })
+  });
 
-  const rangerRef = useRef<HTMLDivElement>(null)
+  const rangerRef = useRef<HTMLDivElement>(null);
 
   return (
     <div ref={rangerRef} className="slider-track">
@@ -177,7 +176,7 @@ function SingleSlider() {
         </button>
       ))}
     </div>
-  )
+  );
 }
 ```
 
@@ -185,7 +184,7 @@ function SingleSlider() {
 
 ```tsx
 function MultiRangeSlider() {
-  const [values, setValues] = useState([10, 40, 60, 90])
+  const [values, setValues] = useState([10, 40, 60, 90]);
 
   const rangerInstance = useRanger({
     getRangerElement: () => rangerRef.current,
@@ -194,16 +193,16 @@ function MultiRangeSlider() {
     max: 100,
     stepSize: 5,
     onChange: (instance) => setValues(instance.sortedValues),
-  })
+  });
 
-  const rangerRef = useRef<HTMLDivElement>(null)
+  const rangerRef = useRef<HTMLDivElement>(null);
 
   return (
     <div ref={rangerRef} className="slider-track">
       {rangerInstance.getSteps().map(({ left, width }, i) => (
         <div
           key={i}
-          className={`segment ${i % 2 === 1 ? 'active' : ''}`}
+          className={`segment ${i % 2 === 1 ? "active" : ""}`}
           style={{ left: `${left}%`, width: `${width}%` }}
         />
       ))}
@@ -211,7 +210,7 @@ function MultiRangeSlider() {
         <button key={i} {...handle.getHandleProps()} className="slider-thumb" />
       ))}
     </div>
-  )
+  );
 }
 ```
 
@@ -225,7 +224,7 @@ const rangerInstance = useRanger({
   max: 100,
   steps: [0, 10, 25, 50, 75, 100], // Only these values allowed
   onChange: (instance) => setValues(instance.sortedValues),
-})
+});
 ```
 
 ## Tick Marks
@@ -240,7 +239,7 @@ function SliderWithTicks() {
     stepSize: 10,
     ticks: [0, 25, 50, 75, 100],
     onChange: (instance) => setValues(instance.sortedValues),
-  })
+  });
 
   return (
     <div>
@@ -249,24 +248,20 @@ function SliderWithTicks() {
       </div>
       <div className="tick-container">
         {rangerInstance.getTicks().map((tick, i) => (
-          <div
-            key={i}
-            style={{ left: `${tick.percentage}%` }}
-            className="tick"
-          >
+          <div key={i} style={{ left: `${tick.percentage}%` }} className="tick">
             <span className="tick-label">{tick.value}</span>
           </div>
         ))}
       </div>
     </div>
-  )
+  );
 }
 ```
 
 ## Logarithmic Scale
 
 ```tsx
-import { logarithmicInterpolator } from '@tanstack/react-ranger'
+import { logarithmicInterpolator } from "@tanstack/react-ranger";
 
 const rangerInstance = useRanger({
   getRangerElement: () => rangerRef.current,
@@ -275,7 +270,7 @@ const rangerInstance = useRanger({
   max: 1000,
   interpolator: logarithmicInterpolator,
   onChange: (instance) => setValues(instance.sortedValues),
-})
+});
 ```
 
 ## Accessibility
@@ -289,31 +284,28 @@ TanStack Ranger provides built-in accessibility:
 
 ```tsx
 // Add aria-label for screen readers
-<button
-  {...handle.getHandleProps()}
-  aria-label={`Value: ${handle.getValue()}`}
-/>
+<button {...handle.getHandleProps()} aria-label={`Value: ${handle.getValue()}`} />
 ```
 
 ## Controlled vs Uncontrolled
 
 ```tsx
 // Controlled (recommended)
-const [values, setValues] = useState([50])
+const [values, setValues] = useState([50]);
 const ranger = useRanger({
   values,
   onChange: (instance) => setValues(instance.sortedValues),
   // ...
-})
+});
 
 // With validation
 const handleChange = (instance) => {
-  const [min, max] = instance.sortedValues
+  const [min, max] = instance.sortedValues;
   // Ensure minimum gap of 10
   if (max - min >= 10) {
-    setValues(instance.sortedValues)
+    setValues(instance.sortedValues);
   }
-}
+};
 ```
 
 ## Styling Tips
@@ -358,14 +350,14 @@ const handleChange = (instance) => {
 
 ## Framework Adapters
 
-| Framework | Package | Status |
-|-----------|---------|--------|
-| React | `@tanstack/react-ranger` | Stable |
-| Vue | `@tanstack/vue-ranger` | Stable |
-| Solid | `@tanstack/solid-ranger` | Stable |
-| Svelte | `@tanstack/svelte-ranger` | Stable |
-| Angular | `@tanstack/angular-ranger` | Stable |
-| Core | `@tanstack/ranger-core` | Stable |
+| Framework | Package                    | Status |
+| --------- | -------------------------- | ------ |
+| React     | `@tanstack/react-ranger`   | Stable |
+| Vue       | `@tanstack/vue-ranger`     | Stable |
+| Solid     | `@tanstack/solid-ranger`   | Stable |
+| Svelte    | `@tanstack/svelte-ranger`  | Stable |
+| Angular   | `@tanstack/angular-ranger` | Stable |
+| Core      | `@tanstack/ranger-core`    | Stable |
 
 ## Best Practices
 

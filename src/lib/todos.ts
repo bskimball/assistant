@@ -1,4 +1,4 @@
-import { createCollection, localOnlyCollectionOptions } from '@tanstack/db'
+import { createCollection, localOnlyCollectionOptions } from "@tanstack/db";
 
 /**
  * Todo domain model and client-side reactive collection.
@@ -8,35 +8,35 @@ import { createCollection, localOnlyCollectionOptions } from '@tanstack/db'
  */
 
 export type Todo = {
-  id: string
-  text: string
-  done: boolean
-  createdAt: number
-  date: string
-  completedAt: number | null
-  notes?: string
-  source?: "inbox" | "daily"
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: number;
+  date: string;
+  completedAt: number | null;
+  notes?: string;
+  source?: "inbox" | "daily";
   // AI-enriched optional metadata
-  tags?: string[]
-  priority?: 1 | 2 | 3
-  due?: string
-  project?: string
-  estimatedMinutes?: number
-  energy?: "low" | "medium" | "high"
-}
+  tags?: string[];
+  priority?: 1 | 2 | 3;
+  due?: string;
+  project?: string;
+  estimatedMinutes?: number;
+  energy?: "low" | "medium" | "high";
+};
 
-export const STORAGE_KEY = "aerolist.todos" // legacy migration marker only
+export const STORAGE_KEY = "aerolist.todos"; // legacy migration marker only
 
 export function todayKey(): string {
-  return toDayKey(Date.now())
+  return toDayKey(Date.now());
 }
 
 export function toDayKey(ts: number): string {
-  const d = new Date(ts)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
+  const d = new Date(ts);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export const SEED_TODOS: Todo[] = [
@@ -72,7 +72,7 @@ export const SEED_TODOS: Todo[] = [
     date: todayKey(),
     completedAt: Date.now() - 1000 * 60 * 5,
   },
-]
+];
 
 /**
  * Client-only reactive collection (TanStack DB).
@@ -82,10 +82,10 @@ export const SEED_TODOS: Todo[] = [
  */
 export const todosCollection = createCollection(
   localOnlyCollectionOptions<Todo>({
-    id: 'todos',
+    id: "todos",
     getKey: (todo) => todo.id,
-  })
-)
+  }),
+);
 
 /**
  * Replace the entire contents of the client collection from a server payload.
@@ -93,14 +93,14 @@ export const todosCollection = createCollection(
  */
 export function hydrateTodosFromServer(items: Todo[]) {
   // Clear current
-  const currentIds = Array.from(todosCollection.state.keys())
+  const currentIds = Array.from(todosCollection.state.keys());
   if (currentIds.length) {
-    todosCollection.delete(currentIds)
+    todosCollection.delete(currentIds);
   }
 
   // Insert fresh (local-only collection accepts the data)
   if (items.length) {
-    todosCollection.insert(items)
+    todosCollection.insert(items);
   }
 }
 
@@ -111,10 +111,10 @@ export function hydrateTodosFromServer(items: Todo[]) {
 export function upsertTodoClient(todo: Todo) {
   if (todosCollection.state.has(todo.id)) {
     todosCollection.update(todo.id, (draft) => {
-      Object.assign(draft, todo)
-    })
+      Object.assign(draft, todo);
+    });
   } else {
-    todosCollection.insert(todo)
+    todosCollection.insert(todo);
   }
 }
 
@@ -122,7 +122,7 @@ export function upsertTodoClient(todo: Todo) {
  * Remove from client collection.
  */
 export function deleteTodoClient(id: string) {
-  todosCollection.delete(id)
+  todosCollection.delete(id);
 }
 
 /**
@@ -132,13 +132,13 @@ export function deleteTodoClient(id: string) {
 export function ensureSeeds() {
   if (todosCollection.state.size === 0) {
     SEED_TODOS.forEach((t) => {
-      todosCollection.insert(t)
-    })
+      todosCollection.insert(t);
+    });
   }
 }
 
 export function createTodo(text: string, date = todayKey()): Todo {
-  const createdAt = Date.now()
+  const createdAt = Date.now();
   return {
     id: `${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
     text: text.trim(),
@@ -147,23 +147,23 @@ export function createTodo(text: string, date = todayKey()): Todo {
     date,
     completedAt: null,
     source: "daily",
-  }
+  };
 }
 
 export function createTodoFromParsed(
   parsed: {
-    text: string
-    notes?: string
-    tags?: string[]
-    priority?: 1 | 2 | 3
-    due?: string
-    project?: string
-    estimatedMinutes?: number
-    energy?: "low" | "medium" | "high"
+    text: string;
+    notes?: string;
+    tags?: string[];
+    priority?: 1 | 2 | 3;
+    due?: string;
+    project?: string;
+    estimatedMinutes?: number;
+    energy?: "low" | "medium" | "high";
   },
-  date = todayKey()
+  date = todayKey(),
 ): Todo {
-  const base = createTodo(parsed.text, date)
+  const base = createTodo(parsed.text, date);
   return {
     ...base,
     notes: parsed.notes,
@@ -173,5 +173,5 @@ export function createTodoFromParsed(
     project: parsed.project,
     estimatedMinutes: parsed.estimatedMinutes,
     energy: parsed.energy,
-  }
+  };
 }
