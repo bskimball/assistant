@@ -42,6 +42,8 @@ import {
   subscriptionMonthlyCost,
   spendBucketOf,
   isBillSubscription,
+  cleanMerchantName,
+  summarizeCashFlow,
   DEFAULT_BUDGET_TARGETS,
   type CategoryGroup,
   type Subscription,
@@ -250,26 +252,29 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
   const monthTxns = hub.transactions.filter(
     (t) => new Date(t.timestamp).toISOString().slice(0, 7) === today.slice(0, 7),
   );
-  const importedIncome = monthTxns.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-  const spend = monthTxns.filter((t) => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
-
   // Imported income only captures deposits to the accounts you've imported, so a
   // second paycheck landing in another account is missed. Prefer the monthly
   // take-home you set on the Budget tab (your full after-tax pay) when available.
   const takeHome = hub.budget?.monthlyTakeHome ?? 0;
   const usePlannedIncome = takeHome > 0;
-  const income = usePlannedIncome ? takeHome : importedIncome;
+  // Shared definition so Today / Finance / Analytics agree (transfers excluded).
+  const { income, spend, cashFlow } = summarizeCashFlow(monthTxns, takeHome);
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Stat label="Net worth" value={fmtMoney(hub.snapshot.netWorth ?? 0)} />
+        <Stat
+          label="Cash flow (mo)"
+          value={`${cashFlow < 0 ? "-" : "+"}${fmtMoney(Math.abs(cashFlow))}`}
+          tone={cashFlow >= 0 ? "up" : "down"}
+          hero
+        />
         <Stat
           label={usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
           value={fmtMoney(income)}
           tone="up"
         />
-        <Stat label="Spending (mo)" value={fmtMoney(spend)} tone="down" />
+        <Stat label="Spending (mo)" value={fmtMoney(spend)} />
       </div>
 
       <DataQualityCard hub={hub} today={today} />
@@ -375,40 +380,22 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
     },
   ];
   const score = confidenceChecks.filter((c) => c.ok).length;
+  const issues = confidenceChecks.filter((c) => !c.ok);
+  const dotColor =
+    score === 4 ? "bg-green-500" : score >= 2 ? "bg-amber-500" : "bg-destructive";
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between text-base">
-          <span>Data confidence</span>
-          <span className="text-xs font-normal text-muted-foreground">{score}/4 ready</span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {confidenceChecks.map((check) => (
-            <div
-              key={check.label}
-              className="rounded-md border border-border/60 bg-muted/20 px-3 py-2"
-            >
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                {check.label}
-              </div>
-              <div
-                className={`mt-0.5 text-sm ${check.ok ? "text-foreground" : "text-destructive"}`}
-              >
-                {check.value}
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          {lastTxn
-            ? `Last transaction seen ${fmtDate(lastTxn.timestamp)}. Advice is only as current as the latest statement and manually saved balances.`
-            : "Import a statement and save balances before treating the budget or growth advice as current."}
-        </p>
-      </CardContent>
-    </Card>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1.5 font-medium text-foreground">
+        <span className={`size-1.5 rounded-full ${dotColor}`} />
+        Data confidence {score}/4
+      </span>
+      <span>· {monthTxns.length} txns this month</span>
+      {lastTxn && <span>· last seen {fmtDate(lastTxn.timestamp)}</span>}
+      {issues.length > 0 && (
+        <span className="text-destructive">· {issues.map((c) => c.value).join(", ")}</span>
+      )}
+    </div>
   );
 }
 
@@ -417,6 +404,7 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
 function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }) {
   const [takeHome, setTakeHome] = useState(String(hub.budget?.monthlyTakeHome ?? ""));
   const [busy, setBusy] = useState(false);
+  const [showStatements, setShowStatements] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [institution, setInstitution] = useState(INSTITUTIONS[0]);
 
@@ -573,6 +561,7 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
                   actual={buckets[b]}
                   target={th * targets[b]}
                   targetPct={Math.round(targets[b] * 100)}
+                  goal={b === "savings" ? "save" : "spend"}
                   txns={bucketTxns[b]}
                   onToggleExclude={toggleExclude}
                 />
@@ -599,6 +588,20 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
 
       <BillsCard hub={hub} onChange={onChange} flash={flash} />
 
+      <button
+        type="button"
+        onClick={() => setShowStatements((v) => !v)}
+        className="flex w-full items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+        aria-expanded={showStatements}
+      >
+        <span>Import statement &amp; recent transactions</span>
+        <ChevronDown
+          className={`size-4 transition-transform ${showStatements ? "" : "-rotate-90"}`}
+        />
+      </button>
+
+      {showStatements && (
+        <>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Import statement</CardTitle>
@@ -648,6 +651,8 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
       </Card>
 
       <RecentTransactions transactions={monthTxns} onChange={onChange} />
+        </>
+      )}
     </div>
   );
 }
@@ -685,7 +690,7 @@ function RecentTransactions({
           {recent.map((t) => (
             <li key={t.id} className="flex items-center justify-between gap-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
-                <div className="truncate">{t.category || "—"}</div>
+                <div className="truncate">{t.category ? cleanMerchantName(t.category) : "—"}</div>
                 <div className="text-xs text-muted-foreground tabular-nums">
                   {new Date(t.timestamp).toLocaleDateString()}
                 </div>
@@ -862,7 +867,13 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
 
   // Bills (mortgage, car, …) live under Budget; keep this tab to discretionary
   // subscriptions only so the totals here stay meaningful.
-  const subs = hub.subscriptions.filter((s) => !isBillSubscription(s));
+  const subs = hub.subscriptions
+    .filter((s) => !isBillSubscription(s))
+    // Active first, then by monthly cost descending so the biggest leak is on top.
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+      return subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a);
+    });
   const active = subs.filter((s) => s.status === "active");
   const monthlyTotal = active.reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
 
@@ -960,7 +971,7 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
                     <div
                       className={`truncate ${s.status === "canceled" ? "line-through opacity-60" : ""}`}
                     >
-                      {s.name}
+                      {cleanMerchantName(s.name)}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {fmtMoney(s.amount)}/
@@ -1005,7 +1016,7 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
               {candidates.map((c) => (
                 <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate">{c.name}</div>
+                    <div className="truncate">{cleanMerchantName(c.name)}</div>
                     <div className="text-xs text-muted-foreground">
                       ~{fmtMoney(c.amount)}/
                       {c.cadence === "monthly" ? "mo" : c.cadence === "annual" ? "yr" : "wk"}
@@ -1126,17 +1137,22 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
             <ul className="space-y-2">
               {positions.map((p, i) => {
                 const pct = total > 0 ? Math.round(((p.value || 0) / total) * 100) : 0;
+                // A single holding is always 100% — the bar and percent are noise.
+                const showAllocation = positions.length > 1;
                 return (
                   <li key={i} className="text-sm">
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{p.symbol}</span>
                       <span className="tabular-nums text-muted-foreground">
-                        {p.quantity} × {fmtMoney(p.price)} = {fmtMoney(p.value || 0)} ({pct}%)
+                        {p.quantity} × {fmtMoney(p.price)} = {fmtMoney(p.value || 0)}
+                        {showAllocation ? ` (${pct}%)` : ""}
                       </span>
                     </div>
-                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-muted">
-                      <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                    </div>
+                    {showAllocation && (
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-muted">
+                        <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -1242,23 +1258,16 @@ function GrowTab({
     <div className="space-y-4">
       <RevenueGrowthCard hub={hub} today={today} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Lightbulb className="size-4 text-primary" /> Grow your net worth
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Personalized budget fixes, a subscription audit, investing moves, and ways to earn more
-            — grounded in your real numbers.
-          </p>
-          <Button onClick={generate} disabled={busy} className="gap-1.5">
-            {busy ? <RefreshCw className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            {items ? "Regenerate advice" : "Generate advice"}
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          Personalized budget fixes, a subscription audit, and investing moves — grounded in your
+          real numbers.
+        </p>
+        <Button onClick={generate} disabled={busy} className="shrink-0 gap-1.5">
+          {busy ? <RefreshCw className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+          {items ? "Regenerate advice" : "Generate advice"}
+        </Button>
+      </div>
 
       {items && (
         <>
@@ -1383,18 +1392,28 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 /* ---------------- Shared bits ---------------- */
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
+function Stat({
+  label,
+  value,
+  tone,
+  hero,
+}: {
+  label: string;
+  value: string;
+  tone?: "up" | "down";
+  hero?: boolean;
+}) {
   return (
-    <Card>
+    <Card className={hero ? "border-primary/40 bg-primary/[0.03]" : undefined}>
       <CardContent className="pt-4">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
         <div
-          className={`mt-1 text-2xl font-semibold tabular-nums ${
+          className={`mt-1 font-semibold tabular-nums ${hero ? "text-3xl" : "text-2xl"} ${
             tone === "up"
               ? "text-green-600 dark:text-green-500"
               : tone === "down"
-                ? "text-foreground"
-                : ""
+                ? "text-destructive"
+                : "text-foreground"
           }`}
         >
           {value}
@@ -1409,6 +1428,7 @@ function BudgetBar({
   actual,
   target,
   targetPct,
+  goal = "spend",
   txns = [],
   onToggleExclude,
 }: {
@@ -1416,12 +1436,42 @@ function BudgetBar({
   actual: number;
   target: number;
   targetPct: number;
+  goal?: "spend" | "save";
   txns?: Transaction[];
   onToggleExclude?: (id: string, excluded: boolean) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const pct = target > 0 ? Math.min(140, Math.round((actual / target) * 100)) : 0;
-  const over = actual > target * 1.02;
+  const ratio = target > 0 ? actual / target : 0;
+  const pct = Math.min(100, Math.round(ratio * 100));
+  const remaining = target - actual;
+
+  // Three-state color tuned to the goal direction. For spend buckets (needs/
+  // wants) lower is better; for savings, hitting/exceeding the target is the win.
+  const state: "good" | "warn" | "bad" =
+    goal === "save"
+      ? ratio >= 1
+        ? "good"
+        : ratio >= 0.8
+          ? "warn"
+          : "bad"
+      : ratio > 1.02
+        ? "bad"
+        : ratio >= 0.9
+          ? "warn"
+          : "good";
+  const barColor =
+    state === "bad" ? "bg-destructive" : state === "warn" ? "bg-amber-500" : "bg-emerald-500";
+
+  // Plain-language status so the eye lands on the number that matters.
+  const note =
+    goal === "save"
+      ? remaining > 0
+        ? `${fmtMoney(remaining)} to goal`
+        : "goal met"
+      : remaining >= 0
+        ? `${fmtMoney(remaining)} left`
+        : `${fmtMoney(-remaining)} over`;
+  const noteColor = state === "bad" ? "text-destructive" : "text-muted-foreground";
   const expandable = txns.length > 0 && !!onToggleExclude;
   return (
     <div>
@@ -1443,16 +1493,17 @@ function BudgetBar({
             )}
             {label} <span className="text-xs text-muted-foreground">({targetPct}%)</span>
           </span>
-          <span className={`tabular-nums ${over ? "text-destructive" : "text-muted-foreground"}`}>
+          <span className="tabular-nums text-muted-foreground">
             {fmtMoney(actual)} / {fmtMoney(target)}
           </span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded bg-muted">
           <div
-            className={`h-full transition-all ${over ? "bg-destructive" : "bg-primary"}`}
-            style={{ width: `${Math.min(100, pct)}%` }}
+            className={`h-full transition-all ${barColor}`}
+            style={{ width: `${pct}%` }}
           />
         </div>
+        <div className={`mt-1 text-right text-xs tabular-nums ${noteColor}`}>{note}</div>
       </button>
       {open && expandable && (
         <ul className="mt-2 divide-y divide-border rounded-md border border-border/60 bg-muted/20">
@@ -1465,7 +1516,7 @@ function BudgetBar({
               >
                 <div className={`min-w-0 flex-1 ${excluded ? "opacity-50" : ""}`}>
                   <div className={`truncate ${excluded ? "line-through" : ""}`}>
-                    {t.category || "—"}
+                    {t.category ? cleanMerchantName(t.category) : "—"}
                   </div>
                   <div className="tabular-nums text-muted-foreground">
                     {new Date(t.timestamp).toLocaleDateString()}

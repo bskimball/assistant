@@ -416,12 +416,66 @@ export function subscriptionMonthlyCost(sub: Pick<Subscription, "amount" | "cade
   }
 }
 
+/**
+ * Turn a raw bank-statement description ("GOOGLE *Microsoft One 06/20 PURCHASE 85")
+ * into a readable merchant label ("Google Microsoft One"). Strips dates, store/phone
+ * numbers, and processor noise, then title-cases the first few meaningful words.
+ * Roughly idempotent on already-clean names ("Netflix" -> "Netflix").
+ */
+const MERCHANT_STOPWORDS =
+  /\b(?:purchase|pos|debit|credit|card|payment|recurring|ach|web|id|ppd|des|indn|co|www|com|net|org|llc|inc|usa|us)\b/gi;
+
+export function cleanMerchantName(raw: string): string {
+  const cleaned = raw
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " ") // dates like 06/20
+    .replace(/[*#]/g, " ")
+    .replace(/[^A-Za-z0-9& ]+/g, " ") // drop slashes, dots, dashes, punctuation
+    .replace(MERCHANT_STOPWORDS, " ")
+    .replace(/\b\d+\b/g, " ") // standalone numbers (store ids, phone parts)
+    .replace(/\s+/g, " ")
+    .trim();
+  const seen = new Set<string>();
+  const words = cleaned
+    .split(" ")
+    .filter((w) => w && !seen.has(w.toLowerCase()) && seen.add(w.toLowerCase()))
+    .slice(0, 3);
+  const name = words
+    .map((w) => (w.length <= 2 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()))
+    .join(" ");
+  return name || raw.slice(0, 24).trim();
+}
+
 /** Which 50/30/20 bucket a category group counts toward, or null if excluded. */
 export function spendBucketOf(
   group: CategoryGroup | undefined,
 ): "needs" | "wants" | "savings" | null {
   if (group === "needs" || group === "wants" || group === "savings") return group;
   return null;
+}
+
+/**
+ * Single source of truth for cash flow so every page (Today, Finance, Analytics)
+ * reports the same number for the same transactions. Caller pre-filters the list
+ * to the period it cares about (a month, a rolling window, a day).
+ *
+ * Transfers (credit-card payments, moving money between your own accounts) are
+ * excluded — they aren't real income or spending and otherwise make cash flow
+ * look far worse than it is. When `monthlyTakeHome` is set it stands in for
+ * income, since imported deposits miss paychecks landing in un-imported accounts.
+ */
+export function summarizeCashFlow(
+  transactions: Transaction[],
+  monthlyTakeHome = 0,
+): { income: number; spend: number; cashFlow: number; importedIncome: number } {
+  let importedIncome = 0;
+  let spend = 0;
+  for (const t of transactions) {
+    if (t.deletedAt || t.categoryGroup === "transfer") continue;
+    if (t.amount > 0) importedIncome += t.amount;
+    else spend += Math.abs(t.amount);
+  }
+  const income = monthlyTakeHome > 0 ? monthlyTakeHome : importedIncome;
+  return { income, spend, cashFlow: income - spend, importedIncome };
 }
 
 /* ===================== PRODUCTIVITY ===================== */

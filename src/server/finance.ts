@@ -25,6 +25,7 @@ import {
   subscriptionMonthlyCost,
   spendBucketOf,
   isBillSubscription,
+  cleanMerchantName,
   todayISO,
   DEFAULT_BUDGET_TARGETS,
 } from "@/lib/domain";
@@ -507,7 +508,7 @@ export const detectSubscriptions = createServerFn({ method: "POST" })
       candidates.push({
         id: newId("sub"),
         createdAt: now,
-        name: last.desc.slice(0, 40),
+        name: cleanMerchantName(last.desc),
         amount: Math.round(avgAmount * 100) / 100,
         cadence,
         status: "active",
