@@ -13,10 +13,13 @@
  */
 
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { getDb } from "@/server/adapters/d1";
 
 let _auth: any = null;
+
+const DEFAULT_ALLOWED_LOGIN_EMAILS = ["briankimball1982@gmail.com", "sophiamkimball@gmail.com"];
 
 /**
  * Resolve a secret/env value preferring Cloudflare Workers env, then process.env, then globalThis.
@@ -26,6 +29,30 @@ function getEnvValue(env: any, key: string): string | undefined {
   if (e) return e;
   if (typeof process !== "undefined" && process.env?.[key]) return process.env[key];
   return (globalThis as any)?.[key];
+}
+
+function normalizeEmail(email: string | null | undefined): string {
+  return (email || "").trim().toLowerCase();
+}
+
+function parseEmailList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/[,\s;]+/)
+    .map(normalizeEmail)
+    .filter(Boolean);
+}
+
+export function getAllowedLoginEmails(env?: any): Set<string> {
+  const configured = parseEmailList(
+    getEnvValue(env, "ALLOWED_LOGIN_EMAILS") || getEnvValue(env, "AUTH_ALLOWED_EMAILS"),
+  );
+  return new Set(configured.length > 0 ? configured : DEFAULT_ALLOWED_LOGIN_EMAILS);
+}
+
+export function isAllowedLoginEmail(email: string | null | undefined, env?: any): boolean {
+  const normalized = normalizeEmail(email);
+  return normalized.length > 0 && getAllowedLoginEmails(env).has(normalized);
 }
 
 export async function isAuthConfigured(): Promise<boolean> {
@@ -55,6 +82,9 @@ export async function requireAuthSession(request?: Request): Promise<Session | n
   const session = await auth.api.getSession({ headers });
   if (!session?.user) {
     throw new Error("Authentication required.");
+  }
+  if (!isAllowedLoginEmail(session.user.email)) {
+    throw new Error("This Google account is not allowed to access this assistant.");
   }
   return session as Session;
 }
@@ -107,6 +137,21 @@ export async function getAuth() {
             },
           }
         : {},
+
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user: any) => {
+            if (!isAllowedLoginEmail(user.email, env)) {
+              throw new APIError("FORBIDDEN", {
+                message: "This Google account is not allowed to access this assistant.",
+              });
+            }
+            return { data: user };
+          },
+        },
+      },
+    },
 
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days

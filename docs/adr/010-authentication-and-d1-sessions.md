@@ -36,6 +36,7 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 ### 3. Provider & configuration
 
 - Google is the sole social provider. If `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are absent, `socialProviders` is empty and the app still boots — sign-in simply reports it is unavailable rather than crashing.
+- Login is restricted to Brian and Sophia's Google accounts by default: `briankimball1982@gmail.com` and `sophiamkimball@gmail.com`. The allowlist can be overridden with `ALLOWED_LOGIN_EMAILS` or `AUTH_ALLOWED_EMAILS` using comma, semicolon, or whitespace-separated addresses.
 - Secrets resolve from Cloudflare Workers env first, then `process.env`, then `globalThis`. A dev-only insecure secret is used outside production.
 - `BETTER_AUTH_URL` / trusted origins include localhost + the configured public URL.
 
@@ -47,7 +48,7 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 
 ### 5. Access scope (v1)
 
-- Single permitted user. v1 does **not** yet hard-gate every route/server-fn behind a session check; the immediate goal is to make auth correct, reproducible, and runnable. Route/server-fn enforcement is a tracked follow-up (see Open Questions).
+- Two permitted Google accounts. Route guards and write server functions treat any other Google session as unauthenticated, and Better Auth user creation is blocked for non-allowlisted email addresses.
 
 ## Consequences
 
@@ -67,7 +68,7 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 
 - _D1 binding missing in an environment_ → `getDb()` throws an actionable message; `ensureSchema()` is a no-op when unbound so non-auth paths never crash.
 - _Schema drift between drizzle model and raw `CREATE TABLE`_ → both live in this repo and are reviewed together; column names/types kept in lockstep.
-- _Single-user assumption leaking_ → `USER_ID` remains the R2 partition; if multi-user is ever needed, the session `userId` becomes the partition key (large change, explicitly out of scope).
+- _Family-account access sharing domain data_ → `USER_ID` remains the fixed R2 partition because this is still Brian's personal assistant data model. Sophia's account is an authorized login to the same personal workspace, not a separate tenant. If multi-user data separation is ever needed, the session `userId` becomes the partition key (large change, explicitly out of scope).
 
 ## Alternatives Considered
 
@@ -78,7 +79,7 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 
 ## Open Questions / Next Steps
 
-1. **Hard-gate enforcement**: add a session check helper and apply it to mutating server functions + non-public routes. (Tracked.)
+1. **Existing unauthorized sessions**: if a non-allowlisted Google account signed in before the allowlist existed, app routes and write server functions now reject it; optionally purge that user/session from D1.
 2. **Secrets management**: document/automate setting `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` as Worker secrets for prod.
 3. **D1 provisioning**: replace the placeholder `database_id` in `wrangler.jsonc` after `wrangler d1 create assistant-db`.
 4. **R2 partitioning**: if auth ever maps to multiple users, switch the R2 prefix from the fixed `brian` to the session `userId`.

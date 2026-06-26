@@ -8,7 +8,7 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { getAuth, isAuthConfigured } from "@/lib/auth";
+import { getAuth, isAllowedLoginEmail, isAuthConfigured } from "@/lib/auth";
 
 export interface SessionState {
   authenticated: boolean;
@@ -23,7 +23,10 @@ export const getSessionState = createServerFn({ method: "GET" }).handler(
       const auth = (await getAuth()) as any;
       const headers = ctx?.request?.headers ?? new Headers();
       const session = await auth.api.getSession({ headers });
-      return { authenticated: !!session?.user, configured: true };
+      return {
+        authenticated: !!session?.user && isAllowedLoginEmail(session.user.email),
+        configured: true,
+      };
     } catch {
       return { authenticated: false, configured: true };
     }
