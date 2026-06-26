@@ -403,11 +403,19 @@ function Weekly() {
                   const dow = new Date(d.date + "T00:00:00").toLocaleDateString([], {
                     weekday: "short",
                   });
+                  // Color a day by how much of its tasks got done (higher is better).
+                  const tone = !d.total
+                    ? "bg-muted-foreground"
+                    : d.pct >= 80
+                      ? "bg-emerald-500"
+                      : d.pct >= 40
+                        ? "bg-amber-500"
+                        : "bg-primary";
                   return (
                     <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
                       <div className="flex w-full flex-1 items-end">
                         <div
-                          className="w-full rounded-t bg-primary transition-all"
+                          className={`w-full rounded-t transition-all ${tone}`}
                           style={{
                             height: `${Math.max(4, d.pct)}%`,
                             opacity: d.total ? 1 : 0.2,

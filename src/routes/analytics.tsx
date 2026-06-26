@@ -76,8 +76,15 @@ function Analytics() {
           netWorth: dash.finance?.netWorth ?? 0,
           workouts: allSessions.filter((s) => s.performedAt >= dayStart && s.performedAt <= dayEnd)
             .length,
+          // Same definition as summarizeCashFlow: real income/spending only,
+          // excluding transfers (card payments, account moves).
           cashflow: allTransactions
-            .filter((t) => t.timestamp >= dayStart && t.timestamp <= dayEnd)
+            .filter(
+              (t) =>
+                t.timestamp >= dayStart &&
+                t.timestamp <= dayEnd &&
+                t.categoryGroup !== "transfer",
+            )
             .reduce((sum, t) => sum + t.amount, 0),
         };
       });
@@ -127,8 +134,8 @@ function Analytics() {
           </div>
         </div>
 
-        {/* Summary tiles */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* Summary tiles — 5 metrics, so 5 across on wide screens (no orphan row) */}
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <SummaryTile
             icon={Target}
             label="Avg task completion"
@@ -155,8 +162,9 @@ function Analytics() {
           <SummaryTile
             icon={Wallet}
             label="Net cashflow"
-            value={`$${netCashflow.toLocaleString()}`}
-            sub={`in ${range} days`}
+            value={`${netCashflow < 0 ? "-" : "+"}$${Math.abs(netCashflow).toLocaleString()}`}
+            sub={`logged · ${range}d`}
+            tone={netCashflow < 0 ? "neg" : netCashflow > 0 ? "pos" : undefined}
           />
         </div>
 
@@ -209,19 +217,27 @@ function SummaryTile({
   value,
   sub,
   trend,
+  tone,
 }: {
   icon: typeof Target;
   label: string;
   value: string;
   sub?: string;
   trend?: number;
+  tone?: "pos" | "neg";
 }) {
+  const valueTone =
+    tone === "pos"
+      ? "text-green-600 dark:text-green-500"
+      : tone === "neg"
+        ? "text-destructive"
+        : "";
   return (
     <div className="rounded-xl border bg-card p-3">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <Icon className="size-3.5" /> {label}
       </div>
-      <div className="mt-1 flex items-center gap-1.5 text-xl font-semibold tabular-nums">
+      <div className={`mt-1 flex items-center gap-1.5 text-xl font-semibold tabular-nums ${valueTone}`}>
         {value}
         {trend !== undefined && trend !== 0 && (
           <span

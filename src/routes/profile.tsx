@@ -331,7 +331,13 @@ function ProfilePage() {
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted">
                 <div
-                  className="h-full bg-primary transition-all"
+                  className={`h-full transition-all ${
+                    profileCompleteness >= 100
+                      ? "bg-emerald-500"
+                      : profileCompleteness >= 60
+                        ? "bg-amber-500"
+                        : "bg-primary"
+                  }`}
                   style={{ width: `${profileCompleteness}%` }}
                 />
               </div>

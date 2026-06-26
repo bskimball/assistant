@@ -368,7 +368,9 @@ function KanbanBoard() {
               return (
                 <div
                   key={col.id}
-                  className="w-56 shrink-0 rounded-xl border bg-muted/30 p-3 flex flex-col min-h-[380px]"
+                  className={`w-56 shrink-0 rounded-xl border bg-muted/30 p-3 flex flex-col min-h-[140px] ${
+                    colTasks.length === 0 ? "opacity-80" : ""
+                  }`}
                   onDragOver={_handleDragOver}
                   onDrop={(e) => handleDrop(e, col.id)}
                 >
@@ -376,7 +378,11 @@ function KanbanBoard() {
                     <span className="flex items-center gap-1.5">
                       <col.icon className="size-4 text-muted-foreground" /> {col.label}
                     </span>
-                    <span className="text-xs font-normal text-muted-foreground">
+                    <span
+                      className={`text-xs font-normal ${
+                        colTasks.length === 0 ? "text-muted-foreground/40" : "text-muted-foreground"
+                      }`}
+                    >
                       {colTasks.length}
                     </span>
                   </div>

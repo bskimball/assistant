@@ -310,6 +310,7 @@ function NutritionPage() {
             value={totals.calories}
             target={targets.calories}
             unit="cal"
+            goal="under"
           />
           <MacroTile
             icon={Beef}
@@ -508,11 +509,29 @@ function NutritionPage() {
   );
 }
 
-function Progress({ value, target }: { value: number; target: number }) {
-  const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
+function Progress({
+  value,
+  target,
+  goal = "hit",
+}: {
+  value: number;
+  target: number;
+  // "hit" = higher is better (protein, water); "under" = stay below (calories).
+  goal?: "hit" | "under";
+}) {
+  const ratio = value / Math.max(1, target);
+  const pct = Math.min(100, Math.round(ratio * 100));
+  const over = goal === "under" && ratio > 1.05;
+  const tone = over
+    ? "bg-destructive"
+    : pct >= 80
+      ? "bg-emerald-500"
+      : pct >= 40
+        ? "bg-amber-500"
+        : "bg-primary";
   return (
     <div className="h-2 w-full overflow-hidden rounded bg-muted">
-      <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+      <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -523,12 +542,14 @@ function MacroTile({
   value,
   target,
   unit,
+  goal = "hit",
 }: {
   icon: typeof Utensils;
   label: string;
   value: number;
   target?: number;
   unit: string;
+  goal?: "hit" | "under";
 }) {
   return (
     <Card>
@@ -543,13 +564,20 @@ function MacroTile({
         {target ? (
           <>
             <div className="mt-1.5">
-              <Progress value={value} target={target} />
+              <Progress value={value} target={target} goal={goal} />
             </div>
             <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
               of {target} {unit}
             </div>
           </>
-        ) : null}
+        ) : (
+          // Carbs/Fat have no target — keep the tile the same height with a muted
+          // track so the row reads as intentional rather than half-finished.
+          <>
+            <div className="mt-1.5 h-2 w-full rounded bg-muted/40" />
+            <div className="mt-1 text-[11px] text-muted-foreground">no target set</div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

@@ -224,6 +224,7 @@ function WorkoutsPage() {
             label="This week"
             value={`${weekWorkouts}`}
             sub={`of ${targetDays} target`}
+            progress={{ value: weekWorkouts, target: targetDays }}
           />
           <StatTile
             icon={Dumbbell}
@@ -579,12 +580,18 @@ function StatTile({
   label,
   value,
   sub,
+  progress,
 }: {
   icon: typeof Dumbbell;
   label: string;
   value: string;
   sub?: string;
+  progress?: { value: number; target: number };
 }) {
+  const pct = progress
+    ? Math.min(100, Math.round((progress.value / Math.max(1, progress.target)) * 100))
+    : 0;
+  const tone = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-500" : "bg-primary";
   return (
     <Card>
       <CardContent className="pt-4">
@@ -592,6 +599,11 @@ function StatTile({
           <Icon className="size-3.5" /> {label}
         </div>
         <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
+        {progress && (
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-muted">
+            <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
+          </div>
+        )}
         {sub && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{sub}</div>}
       </CardContent>
     </Card>

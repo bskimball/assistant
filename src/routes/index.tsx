@@ -59,6 +59,7 @@ import {
   flOzToMl,
   mlToFlOz,
   newId,
+  summarizeCashFlow,
   todayISO,
   toISODate,
 } from "@/lib/domain";
@@ -101,6 +102,15 @@ const DOMAIN_COLOR: Record<CoachDomain, string> = {
   family: "text-violet-500",
   general: "text-indigo-500",
 };
+
+// Progress-bar fill color. `over` (e.g. calories past target) is the only "bad"
+// state for these daily goals; otherwise green rewards progress, amber is partway.
+function fillTone(pct: number, over = false): string {
+  if (over) return "bg-destructive";
+  if (pct >= 80) return "bg-emerald-500";
+  if (pct >= 40) return "bg-amber-500";
+  return "bg-primary";
+}
 
 function UnifiedDailyDashboard() {
   const search = Route.useSearch();
@@ -201,15 +211,14 @@ function UnifiedDailyDashboard() {
   const dayTransactions = transactions.filter(
     (t) => t.timestamp >= selectedDayStart && t.timestamp <= selectedDayEnd,
   );
-  const importedIncome = monthTransactions
-    .filter((t) => t.amount > 0)
-    .reduce((sum, t) => sum + t.amount, 0);
   const takeHome = financeHub?.budget?.monthlyTakeHome ?? 0;
   const usePlannedIncome = takeHome > 0;
-  const financeIncome = usePlannedIncome ? takeHome : importedIncome;
-  const financeSpend = monthTransactions
-    .filter((t) => t.amount < 0)
-    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  // Shared definition so Today / Finance / Analytics agree (transfers excluded).
+  const {
+    income: financeIncome,
+    spend: financeSpend,
+    cashFlow: financeCashFlow,
+  } = summarizeCashFlow(monthTransactions, takeHome);
 
   // Date nav
   function changeDate(deltaOrDate: number | ISODate) {
@@ -748,6 +757,10 @@ function UnifiedDailyDashboard() {
     const r = 28;
     const c = 2 * Math.PI * r;
     const off = c * (1 - pct / 100);
+    // These rings track "higher is better" goals (tasks done, protein), so the
+    // color rewards progress: green on track, amber partway, muted when barely started.
+    const tone =
+      pct >= 80 ? "text-emerald-500" : pct >= 40 ? "text-amber-500" : "text-muted-foreground";
     return (
       <div className="flex flex-col items-center">
         <svg width="68" height="68" className="-rotate-90">
@@ -769,11 +782,11 @@ function UnifiedDailyDashboard() {
             fill="none"
             strokeDasharray={c}
             strokeDashoffset={off}
-            className="text-primary transition-all"
+            className={`${tone} transition-all`}
           />
         </svg>
         <div className="mt-1 text-center">
-          <div className="text-sm font-medium tabular-nums">{pct}%</div>
+          <div className={`text-sm font-medium tabular-nums ${tone}`}>{pct}%</div>
           <div className="text-[10px] text-muted-foreground -mt-0.5">{label}</div>
           {sub && <div className="text-[9px] text-muted-foreground/70 tabular-nums">{sub}</div>}
         </div>
@@ -1188,7 +1201,10 @@ function UnifiedDailyDashboard() {
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
               <div
-                className="h-full bg-primary transition-all"
+                className={`h-full transition-all ${fillTone(
+                  Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100)),
+                  caloriesCurrent > caloriesTarget * 1.05,
+                )}`}
                 style={{
                   width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
                 }}
@@ -1204,7 +1220,7 @@ function UnifiedDailyDashboard() {
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
               <div
-                className="h-full bg-primary transition-all"
+                className={`h-full transition-all ${fillTone(proteinPct)}`}
                 style={{ width: `${proteinPct}%` }}
               />
             </div>
@@ -1233,7 +1249,7 @@ function UnifiedDailyDashboard() {
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
                 <div
-                  className="h-full bg-primary transition-all"
+                  className={`h-full transition-all ${fillTone(waterPct)}`}
                   style={{ width: `${waterPct}%` }}
                 />
               </div>
@@ -1373,7 +1389,20 @@ function UnifiedDailyDashboard() {
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Net worth
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded bg-muted px-2 py-1">
+                <div className="text-muted-foreground">Cash flow (mo)</div>
+                <div
+                  className={`font-medium tabular-nums ${
+                    financeCashFlow < 0
+                      ? "text-destructive"
+                      : "text-green-600 dark:text-green-500"
+                  }`}
+                >
+                  {financeCashFlow < 0 ? "-" : "+"}$
+                  {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
+                </div>
+              </div>
               <div className="rounded bg-muted px-2 py-1">
                 <div className="text-muted-foreground">
                   {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
