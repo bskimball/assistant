@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Life Assistant — Your AI Coach",
-  "short_name": "Life Assistant",
+  "name": "Compass — Your AI Coach",
+  "short_name": "Compass",
   "description": "A personal AI life coach for fitness, nutrition, finance, and productivity — track your day, get coaching, and improve.",
   "categories": ["health", "fitness", "lifestyle", "productivity"],
   "lang": "en-US",
@@ -13,6 +13,12 @@
   "theme_color": "#f4f1ec",
   "background_color": "#f4f1ec",
   "icons": [
+    {
+      "src": "/compass.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    },
     {
       "src": "/favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",

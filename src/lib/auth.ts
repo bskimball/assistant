@@ -127,7 +127,7 @@ export async function getAuth() {
   })();
 
   _auth = betterAuth({
-    appName: "Brian's Life Assistant",
+    appName: "Compass",
 
     baseURL: baseUrl,
 
@@ -169,7 +169,7 @@ export async function getAuth() {
     plugins: [
       passkey({
         rpID,
-        rpName: "Brian's Life Assistant",
+        rpName: "Compass",
       }),
     ],
 

@@ -41,17 +41,17 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5",
       },
       {
-        title: "Life Assistant — Your AI Coach",
+        title: "Compass — Your AI Coach",
       },
       {
         name: "description",
         content: "A personal AI life coach for fitness, nutrition, finance, and productivity.",
       },
       // PWA / installability
-      { name: "application-name", content: "Life Assistant" },
+      { name: "application-name", content: "Compass" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-title", content: "Life Assistant" },
+      { name: "apple-mobile-web-app-title", content: "Compass" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
       // Adaptive toolbar color: blends with the app background in each scheme.
       { name: "theme-color", content: "#f4f1ec", media: "(prefers-color-scheme: light)" },
@@ -63,6 +63,7 @@ export const Route = createRootRoute({
         href: appCss,
       },
       { rel: "manifest", href: "/manifest.json" },
+      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
       { rel: "icon", type: "image/png", sizes: "192x192", href: "/logo192.png" },
       { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },

@@ -1,5 +1,5 @@
 /*
- * Life Assistant service worker.
+ * Compass service worker.
  *
  * Deliberately conservative: this is an auth-gated SSR app whose pages and
  * server functions are user-specific and must never be served stale. So:
@@ -9,14 +9,16 @@
  *
  * Bump CACHE_VERSION to force every client to drop old caches on activate.
  */
-const CACHE_VERSION = "v1";
-const STATIC_CACHE = `la-static-${CACHE_VERSION}`;
-const ASSET_CACHE = `la-assets-${CACHE_VERSION}`;
+const CACHE_VERSION = "v4";
+const STATIC_CACHE = `compass-static-${CACHE_VERSION}`;
+const ASSET_CACHE = `compass-assets-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
 // App shell precached on install so the offline fallback always works.
 const PRECACHE_URLS = [
   OFFLINE_URL,
+  "/compass.svg",
+  "/favicon.svg",
   "/favicon.ico",
   "/logo192.png",
   "/logo512.png",

@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Compass">
+  <style>
+    svg {
+      color-scheme: light dark;
+    }
+
+    .bg {
+      fill: #f4f1ec;
+    }
+
+    .ring {
+      stroke: #9f2437;
+    }
+
+    .needle {
+      fill: #bd2f45;
+    }
+
+    .needle-dark {
+      fill: #7d1829;
+    }
+
+    .cardinal {
+      fill: #2f332f;
+    }
+
+    .sage {
+      fill: #7d8b72;
+    }
+
+    .brass {
+      fill: #b88b45;
+    }
+
+    .shadow {
+      stroke: rgba(50, 36, 30, 0.16);
+    }
+
+    .highlight {
+      fill: rgba(255, 255, 255, 0.48);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .bg {
+        fill: #151821;
+      }
+
+      .ring {
+        stroke: #ff6b7f;
+      }
+
+      .needle {
+        fill: #ff5a72;
+      }
+
+      .needle-dark {
+        fill: #a72338;
+      }
+
+      .cardinal {
+        fill: #f1eee7;
+      }
+
+      .sage {
+        fill: #a9ba9a;
+      }
+
+      .brass {
+        fill: #d9aa5a;
+      }
+
+      .shadow {
+        stroke: rgba(0, 0, 0, 0.42);
+      }
+
+      .highlight {
+        fill: rgba(255, 255, 255, 0.16);
+      }
+    }
+  </style>
+
+  <rect class="bg" width="512" height="512" rx="104" />
+  <path
+    class="shadow"
+    d="M92 430c37 31 292 31 328 0"
+    fill="none"
+    stroke-width="18"
+    stroke-linecap="round"
+    opacity=".42"
+  />
+
+  <g transform="translate(256 256)">
+    <circle
+      class="ring"
+      r="161"
+      fill="none"
+      stroke-width="18"
+      stroke-dasharray="130 34"
+      stroke-linecap="round"
+      transform="rotate(-45)"
+    />
+
+    <g class="cardinal">
+      <path d="M-14-174 0-224 14-174 5-68h-10z" />
+      <path d="M174-14 224 0 174 14 68 5v-10z" />
+      <path d="M-174-14-224 0-174 14-68 5v-10z" />
+      <path d="M-14 174 0 224 14 174 5 68h-10z" />
+    </g>
+
+    <circle class="sage" cx="0" cy="-204" r="24" />
+    <circle class="brass" cx="0" cy="204" r="24" />
+    <rect class="sage" x="-224" y="-18" width="36" height="36" rx="6" transform="rotate(45 -206 0)" />
+    <rect class="brass" x="188" y="-18" width="36" height="36" rx="6" />
+
+    <path class="needle-dark" d="M-126 174 48-28 160-170-14 32z" />
+    <path class="needle" d="M-126 174 28-42 160-170 4 74z" />
+    <path class="highlight" d="M-8 18 118-130 44-18 30 82z" opacity=".72" />
+    <path class="needle-dark" d="M48-28 126 136 4 74z" />
+    <path class="needle" d="M4 74 126 136 30 82z" opacity=".92" />
+  </g>
+</svg>

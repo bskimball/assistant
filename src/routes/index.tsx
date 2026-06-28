@@ -155,6 +155,9 @@ function UnifiedDailyDashboard() {
   const [foodName, setFoodName] = useState("");
   const [foodEstimating, setFoodEstimating] = useState(false);
   const [foodStatus, setFoodStatus] = useState<string | null>(null);
+  // While dragging the water slider we hold the in-flight oz here so the fill
+  // follows the thumb; we commit to the server on release.
+  const [waterDraft, setWaterDraft] = useState<number | null>(null);
 
   // Finance quick-add
   const [acctName, setAcctName] = useState("");
@@ -195,6 +198,14 @@ function UnifiedDailyDashboard() {
   const waterOz = mlToFlOz(nutrition?.waterMl ?? 0) ?? 0;
   const waterTargetOz = 85;
   const waterPct = Math.min(100, Math.round((waterOz / Math.max(1, waterTargetOz)) * 100));
+  // The slider shows the draft while dragging, otherwise the persisted total.
+  const displayWaterOz = waterDraft ?? waterOz;
+  // Headroom above target (and current) so you can overshoot, rounded to 4 oz.
+  const waterSliderMax = Math.max(
+    Math.ceil((waterTargetOz * 1.5) / 4) * 4,
+    Math.ceil(displayWaterOz / 4) * 4,
+    8,
+  );
   const focusMinutes = focusScore?.focusMinutes ?? 0;
   const selectedDayStart = new Date(selectedDate + "T00:00:00").getTime();
   const selectedDayEnd = new Date(selectedDate + "T23:59:59.999").getTime();
@@ -527,11 +538,10 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Add water: append the given fluid ounces to today's running waterMl total.
-  async function handleAddWater(oz: number) {
+  // Set the day's water to an absolute oz total (clamped at 0).
+  async function setWaterOz(totalOz: number) {
     if (!isToday || foodEstimating) return;
-    const addMl = flOzToMl(oz);
-    if (!addMl) return;
+    const oz = Math.max(0, Math.round(totalOz));
     try {
       const saved = await saveDailyNutrition({
         data: {
@@ -544,51 +554,26 @@ function UnifiedDailyDashboard() {
               carbs: 0,
               fat: 0,
             },
-            waterMl: (nutrition?.waterMl ?? 0) + addMl,
+            waterMl: flOzToMl(oz) ?? 0,
           },
         },
       });
       setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
-      setFoodStatus(`Logged ${oz} fl oz water — ${mlToFlOz(saved.waterMl) ?? 0} fl oz today`);
+      setFoodStatus(`Water set to ${mlToFlOz(saved.waterMl) ?? 0} fl oz`);
       setTimeout(() => setFoodStatus(null), 3000);
       refreshCoaching();
     } catch (e) {
-      console.error("[dashboard] add water failed", e);
-      setFoodStatus("Couldn’t log water — try again.");
+      console.error("[dashboard] set water failed", e);
+      setFoodStatus("Couldn’t update water — try again.");
       setTimeout(() => setFoodStatus(null), 3000);
     }
   }
 
-  async function handleRemoveWater(oz: number) {
-    if (!isToday || foodEstimating) return;
-    const removeMl = flOzToMl(oz);
-    if (!removeMl) return;
-    try {
-      const nextWaterMl = Math.max(0, (nutrition?.waterMl ?? 0) - removeMl);
-      const saved = await saveDailyNutrition({
-        data: {
-          date: selectedDate,
-          nutrition: {
-            mealLogs: nutrition?.mealLogs || [],
-            totals: nutrition?.totals || {
-              calories: 0,
-              protein: 0,
-              carbs: 0,
-              fat: 0,
-            },
-            waterMl: nextWaterMl,
-          },
-        },
-      });
-      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
-      setFoodStatus(`Removed ${oz} fl oz water — ${mlToFlOz(saved.waterMl) ?? 0} fl oz today`);
-      setTimeout(() => setFoodStatus(null), 3000);
-      refreshCoaching();
-    } catch (e) {
-      console.error("[dashboard] remove water failed", e);
-      setFoodStatus("Couldn’t remove water — try again.");
-      setTimeout(() => setFoodStatus(null), 3000);
-    }
+  // Commit the dragged slider value, then clear the draft so the bar tracks
+  // the persisted total again.
+  function commitWaterDraft() {
+    if (waterDraft == null) return;
+    void setWaterOz(waterDraft).finally(() => setWaterDraft(null));
   }
 
   async function handleDeleteMeal(id: string) {
@@ -1244,44 +1229,55 @@ function UnifiedDailyDashboard() {
               </div>
             </div>
 
-            {/* Water — progress + quick-add */}
+            {/* Water — draggable slider (same control as the nutrition page) */}
             <div className="mt-3">
               <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Droplet className="size-3.5" /> Water
                 </span>
                 <span className="tabular-nums">
-                  {waterOz} / {waterTargetOz} fl oz
+                  {displayWaterOz} / {waterTargetOz} fl oz
                 </span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-                <div
-                  className={`h-full transition-all ${fillTone(waterPct)}`}
-                  style={{ width: `${waterPct}%` }}
-                />
-              </div>
-              {isToday && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+              {isToday ? (
+                <div className="flex items-center gap-3">
                   <Button
                     type="button"
-                    size="sm"
+                    size="icon"
                     variant="outline"
-                    className="gap-1"
-                    disabled={foodEstimating || waterOz <= 0}
-                    onClick={() => handleRemoveWater(8)}
+                    className="size-9 shrink-0"
+                    disabled={foodEstimating || displayWaterOz <= 0}
+                    onClick={() => setWaterOz(waterOz - 4)}
+                    aria-label="Remove 4 fl oz"
                   >
-                    <Minus className="size-3.5" /> 8 oz
+                    <Minus className="size-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
+                  <WaterSlider
+                    value={displayWaterOz}
+                    target={waterTargetOz}
+                    max={waterSliderMax}
                     disabled={foodEstimating}
-                    onClick={() => handleAddWater(8)}
+                    onDraft={setWaterDraft}
+                    onCommit={commitWaterDraft}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="size-9 shrink-0"
+                    disabled={foodEstimating}
+                    onClick={() => setWaterOz(waterOz + 4)}
+                    aria-label="Add 4 fl oz"
                   >
-                    <Droplet className="size-3.5" /> +8 oz
+                    <Plus className="size-4" />
                   </Button>
+                </div>
+              ) : (
+                <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
+                  <div
+                    className={`h-full transition-all ${fillTone(waterPct)}`}
+                    style={{ width: `${waterPct}%` }}
+                  />
                 </div>
               )}
             </div>
@@ -1576,6 +1572,64 @@ function UnifiedDailyDashboard() {
       <div className="hidden">
         <VoiceInput onTranscript={() => {}} />
       </div>
+    </div>
+  );
+}
+
+// A draggable water slider. Fill, thumb, and the (invisible) native range
+// input all share the same 0..max scale so the cursor sits exactly on the
+// handle. The day's target is shown as a tick so you can see the goal.
+function WaterSlider({
+  value,
+  target,
+  max,
+  disabled,
+  onDraft,
+  onCommit,
+}: {
+  value: number;
+  target: number;
+  max: number;
+  disabled?: boolean;
+  onDraft: (oz: number) => void;
+  onCommit: () => void;
+}) {
+  const valuePct = Math.max(0, Math.min(100, (value / max) * 100));
+  const targetPct = Math.max(0, Math.min(100, (target / max) * 100));
+  const ratio = value / Math.max(1, target);
+  const tone = ratio >= 0.8 ? "bg-emerald-500" : ratio >= 0.4 ? "bg-amber-500" : "bg-primary";
+  return (
+    <div className="relative flex flex-1 items-center py-2">
+      {/* track */}
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div className={`h-full transition-all ${tone}`} style={{ width: `${valuePct}%` }} />
+      </div>
+      {/* target tick */}
+      <div
+        className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/40"
+        style={{ left: `${targetPct}%` }}
+        aria-hidden="true"
+      />
+      {/* visible thumb (driven by value; the range overlay handles input) */}
+      <div
+        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow transition-all"
+        style={{ left: `${valuePct}%` }}
+        aria-hidden="true"
+      />
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={4}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onDraft(Number(e.target.value))}
+        onPointerUp={onCommit}
+        onKeyUp={onCommit}
+        onBlur={onCommit}
+        aria-label="Water intake in fluid ounces"
+        className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+      />
     </div>
   );
 }

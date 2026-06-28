@@ -9,7 +9,6 @@ import {
   CalendarRange,
   BarChart3,
   Wallet,
-  Sparkles,
   ChevronDown,
   UserCog,
   Info,
@@ -82,8 +81,8 @@ export function AppNav() {
             to="/"
             className="flex shrink-0 items-center gap-1.5 text-sm font-semibold tracking-tight"
           >
-            <Sparkles className="size-4 text-primary" />
-            Life&nbsp;Assistant
+            <img src="/compass.svg" alt="" className="size-7 rounded-lg" />
+            Compass
           </Link>
 
           <DesktopTabs activeIndex={activeIndex} />

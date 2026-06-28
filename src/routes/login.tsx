@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { Sparkles, LogIn, Loader2, Fingerprint } from "lucide-react";
+import { LogIn, Loader2, Fingerprint } from "lucide-react";
 import { signIn } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 
@@ -53,9 +53,9 @@ function LoginPage() {
     <div className="flex min-h-[80dvh] items-center justify-center px-4 py-12 sm:px-6">
       <div className="mx-auto w-full max-w-sm text-center">
         <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border bg-card">
-          <Sparkles className="size-7 text-primary" />
+          <img src="/compass.svg" alt="" className="size-12 rounded-2xl" />
         </div>
-        <h1 className="text-2xl font-semibold tracking-tighter sm:text-3xl">Life Assistant</h1>
+        <h1 className="text-2xl font-semibold tracking-tighter sm:text-3xl">Compass</h1>
         <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
           Sign in to access your daily dashboard, coach, and logs.
         </p>
