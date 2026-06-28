@@ -12,6 +12,7 @@
   ],
   "vars": {
     "BETTER_AUTH_URL": "https://compass.brian-kimball.com",
+    "GOOGLE_CLIENT_ID": "682128748310-nqqa84g8m5c6kjc7l0mnrudirpmhpf4d.apps.googleusercontent.com",
     "PUBLIC_APP_URL": "https://compass.brian-kimball.com",
   },
   "r2_buckets": [
@@ -28,7 +29,7 @@
     {
       "binding": "DB",
       "database_name": "assistant-db",
-      "database_id": "REPLACE_WITH_ID_FROM_wrangler_d1_create",
+      "database_id": "ff5bae27-b260-4a60-8430-788ca90507e6",
     },
   ],
   "observability": {
