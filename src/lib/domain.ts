@@ -606,6 +606,45 @@ export interface VoiceIntent {
   clarificationQuestion?: string;
 }
 
+/* ===================== COACH CHAT (ADR-018) ===================== */
+
+export type ChatRole = "user" | "assistant";
+
+/** One persisted turn of a coach conversation. */
+export interface ChatMessageRecord {
+  id: string;
+  role: ChatRole;
+  content: string;
+  createdAt: number;
+}
+
+/** A full coach conversation (transcript + metadata), stored per-user. */
+export interface ChatConversation {
+  id: string;
+  /** Short label derived from the first user message. */
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessageRecord[];
+  deletedAt?: number;
+}
+
+/** Lightweight conversation row for the history list (no full transcript). */
+export interface ChatConversationSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  /** First line of the most recent message, truncated. */
+  preview: string;
+}
+
+export interface ChatConversationsStore {
+  conversations: ChatConversation[];
+  updatedAt: number;
+}
+
 /* ===================== CROSS-CUTTING ===================== */
 
 export interface Attachment extends BaseEntity {

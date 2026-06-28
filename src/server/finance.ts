@@ -739,6 +739,56 @@ function rollupMonth(transactions: Transaction[], month: string): MonthBuckets {
 }
 
 /* ============================================================
+   FINANCE CONTEXT (for the conversational coach, ADR-018)
+   A compact, robust finance snapshot that does NOT depend on a balance
+   having been logged *today*: net worth comes from the most recent snapshot,
+   and savings progress comes from this month's transaction rollup. This is
+   what lets the coach answer "am I on track for my savings goal?".
+   ============================================================ */
+
+export interface FinanceContext {
+  /** True when any finance data exists (net worth, transactions, budget, or subs). */
+  hasFinance: boolean;
+  netWorth: number;
+  /** Date the net-worth figure is as of (may be earlier than today). */
+  netWorthAsOf: ISODate;
+  /** Budget take-home if set, else this month's logged income. */
+  monthlyTakeHome: number;
+  /** Current-month 50/30/20 actuals (needs/wants/savings/income). */
+  thisMonth: MonthBuckets;
+  monthlySubscriptionCost: number;
+  activeSubscriptionCount: number;
+}
+
+export async function loadFinanceContextImpl(date: ISODate): Promise<FinanceContext> {
+  const [snapshotInfo, budget, subs, txns] = await Promise.all([
+    loadFinanceSnapshotForHub(date),
+    loadBudgetImpl(),
+    loadSubscriptionsImpl(),
+    loadTransactionsImpl(),
+  ]);
+  const transactions = txns.transactions.filter((t) => !t.deletedAt);
+  const thisMonth = rollupMonth(transactions, date.slice(0, 7));
+  const active = subs.subscriptions.filter((s) => !s.deletedAt && s.status === "active");
+  const monthlySubscriptionCost = active.reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+  const netWorth = snapshotInfo.snapshot.netWorth;
+
+  return {
+    hasFinance:
+      netWorth > 0 ||
+      transactions.length > 0 ||
+      (budget?.monthlyTakeHome ?? 0) > 0 ||
+      active.length > 0,
+    netWorth,
+    netWorthAsOf: snapshotInfo.sourceDate,
+    monthlyTakeHome: budget?.monthlyTakeHome ?? thisMonth.income,
+    thisMonth,
+    monthlySubscriptionCost,
+    activeSubscriptionCount: active.length,
+  };
+}
+
+/* ============================================================
    AI GROWTH ADVISOR (budget / subscriptions / investing / earn)
    Personalized + actionable, with a deterministic fallback.
    ============================================================ */

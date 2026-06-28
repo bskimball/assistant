@@ -9,6 +9,7 @@ import {
   CalendarRange,
   BarChart3,
   Wallet,
+  Sparkles,
   ChevronDown,
   UserCog,
   Info,
@@ -36,6 +37,7 @@ type Tab =
 // bar at four tabs even as those areas grow.
 const TABS: Tab[] = [
   { kind: "link", to: "/", label: "Today", Icon: LayoutDashboard },
+  { kind: "link", to: "/chat", label: "Coach", Icon: Sparkles },
   {
     kind: "group",
     label: "Health",

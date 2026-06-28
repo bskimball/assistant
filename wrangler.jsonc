@@ -4,6 +4,16 @@
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
+  "routes": [
+    {
+      "pattern": "compass.brian-kimball.com",
+      "custom_domain": true,
+    },
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "https://compass.brian-kimball.com",
+    "PUBLIC_APP_URL": "https://compass.brian-kimball.com",
+  },
   "r2_buckets": [
     {
       "binding": "R2",

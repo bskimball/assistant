@@ -3,6 +3,8 @@ import type {
   BaseEntity,
   Budget,
   CategoryGroup,
+  ChatConversation,
+  ChatConversationsStore,
   DailyFinanceSnapshot,
   DailyFocusScore,
   DailyNutrition,
@@ -100,6 +102,28 @@ export async function saveUserProfileImpl(data: Partial<UserProfile>): Promise<U
   };
   await store.ref.put("user-profile.json", next);
   return next;
+}
+
+export async function loadChatConversationsImpl(): Promise<ChatConversationsStore> {
+  const store = await getDomainStore();
+  return (
+    (await store.ref.get<ChatConversationsStore>("chat-conversations.json")) ?? {
+      conversations: [],
+      updatedAt: Date.now(),
+    }
+  );
+}
+
+export async function saveChatConversationsImpl(data: {
+  conversations: ChatConversation[];
+}): Promise<ChatConversationsStore> {
+  const payload: ChatConversationsStore = {
+    conversations: data.conversations,
+    updatedAt: Date.now(),
+  };
+  const store = await getDomainStore();
+  await store.ref.put("chat-conversations.json", payload);
+  return payload;
 }
 
 export async function loadWorkoutPlansImpl(): Promise<WorkoutPlansStore> {
@@ -748,7 +772,7 @@ async function extractVoiceIntentImpl(
   }
 }
 
-async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
+export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
   spokenText: string;
   success: boolean;
   legacyTodo?: import("@/lib/todos").Todo;

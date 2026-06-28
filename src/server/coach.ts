@@ -154,7 +154,11 @@ function trailingDates(date: ISODate, days: number): ISODate[] {
   return out;
 }
 
-async function collectTrend(date: ISODate, proteinTarget: number, days = 7): Promise<TrendSignals> {
+export async function collectTrend(
+  date: ISODate,
+  proteinTarget: number,
+  days = 7,
+): Promise<TrendSignals> {
   const dates = trailingDates(date, days);
 
   const [nutritionByDay, tasksByDay, financeByDay, sessionsStore, transactionsStore] =
@@ -792,7 +796,7 @@ function fallbackCoaching(
    GROK-BACKED COACH
    ============================================================ */
 
-function profileBlock(profile: UserProfile): string {
+export function profileBlock(profile: UserProfile): string {
   const lines: string[] = [];
   const age = computeAge(profile.birthDate);
   const heightIn = cmToInches(profile.heightCm);
