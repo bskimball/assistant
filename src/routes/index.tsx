@@ -518,7 +518,9 @@ function UnifiedDailyDashboard() {
       refreshCoaching();
     } catch (e) {
       console.error("[dashboard] add food failed", e);
-      setFoodStatus("Couldn’t log that food — try again.");
+      setFoodStatus(
+        "Couldn’t estimate that food right now — add calories/macros or check the AI key.",
+      );
       setTimeout(() => setFoodStatus(null), 3000);
     } finally {
       setFoodEstimating(false);
@@ -1165,6 +1167,11 @@ function UnifiedDailyDashboard() {
                     <span className={t.done ? "text-muted-foreground line-through" : ""}>
                       {t.text}
                     </span>
+                    {t.shared && (
+                      <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                        <Users className="size-2.5" /> Shared
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1394,9 +1401,7 @@ function UnifiedDailyDashboard() {
                 <div className="text-muted-foreground">Cash flow (mo)</div>
                 <div
                   className={`font-medium tabular-nums ${
-                    financeCashFlow < 0
-                      ? "text-destructive"
-                      : "text-green-600 dark:text-green-500"
+                    financeCashFlow < 0 ? "text-destructive" : "text-green-600 dark:text-green-500"
                   }`}
                 >
                   {financeCashFlow < 0 ? "-" : "+"}$

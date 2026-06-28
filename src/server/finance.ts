@@ -31,6 +31,7 @@ import {
 } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
 import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
+import { fetchQuotes } from "@/server/adapters/quotes";
 import {
   loadBudgetImpl,
   saveBudgetImpl,
@@ -47,6 +48,8 @@ import {
   type BudgetPayload,
   type DailyFinancePayload,
 } from "@/server/domain-impl";
+import { getDomainStore } from "@/server/store";
+import { HOUSEHOLD_ID } from "@/lib/scope";
 
 /* ============================================================
    CSV PARSING
@@ -619,28 +622,85 @@ export const recategorizeAllTransactions = createServerFn({ method: "POST" })
   });
 
 /* ============================================================
+   LIVE QUOTES
+   Refresh holding prices from a free, no-key source. Returns only
+   the symbols that resolved; unresolved ones keep their manual price
+   at the call site (deterministic fallback).
+   ============================================================ */
+
+export interface QuotesResult {
+  prices: Record<string, number>;
+  asOf: number;
+}
+
+export const refreshQuotes = createServerFn({ method: "POST" })
+  .validator((data: { symbols: string[] }) => data)
+  .handler(async (ctx: any): Promise<QuotesResult> => {
+    await requireAuthSession(ctx.request);
+    const symbols = (ctx.data?.symbols as string[]) ?? [];
+    const prices = await fetchQuotes(symbols);
+    return { prices, asOf: Date.now() };
+  });
+
+/* ============================================================
    FINANCE HUB LOADER (one round trip)
    ============================================================ */
 
 export interface FinanceHubPayload {
   snapshot: DailyFinancePayload;
+  snapshotSourceDate: ISODate;
   budget: BudgetPayload | null;
   subscriptions: Subscription[];
   transactions: Transaction[];
 }
 
+async function loadFinanceSnapshotForHub(
+  day: ISODate,
+): Promise<{ snapshot: DailyFinancePayload; sourceDate: ISODate }> {
+  const { ensureHouseholdFinanceMigrated } = await import("@/server/migrate");
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
+  const exact = await store.daily.get<DailyFinancePayload>("daily-finance", day);
+  if (exact) return { snapshot: exact, sourceDate: day };
+
+  const { getUserPrefix, listKeys } = await import("@/server/adapters/r2");
+  const prefix = `${getUserPrefix(HOUSEHOLD_ID)}/daily-finance/`;
+  const dates = (await listKeys(prefix))
+    .map((key) => key.match(/\/daily-finance\/(\d{4}-\d{2}-\d{2})\.json$/)?.[1])
+    .filter((date): date is ISODate => !!date && date <= day)
+    .sort((a, b) => b.localeCompare(a));
+
+  for (const sourceDate of dates) {
+    const snapshot = await store.daily.get<DailyFinancePayload>("daily-finance", sourceDate);
+    if (snapshot) {
+      return {
+        snapshot: {
+          ...snapshot,
+          id: `finance-${day}`,
+          date: day,
+        },
+        sourceDate,
+      };
+    }
+  }
+
+  return { snapshot: await loadDailyFinanceImpl(day), sourceDate: day };
+}
+
 export const loadFinanceHub = createServerFn({ method: "GET" })
   .validator((date: ISODate | undefined) => date)
-  .handler(async ({ data: date }): Promise<FinanceHubPayload> => {
-    const day = date || todayISO();
-    const [snapshot, budget, subs, txns] = await Promise.all([
-      loadDailyFinanceImpl(day),
+  .handler(async (ctx: any): Promise<FinanceHubPayload> => {
+    await requireAuthSession(ctx.request);
+    const day = (ctx.data as ISODate | undefined) || todayISO();
+    const [snapshotInfo, budget, subs, txns] = await Promise.all([
+      loadFinanceSnapshotForHub(day),
       loadBudgetImpl(),
       loadSubscriptionsImpl(),
       loadTransactionsImpl(),
     ]);
     return {
-      snapshot,
+      snapshot: snapshotInfo.snapshot,
+      snapshotSourceDate: snapshotInfo.sourceDate,
       budget,
       subscriptions: subs.subscriptions.filter((s) => !s.deletedAt),
       transactions: txns.transactions.filter((t) => !t.deletedAt),
@@ -803,13 +863,14 @@ export const generateFinanceAdvice = createServerFn({ method: "POST" })
     }> => {
       await requireAuthSession(ctx.request);
       const date = (ctx.data?.date as ISODate) || todayISO();
-      const [budget, subsStore, txnStore, snapshot, profile] = await Promise.all([
+      const [budget, subsStore, txnStore, snapshotInfo, profile] = await Promise.all([
         loadBudgetImpl(),
         loadSubscriptionsImpl(),
         loadTransactionsImpl(),
-        loadDailyFinanceImpl(date),
+        loadFinanceSnapshotForHub(date),
         loadUserProfileImpl(),
       ]);
+      const snapshot = snapshotInfo.snapshot;
       const recurring = subsStore.subscriptions.filter((s) => !s.deletedAt);
       // Fixed bills (mortgage, car, …) are Needs, not discretionary subs.
       const subscriptions = recurring.filter((s) => !isBillSubscription(s));

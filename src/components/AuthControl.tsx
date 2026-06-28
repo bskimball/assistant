@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { LogIn, LogOut, Loader2 } from "lucide-react";
-import { signIn, signOut, useSession } from "@/lib/auth-client";
+import { LogIn, LogOut, Loader2, Fingerprint } from "lucide-react";
+import { signIn, signOut, useSession, passkey } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -23,6 +23,23 @@ export function AuthControl() {
       await signIn.social({ provider: "google", callbackURL: "/" });
     } catch {
       setHint("Sign-in unavailable — configure Google OAuth (see ADR-010).");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleEnrollPasskey() {
+    setBusy(true);
+    setHint(null);
+    try {
+      const res = await passkey.addPasskey({ authenticatorAttachment: "platform" });
+      if (res?.error) {
+        setHint("Couldn't enable fingerprint login — try again.");
+      } else {
+        setHint("Fingerprint login enabled on this device.");
+      }
+    } catch {
+      setHint("Fingerprint login isn't available on this device/browser.");
     } finally {
       setBusy(false);
     }
@@ -55,6 +72,22 @@ export function AuthControl() {
           </span>
         )}
         <span className="hidden text-xs text-muted-foreground sm:inline">{u.name || u.email}</span>
+        {hint && (
+          <span className="hidden max-w-[180px] text-[10px] text-muted-foreground md:inline">
+            {hint}
+          </span>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={handleEnrollPasskey}
+          disabled={busy}
+          aria-label="Enable fingerprint login on this device"
+          title="Enable fingerprint login on this device"
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Fingerprint className="size-4" />}
+        </Button>
         <Button
           variant="ghost"
           size="icon"

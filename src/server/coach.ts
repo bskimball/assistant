@@ -1256,7 +1256,8 @@ export const estimateFoodMacros = createServerFn({ method: "POST" })
     if (!apiKey) return fallbackFoodMacros(description);
 
     const prompt = `You are a precise nutrition database. Estimate the nutrition facts for the food or meal described below.
-If the description includes a portion/quantity (e.g. "6 oz", "2 eggs", "1 cup"), estimate for that exact portion; otherwise assume ONE typical serving.
+If the description includes a portion/quantity (e.g. "6 oz", "2 eggs", "1 cup"), estimate for that exact portion.
+If the description does NOT include a portion, assume one realistic amount a person would log/eat for that food, not a per-100g database row.
 
 Food: "${description}"
 
@@ -1266,6 +1267,8 @@ Reply with ONLY one compact JSON object, no markdown:
 Rules:
 - calories in kcal; protein, carbs, fat in grams — all for the TOTAL portion described.
 - Use realistic USDA-style values. Never return all zeros for a real food.
+- Do not undercount rich prepared foods by silently assuming a tiny portion.
+- If uncertain, choose a plausible typical serving and set confidence to "low" or "medium".
 - confidence reflects how identifiable the food is.`;
 
     try {

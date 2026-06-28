@@ -14,10 +14,13 @@ export const Route = createFileRoute("/api/exercise-image/$slug")({
   server: {
     handlers: {
       GET: async ({ request, params }) => {
+        const { requireAuthSession } = await import("@/lib/auth");
         const { getOrCreateExerciseImage, slugifyExercise } = await import("@/server/exercise-art");
+        await requireAuthSession(request);
+
         const url = new URL(request.url);
-        const name = url.searchParams.get("name") || params.slug.replace(/-/g, " ");
-        const slug = params.slug || slugifyExercise(name);
+        const name = (url.searchParams.get("name") || params.slug.replace(/-/g, " ")).slice(0, 80);
+        const slug = slugifyExercise(params.slug || name);
 
         const image = await getOrCreateExerciseImage(slug, name);
         if (!image) {

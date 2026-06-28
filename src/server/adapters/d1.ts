@@ -69,4 +69,10 @@ export async function ensureSchema(): Promise<void> {
   await d1.exec(
     `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
   );
+
+  // Passkey / WebAuthn credentials (ADR-017). Column names must match the
+  // drizzle table in src/db/schema.ts.
+  await d1.exec(
+    `CREATE TABLE IF NOT EXISTS "passkey" (id TEXT PRIMARY KEY, name TEXT, public_key TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE, credential_id TEXT NOT NULL, counter INTEGER NOT NULL, device_type TEXT NOT NULL, backed_up INTEGER NOT NULL, transports TEXT, created_at INTEGER, aaguid TEXT)`,
+  );
 }

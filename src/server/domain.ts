@@ -138,8 +138,9 @@ export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number };
 
 export const loadDailyFinance = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data: date }): Promise<DailyFinancePayload> => {
-    return impl.loadDailyFinanceImpl(date);
+  .handler(async (ctx: any): Promise<DailyFinancePayload> => {
+    await requireAuthSession(ctx.request);
+    return impl.loadDailyFinanceImpl(ctx.data);
   });
 
 export const saveDailyFinance = createServerFn({ method: "POST" })
@@ -164,7 +165,8 @@ export type TransactionsStore = {
   updatedAt: number;
 };
 
-export const loadTransactions = createServerFn({ method: "GET" }).handler(async () => {
+export const loadTransactions = createServerFn({ method: "GET" }).handler(async (ctx: any) => {
+  await requireAuthSession(ctx.request);
   return impl.loadTransactionsImpl();
 });
 

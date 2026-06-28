@@ -35,6 +35,7 @@ import {
   setTransactionExcluded,
   generateFinanceAdvice,
   acceptFinanceActions,
+  refreshQuotes,
   type FinanceHubPayload,
 } from "@/server/finance";
 import {
@@ -88,9 +89,39 @@ function fmtDate(timestamp: number): string {
   });
 }
 
+function fmtISODate(date: string): string {
+  return new Date(date + "T00:00:00").toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function isPaycheckLike(t: Transaction): boolean {
   const text = `${t.category || ""} ${t.notes || ""}`.toLowerCase();
   return ["payroll", "adp", "direct dep", "salary", "paycheck"].some((k) => text.includes(k));
+}
+
+type ImportedAccountSummary = {
+  account: string;
+  count: number;
+  lastSeen: number;
+};
+
+function summarizeImportedAccounts(transactions: Transaction[]): ImportedAccountSummary[] {
+  const map = new Map<string, ImportedAccountSummary>();
+  for (const t of transactions) {
+    const account = t.account?.trim();
+    if (!account) continue;
+    const key = account.toLowerCase();
+    const existing = map.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.lastSeen = Math.max(existing.lastSeen, t.timestamp);
+    } else {
+      map.set(key, { account, count: 1, lastSeen: t.timestamp });
+    }
+  }
+  return [...map.values()].sort((a, b) => b.lastSeen - a.lastSeen);
 }
 
 function FinancePage() {
@@ -216,6 +247,13 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const accounts = hub.snapshot.accounts || [];
+  const importedAccounts = summarizeImportedAccounts(hub.transactions);
+  const savedBalanceNames = new Set(accounts.map((a) => a.account.toLowerCase()));
+  const importedWithoutBalance = importedAccounts.filter(
+    (a) => !savedBalanceNames.has(a.account.toLowerCase()),
+  );
+  const balanceSourceDate =
+    hub.snapshotSourceDate && hub.snapshotSourceDate !== today ? hub.snapshotSourceDate : null;
 
   async function addAccount(e: React.FormEvent) {
     e.preventDefault();
@@ -281,21 +319,65 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Accounts</CardTitle>
+          <CardTitle className="flex items-center justify-between gap-2 text-base">
+            <span>Accounts</span>
+            {balanceSourceDate && (
+              <span className="text-xs font-normal text-muted-foreground">
+                Balances from {fmtISODate(balanceSourceDate)}
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {accounts.length ? (
-            <ul className="mb-3 space-y-1 text-sm">
-              {accounts.map((a, i) => (
-                <li
-                  key={i}
-                  className="flex items-center justify-between border-b border-border/40 py-1.5 last:border-0"
-                >
-                  <span>{a.account}</span>
-                  <span className="tabular-nums text-muted-foreground">{fmtMoney(a.amount)}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="mb-3 space-y-1 text-sm">
+                {accounts.map((a, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between border-b border-border/40 py-1.5 last:border-0"
+                  >
+                    <span>{a.account}</span>
+                    <span className="tabular-nums text-muted-foreground">{fmtMoney(a.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+              {importedWithoutBalance.length > 0 && (
+                <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                  <div className="text-xs font-medium text-foreground">
+                    Imported statements without balances
+                  </div>
+                  <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                    {importedWithoutBalance.map((a) => (
+                      <li key={a.account} className="flex items-center justify-between gap-2">
+                        <span>{a.account}</span>
+                        <span className="shrink-0 tabular-nums">
+                          {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : importedAccounts.length ? (
+            <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+              <div className="text-sm font-medium text-foreground">Imported statement accounts</div>
+              <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                {importedAccounts.map((a) => (
+                  <li key={a.account} className="flex items-center justify-between gap-2">
+                    <span>{a.account}</span>
+                    <span className="shrink-0 tabular-nums">
+                      {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Add current balances below to turn imported statement accounts into a net-worth
+                baseline.
+              </p>
+            </div>
           ) : (
             <div className="mb-3 text-sm text-muted-foreground">
               No accounts yet. Add your BoA, M&T, Capital One, Robinhood, and ADP 401k balances.
@@ -339,6 +421,7 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
 function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
   const month = today.slice(0, 7);
   const monthTxns = hub.transactions.filter((t) => monthKeyFromTimestamp(t.timestamp) === month);
+  const importedAccountCount = summarizeImportedAccounts(hub.transactions).length;
   const lastTxn = hub.transactions.reduce<Transaction | null>(
     (latest, t) => (!latest || t.timestamp > latest.timestamp ? t : latest),
     null,
@@ -370,7 +453,9 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
       label: "Balances",
       value: hub.snapshot.accounts?.length
         ? `${hub.snapshot.accounts.length} account${hub.snapshot.accounts.length === 1 ? "" : "s"} saved`
-        : "No account balances",
+        : importedAccountCount
+          ? `${importedAccountCount} statement account${importedAccountCount === 1 ? "" : "s"}; balances missing`
+          : "No account balances",
       ok: (hub.snapshot.accounts?.length ?? 0) > 0,
     },
     {
@@ -381,8 +466,7 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
   ];
   const score = confidenceChecks.filter((c) => c.ok).length;
   const issues = confidenceChecks.filter((c) => !c.ok);
-  const dotColor =
-    score === 4 ? "bg-green-500" : score >= 2 ? "bg-amber-500" : "bg-destructive";
+  const dotColor = score === 4 ? "bg-green-500" : score >= 2 ? "bg-amber-500" : "bg-destructive";
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
@@ -602,55 +686,60 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
 
       {showStatements && (
         <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Import statement</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Export a CSV from your bank and drop it here — we parse, categorize, and de-dupe. No
-            bank login or credentials are ever stored.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={institution}
-              onChange={(e) => setInstitution(e.target.value)}
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-              disabled={busy}
-            >
-              {INSTITUTIONS.map((i) => (
-                <option key={i} value={i}>
-                  {i}
-                </option>
-              ))}
-            </select>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              onChange={onFile}
-              className="hidden"
-            />
-            <Button
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-            >
-              <Upload className="size-4" /> Upload CSV
-            </Button>
-            <Button variant="ghost" className="gap-1.5" onClick={recategorizeAll} disabled={busy}>
-              <RefreshCw className="size-4" /> Re-categorize all
-            </Button>
-          </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Re-applies the latest rules to past transactions (e.g. tagging credit-card payments as
-            transfers). Your manual changes are kept.
-          </p>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Import statement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Export a CSV from your bank and drop it here — we parse, categorize, and de-dupe. No
+                bank login or credentials are ever stored.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={institution}
+                  onChange={(e) => setInstitution(e.target.value)}
+                  className="h-9 rounded-md border bg-background px-2 text-sm"
+                  disabled={busy}
+                >
+                  {INSTITUTIONS.map((i) => (
+                    <option key={i} value={i}>
+                      {i}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={onFile}
+                  className="hidden"
+                />
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={busy}
+                >
+                  <Upload className="size-4" /> Upload CSV
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="gap-1.5"
+                  onClick={recategorizeAll}
+                  disabled={busy}
+                >
+                  <RefreshCw className="size-4" /> Re-categorize all
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Re-applies the latest rules to past transactions (e.g. tagging credit-card payments
+                as transfers). Your manual changes are kept.
+              </p>
+            </CardContent>
+          </Card>
 
-      <RecentTransactions transactions={monthTxns} onChange={onChange} />
+          <RecentTransactions transactions={monthTxns} onChange={onChange} />
         </>
       )}
     </div>
@@ -1083,9 +1172,57 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
   const [qty, setQty] = useState("");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [asOf, setAsOf] = useState<number | null>(null);
+  const [liveSymbols, setLiveSymbols] = useState<Set<string>>(new Set());
 
   const positions = hub.snapshot.positions || [];
   const total = positions.reduce((s, p) => s + (p.value || 0), 0);
+
+  async function refreshPrices() {
+    if (!positions.length) return;
+    setRefreshing(true);
+    try {
+      const { prices, asOf: ts } = await refreshQuotes({
+        data: { symbols: positions.map((p) => p.symbol) },
+      });
+      // Resolved symbols get the live close; everything else (a 401K balance,
+      // a typo, a delisted name) keeps its last manual price.
+      const updated = positions.map((p) => {
+        const live = prices[p.symbol.toUpperCase()];
+        if (!Number.isFinite(live)) return p;
+        return {
+          ...p,
+          price: live,
+          value: Math.round(p.quantity * live * 100) / 100,
+        };
+      });
+      const hits = Object.keys(prices).length;
+      if (hits) {
+        await saveDailyFinance({
+          data: {
+            date: today,
+            finance: {
+              date: today,
+              accounts: hub.snapshot.accounts || [],
+              positions: updated,
+            },
+          },
+        });
+        await onChange();
+      }
+      setLiveSymbols(new Set(Object.keys(prices)));
+      setAsOf(ts);
+      const missed = positions.length - hits;
+      flash(
+        hits
+          ? `Updated ${hits} price${hits === 1 ? "" : "s"}.${missed ? ` ${missed} kept manual.` : ""}`
+          : "No live prices found — kept manual prices.",
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function addPosition(e: React.FormEvent) {
     e.preventDefault();
@@ -1129,8 +1266,26 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
       <Stat label="Holdings value" value={fmtMoney(total)} />
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Holdings</CardTitle>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="text-base">Holdings</CardTitle>
+            {asOf && (
+              <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                Prices as of {new Date(asOf).toLocaleTimeString()}
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            disabled={refreshing || !positions.length}
+            onClick={refreshPrices}
+          >
+            <RefreshCw className={`size-4${refreshing ? " animate-spin" : ""}`} />
+            {refreshing ? "Refreshing…" : "Refresh prices"}
+          </Button>
         </CardHeader>
         <CardContent>
           {positions.length ? (
@@ -1139,10 +1294,19 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
                 const pct = total > 0 ? Math.round(((p.value || 0) / total) * 100) : 0;
                 // A single holding is always 100% — the bar and percent are noise.
                 const showAllocation = positions.length > 1;
+                const isLive = liveSymbols.has(p.symbol.toUpperCase());
                 return (
                   <li key={i} className="text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="font-medium">{p.symbol}</span>
+                      <span className="flex items-center gap-1.5 font-medium">
+                        {p.symbol}
+                        {isLive && (
+                          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                            <span className="size-1.5 rounded-full bg-emerald-500" />
+                            Live
+                          </span>
+                        )}
+                      </span>
                       <span className="tabular-nums text-muted-foreground">
                         {p.quantity} × {fmtMoney(p.price)} = {fmtMoney(p.value || 0)}
                         {showAllocation ? ` (${pct}%)` : ""}
@@ -1498,10 +1662,7 @@ function BudgetBar({
           </span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded bg-muted">
-          <div
-            className={`h-full transition-all ${barColor}`}
-            style={{ width: `${pct}%` }}
-          />
+          <div className={`h-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
         </div>
         <div className={`mt-1 text-right text-xs tabular-nums ${noteColor}`}>{note}</div>
       </button>

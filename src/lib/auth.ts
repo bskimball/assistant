@@ -15,6 +15,7 @@
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { passkey } from "@better-auth/passkey";
 import { getDb } from "@/server/adapters/d1";
 
 let _auth: any = null;
@@ -55,6 +56,16 @@ export function isAllowedLoginEmail(email: string | null | undefined, env?: any)
   return normalized.length > 0 && getAllowedLoginEmails(env).has(normalized);
 }
 
+export function isLocalDevRequest(request?: Request): boolean {
+  if (!request) return false;
+  try {
+    const hostname = new URL(request.url).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 export async function isAuthConfigured(): Promise<boolean> {
   try {
     const { env } = await import("cloudflare:workers");
@@ -75,7 +86,10 @@ export async function isAuthConfigured(): Promise<boolean> {
 export async function requireAuthSession(request?: Request): Promise<Session | null> {
   if (!request) return null;
   const configured = await isAuthConfigured();
-  if (!configured && process.env.NODE_ENV !== "production") return null;
+  if (!configured) {
+    if (isLocalDevRequest(request)) return null;
+    throw new Error("Authentication is not configured for this deployment.");
+  }
 
   const auth = (await getAuth()) as any;
   const headers = request?.headers ?? new Headers();
@@ -102,17 +116,28 @@ export async function getAuth() {
   const secret = getEnvValue(env, "BETTER_AUTH_SECRET");
   const baseUrl = getEnvValue(env, "BETTER_AUTH_URL") || "http://localhost:3000";
 
+  // WebAuthn relying-party id must be the registrable domain (hostname only).
+  // Derived from the base URL so it's correct on localhost and the prod domain.
+  const rpID = (() => {
+    try {
+      return new URL(baseUrl).hostname;
+    } catch {
+      return "localhost";
+    }
+  })();
+
   _auth = betterAuth({
     appName: "Brian's Life Assistant",
 
     baseURL: baseUrl,
 
-    // Provide a placeholder in dev if missing (better-auth will still surface clear errors in prod)
+    // Provide a placeholder only for explicit development mode. Production and
+    // unknown runtimes must not silently mint sessions with a fallback secret.
     secret:
       secret ||
-      (process.env.NODE_ENV === "production"
-        ? undefined
-        : "dev-only-insecure-do-not-use-in-prod-32chars!!"),
+      (process.env.NODE_ENV === "development"
+        ? "dev-only-insecure-do-not-use-in-prod-32chars!!"
+        : undefined),
 
     database: drizzleAdapter(db, {
       provider: "sqlite",
@@ -137,6 +162,16 @@ export async function getAuth() {
             },
           }
         : {},
+
+    // Passkey / WebAuthn for biometric (fingerprint / Face ID) sign-in (ADR-017).
+    // `origin` defaults to the request Origin header, so localhost and the
+    // deployed HTTPS domain both work without per-env wiring.
+    plugins: [
+      passkey({
+        rpID,
+        rpName: "Brian's Life Assistant",
+      }),
+    ],
 
     databaseHooks: {
       user: {

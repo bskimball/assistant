@@ -196,19 +196,36 @@ npm run cf-typegen   # Refresh CloudflareEnv types
 
 ### Deploy
 
+Production configuration follows Cloudflare Workers conventions:
+
+- Put sensitive values in Worker secrets: `BETTER_AUTH_SECRET` and `GOOGLE_CLIENT_SECRET`.
+- Put non-sensitive runtime config in Cloudflare variables: `GOOGLE_CLIENT_ID`,
+  `BETTER_AUTH_URL`, and `PUBLIC_APP_URL`.
+- Keep `.dev.vars` local-only for `vp dev` / `wrangler dev`. The build script removes
+  generated `.dev.vars` / `.env*` artifacts from `dist` before deploy.
+
+```bash
+npx wrangler secret put BETTER_AUTH_SECRET
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+# Optional AI features:
+npx wrangler secret put GROK_API_KEY
+```
+
 ```bash
 npm run build
 npm run deploy
 ```
 
-Requires a logged-in Wrangler session (`npx wrangler login`) and the R2 bucket to exist.
+Requires a logged-in Wrangler session (`npx wrangler login`), a real D1 database id in
+`wrangler.jsonc`, and the R2 bucket to exist. Production auth fails closed if the
+required Google/Better Auth config is missing.
 
 See [`.agents/adrs/001-cloudflare-r2-deployment.md`](.agents/adrs/001-cloudflare-r2-deployment.md) and `wrangler.jsonc`.
 
 ### Scripts
 
 - `dev` / `build` / `preview` / `test` / `check` (Vite+ `vp` wrappers + npm fallbacks)
-- `deploy` — wrangler deploy
+- `deploy` — build, sanitize generated env artifacts, then `wrangler deploy`
 - `dev:cf` — wrangler dev
 - `cf-typegen` — generate worker types from wrangler config
 

@@ -12,6 +12,8 @@ import {
   Sparkles,
   RefreshCw,
   Trash2,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,8 +43,6 @@ export const Route = createFileRoute("/nutrition")({
 type Targets = { calories: number; protein: number; waterOz: number };
 const DEFAULT_TARGETS: Targets = { calories: 2000, protein: 150, waterOz: 85 };
 
-const WATER_QUICK_ADD = [8, 16, 24];
-
 function NutritionPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -63,7 +63,9 @@ function NutritionPage() {
 
   const [foodName, setFoodName] = useState("");
   const [foodEstimating, setFoodEstimating] = useState(false);
-  const [customWater, setCustomWater] = useState("");
+  // While dragging the water slider we hold the in-flight oz value here so the
+  // fill follows the thumb; we commit to the server on release.
+  const [waterDraft, setWaterDraft] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -102,6 +104,16 @@ function NutritionPage() {
     navigate({ search: { date: toISODate(d) } });
   }
 
+  // Timestamp for a new entry: "now" for today, otherwise the selected day at
+  // the current wall-clock time so back-dated entries sort and display sanely.
+  function entryTimestamp() {
+    if (isToday) return Date.now();
+    const now = new Date();
+    const d = new Date(selectedDate + "T00:00:00");
+    d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    return d.getTime();
+  }
+
   // Persist a new mealLogs/waterMl set; the server recomputes totals.
   async function persist(next: { mealLogs: MealLog[]; waterMl?: number }) {
     const saved = await saveDailyNutrition({
@@ -126,12 +138,12 @@ function NutritionPage() {
   async function handleAddFood(e?: React.FormEvent) {
     if (e) e.preventDefault();
     const description = foodName.trim();
-    if (!description || foodEstimating || !isToday) return;
+    if (!description || foodEstimating) return;
     setFoodEstimating(true);
     setStatus("Looking up nutrition…");
     try {
       const est = await estimateFoodMacros({ data: { description } });
-      const now = Date.now();
+      const now = entryTimestamp();
       const mealLog: MealLog = {
         id: newId("meal"),
         timestamp: now,
@@ -166,41 +178,42 @@ function NutritionPage() {
       );
     } catch (err) {
       console.error("[nutrition] add food failed", err);
-      flashStatus("Couldn’t log that food — try again.");
+      flashStatus(
+        "Couldn’t estimate that food right now — add calories/macros or check the AI key.",
+      );
     } finally {
       setFoodEstimating(false);
     }
   }
 
-  async function handleAddWater(oz: number) {
-    if (!isToday || busy) return;
-    const addMl = flOzToMl(oz);
-    if (!addMl) return;
+  // Set the day's water to an absolute oz total (clamped at 0).
+  async function setWaterOz(totalOz: number) {
+    if (busy) return;
+    const oz = Math.max(0, Math.round(totalOz));
     setBusy(true);
     try {
       const saved = await persist({
         mealLogs: nutrition?.mealLogs || [],
-        waterMl: (nutrition?.waterMl ?? 0) + addMl,
+        waterMl: flOzToMl(oz) ?? 0,
       });
-      flashStatus(`Logged ${oz} fl oz — ${mlToFlOz(saved.waterMl) ?? 0} fl oz today`);
+      flashStatus(`Water set to ${mlToFlOz(saved.waterMl) ?? 0} fl oz`);
     } catch (err) {
-      console.error("[nutrition] add water failed", err);
-      flashStatus("Couldn’t log water — try again.");
+      console.error("[nutrition] set water failed", err);
+      flashStatus("Couldn’t update water — try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  function handleCustomWater(e?: React.FormEvent) {
-    if (e) e.preventDefault();
-    const oz = Number(customWater);
-    if (!Number.isFinite(oz) || oz <= 0) return;
-    setCustomWater("");
-    void handleAddWater(Math.round(oz));
+  // Commit the dragged slider value, then clear the draft so the bar tracks
+  // the persisted total again.
+  function commitWaterDraft() {
+    if (waterDraft == null) return;
+    void setWaterOz(waterDraft).finally(() => setWaterDraft(null));
   }
 
   async function handleDeleteMeal(id: string) {
-    if (!isToday || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
       await persist({
@@ -223,6 +236,14 @@ function NutritionPage() {
     fat: 0,
   };
   const waterOz = mlToFlOz(nutrition?.waterMl ?? 0) ?? 0;
+  // The slider shows the draft while dragging, otherwise the persisted total.
+  const displayWaterOz = waterDraft ?? waterOz;
+  // Headroom above target (and current) so you can overshoot, rounded to 4 oz.
+  const waterSliderMax = Math.max(
+    Math.ceil((targets.waterOz * 1.5) / 4) * 4,
+    Math.ceil(displayWaterOz / 4) * 4,
+    8,
+  );
   const meals = (nutrition?.mealLogs || [])
     .filter((m) => !m.deletedAt)
     .slice()
@@ -331,95 +352,85 @@ function NutritionPage() {
                 <Droplet className="size-4 text-primary" /> Water
               </span>
               <span className="tabular-nums text-sm text-muted-foreground">
-                {waterOz} / {targets.waterOz} fl oz
+                {displayWaterOz} / {targets.waterOz} fl oz
               </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Progress value={waterOz} target={targets.waterOz} />
-            {isToday && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {WATER_QUICK_ADD.map((oz) => (
-                  <Button
-                    key={oz}
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
-                    disabled={busy}
-                    onClick={() => handleAddWater(oz)}
-                  >
-                    <Droplet className="size-3.5" /> +{oz} oz
-                  </Button>
-                ))}
-                <form onSubmit={handleCustomWater} className="flex items-center gap-1.5">
-                  <Input
-                    value={customWater}
-                    onChange={(e) => setCustomWater(e.target.value)}
-                    inputMode="numeric"
-                    placeholder="oz"
-                    className="h-8 w-16"
-                    disabled={busy}
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || !customWater.trim()}
-                  >
-                    Add
-                  </Button>
-                </form>
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-9 shrink-0"
+                disabled={busy || displayWaterOz <= 0}
+                onClick={() => setWaterOz(waterOz - 4)}
+                aria-label="Remove 4 fl oz"
+              >
+                <Minus className="size-4" />
+              </Button>
+              <WaterSlider
+                value={displayWaterOz}
+                target={targets.waterOz}
+                max={waterSliderMax}
+                disabled={busy}
+                onDraft={setWaterDraft}
+                onCommit={commitWaterDraft}
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-9 shrink-0"
+                disabled={busy}
+                onClick={() => setWaterOz(waterOz + 4)}
+                aria-label="Add 4 fl oz"
+              >
+                <Plus className="size-4" />
+              </Button>
+            </div>
+            <div className="mt-2 text-center text-[11px] text-muted-foreground">
+              Drag the bar or use −/+ to adjust in 4 fl oz steps.
+            </div>
           </CardContent>
         </Card>
 
         {/* Add food */}
-        {isToday && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Sparkles className="size-4 text-primary" /> Log food
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleAddFood} className="flex items-center gap-2">
-                <Input
-                  value={foodName}
-                  onChange={(e) => setFoodName(e.target.value)}
-                  placeholder="e.g. 6oz grilled chicken breast, 1 cup white rice…"
-                  className="flex-1"
-                  disabled={foodEstimating}
-                />
-                <Button
-                  type="submit"
-                  className="gap-1"
-                  disabled={!foodName.trim() || foodEstimating}
-                >
-                  {foodEstimating ? (
-                    <RefreshCw className="size-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="size-4" />
-                  )}
-                  {foodEstimating ? "Estimating…" : "Add"}
-                </Button>
-              </form>
-              <div className="mt-2 text-[11px] text-muted-foreground">
-                {status ?? "The AI estimates calories & macros from your description."}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        {!isToday && status && (
-          <div className="mb-4 text-[11px] text-muted-foreground">{status}</div>
-        )}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="size-4 text-primary" /> Log food
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleAddFood} className="flex items-center gap-2">
+              <Input
+                value={foodName}
+                onChange={(e) => setFoodName(e.target.value)}
+                placeholder="e.g. 6oz grilled chicken breast, 1 cup white rice…"
+                className="flex-1"
+                disabled={foodEstimating}
+              />
+              <Button type="submit" className="gap-1" disabled={!foodName.trim() || foodEstimating}>
+                {foodEstimating ? (
+                  <RefreshCw className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                {foodEstimating ? "Estimating…" : "Add"}
+              </Button>
+            </form>
+            <div className="mt-2 text-[11px] text-muted-foreground">
+              {status ?? "The AI estimates calories & macros from your description."}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Meals */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between text-base">
-              <span>Today’s log</span>
+              <span>{isToday ? "Today’s log" : "Log"}</span>
               <span className="text-sm font-normal text-muted-foreground">
                 {meals.length} {meals.length === 1 ? "entry" : "entries"}
               </span>
@@ -483,19 +494,17 @@ function NutritionPage() {
                             </div>
                           )}
                         </div>
-                        {isToday && (
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                            disabled={busy}
-                            onClick={() => handleDeleteMeal(m.id)}
-                            aria-label="Remove entry"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        )}
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          disabled={busy}
+                          onClick={() => handleDeleteMeal(m.id)}
+                          aria-label="Remove entry"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
                       </div>
                     </li>
                   );
@@ -505,6 +514,64 @@ function NutritionPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+// A draggable water slider. Fill, thumb, and the (invisible) native range
+// input all share the same 0..max scale so the cursor sits exactly on the
+// handle. The day's target is shown as a tick so you can see the goal.
+function WaterSlider({
+  value,
+  target,
+  max,
+  disabled,
+  onDraft,
+  onCommit,
+}: {
+  value: number;
+  target: number;
+  max: number;
+  disabled?: boolean;
+  onDraft: (oz: number) => void;
+  onCommit: () => void;
+}) {
+  const valuePct = Math.max(0, Math.min(100, (value / max) * 100));
+  const targetPct = Math.max(0, Math.min(100, (target / max) * 100));
+  const ratio = value / Math.max(1, target);
+  const tone = ratio >= 0.8 ? "bg-emerald-500" : ratio >= 0.4 ? "bg-amber-500" : "bg-primary";
+  return (
+    <div className="relative flex flex-1 items-center py-2">
+      {/* track */}
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div className={`h-full transition-all ${tone}`} style={{ width: `${valuePct}%` }} />
+      </div>
+      {/* target tick */}
+      <div
+        className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/40"
+        style={{ left: `${targetPct}%` }}
+        aria-hidden="true"
+      />
+      {/* visible thumb (driven by value; the range overlay handles input) */}
+      <div
+        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow transition-all"
+        style={{ left: `${valuePct}%` }}
+        aria-hidden="true"
+      />
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={4}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onDraft(Number(e.target.value))}
+        onPointerUp={onCommit}
+        onKeyUp={onCommit}
+        onBlur={onCommit}
+        aria-label="Water intake in fluid ounces"
+        className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+      />
     </div>
   );
 }

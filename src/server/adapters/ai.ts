@@ -21,11 +21,32 @@ async function getCloudflareEnv(): Promise<Record<string, unknown> | undefined> 
   }
 }
 
+async function getLocalDevVar(key: string): Promise<string | undefined> {
+  if (typeof process === "undefined" || process.env?.NODE_ENV === "production") return undefined;
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const file = await fs.readFile(path.join(process.cwd(), ".dev.vars"), "utf8");
+    for (const line of file.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const match = trimmed.match(/^([^=]+)=(.*)$/);
+      if (!match || match[1].trim() !== key) continue;
+      return match[2].trim().replace(/^(['"])(.*)\1$/, "$2");
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 export async function getGrokApiKey(): Promise<string | undefined> {
   const cfEnv = await getCloudflareEnv();
   const apiKey = cfEnv?.GROK_API_KEY;
   if (typeof apiKey === "string" && apiKey.length > 0) return apiKey;
-  return (globalThis as any).GROK_API_KEY || process?.env?.GROK_API_KEY;
+  const globalKey = (globalThis as any).GROK_API_KEY || process?.env?.GROK_API_KEY;
+  if (typeof globalKey === "string" && globalKey.length > 0) return globalKey;
+  return getLocalDevVar("GROK_API_KEY");
 }
 
 export function stripJsonFence(raw: string): string {

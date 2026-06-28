@@ -214,7 +214,7 @@ function BirthDatePicker({
           {label}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start">
+      <PopoverContent align="start" className="w-auto p-0">
         <Calendar
           mode="single"
           selected={selected}

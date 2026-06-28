@@ -70,6 +70,8 @@ function KanbanBoard() {
 
   const [taskInput, setTaskInput] = useState("");
   const [quickCategory, setQuickCategory] = useState<ColumnId | "">("");
+  const [quickShared, setQuickShared] = useState(false);
+  const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "shared">("all");
   const [tasksVersion, setTasksVersion] = useState(0);
   const [_isLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -82,6 +84,12 @@ function KanbanBoard() {
 
   const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion]);
 
+  const visibleTasks = useMemo(() => {
+    if (scopeFilter === "mine") return tasks.filter((t) => !t.shared);
+    if (scopeFilter === "shared") return tasks.filter((t) => t.shared);
+    return tasks;
+  }, [tasks, scopeFilter]);
+
   const tasksByColumn = useMemo(() => {
     const map: Record<ColumnId, ProductivityTask[]> = {
       inbox: [],
@@ -93,7 +101,7 @@ function KanbanBoard() {
       doing: [],
       done: [],
     };
-    for (const t of tasks) {
+    for (const t of visibleTasks) {
       if (t.deletedAt) continue;
       let col =
         (t.column as ColumnId) || (t.done ? "done" : t.date === selectedDate ? "today" : "inbox");
@@ -101,7 +109,7 @@ function KanbanBoard() {
       map[col as ColumnId].push(t);
     }
     return map;
-  }, [tasks, selectedDate]);
+  }, [visibleTasks, selectedDate]);
 
   // No need to reload on date for now - client collection + getTasksForDate handles it
   // (data persists via the daily aggregate on changes)
@@ -132,10 +140,23 @@ function KanbanBoard() {
       column: col,
       project: proj,
       source: "daily",
+      shared: quickShared,
     });
     upsertProductivityTaskClient(newTask);
     setTaskInput("");
     setQuickCategory("");
+    await persistTasks(selectedDate);
+  }
+
+  async function toggleTaskShared(id: string) {
+    if (!isToday) return;
+    const existing = productivityTasksCollection.state.get(id) as ProductivityTask | undefined;
+    if (!existing) return;
+    upsertProductivityTaskClient({
+      ...existing,
+      shared: !existing.shared,
+      updatedAt: Date.now(),
+    });
     await persistTasks(selectedDate);
   }
 
@@ -319,7 +340,7 @@ function KanbanBoard() {
                     }}
                   />
                 </div>
-                <div className="flex flex-wrap gap-1 text-[10px]">
+                <div className="flex flex-wrap items-center gap-1 text-[10px]">
                   {["", "family", "workout", "eat", "money", "today", "doing"].map((cat) => {
                     const label = !cat
                       ? "Inbox"
@@ -337,6 +358,19 @@ function KanbanBoard() {
                       </button>
                     );
                   })}
+                  {/* Personal vs. shared (household) destination for the new task */}
+                  <button
+                    type="button"
+                    onClick={() => setQuickShared((s) => !s)}
+                    className={`ml-1 inline-flex items-center gap-1 rounded px-2 py-0.5 border text-xs ${quickShared ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                    aria-pressed={quickShared}
+                    title={
+                      quickShared ? "New task is shared with household" : "New task is personal"
+                    }
+                  >
+                    {quickShared ? <Users className="size-3" /> : <Lock className="size-3" />}
+                    {quickShared ? "Shared" : "Personal"}
+                  </button>
                 </div>
               </form>
             </CardContent>
@@ -358,6 +392,24 @@ function KanbanBoard() {
             </div>
           </div>
         )}
+
+        {/* Scope filter: combine mine + shared, or focus one */}
+        <div className="mb-3 flex items-center gap-1 text-xs">
+          {(["all", "mine", "shared"] as const).map((f) => (
+            <button
+              type="button"
+              key={f}
+              onClick={() => setScopeFilter(f)}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 capitalize ${
+                scopeFilter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+              }`}
+            >
+              {f === "shared" && <Users className="size-3" />}
+              {f === "mine" && <Lock className="size-3" />}
+              {f}
+            </button>
+          ))}
+        </div>
 
         {/* Full Kanban */}
         <div className="kanban-board overflow-x-auto pb-4">
@@ -398,6 +450,11 @@ function KanbanBoard() {
                         >
                           <div className="font-medium leading-tight pr-8">{task.text}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
+                            {task.shared && (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 font-medium text-primary">
+                                <Users className="size-2.5" /> Shared
+                              </span>
+                            )}
                             {task.project && (
                               <span className="rounded bg-muted px-1">{task.project}</span>
                             )}
@@ -455,6 +512,18 @@ function KanbanBoard() {
                                 title="Edit"
                               >
                                 <Pencil className="size-3.5" />
+                              </button>
+                              <button
+                                onClick={() => toggleTaskShared(task.id)}
+                                className="rounded p-1 hover:bg-muted"
+                                aria-label={task.shared ? "Make personal" : "Share with household"}
+                                title={task.shared ? "Make personal" : "Share with household"}
+                              >
+                                {task.shared ? (
+                                  <Lock className="size-3.5" />
+                                ) : (
+                                  <Users className="size-3.5" />
+                                )}
                               </button>
                               <button
                                 onClick={() => deleteTask(task.id)}

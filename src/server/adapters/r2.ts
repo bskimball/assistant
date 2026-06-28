@@ -219,13 +219,13 @@ export function getAIInteractionKey(id: string, userId = USER_ID): string {
   return `${getUserPrefix(userId)}/ai/interactions/${id}.json`;
 }
 
-export async function putVoiceTranscript(record: VoiceTranscript): Promise<void> {
-  const key = getVoiceTranscriptKey(record.id);
+export async function putVoiceTranscript(record: VoiceTranscript, userId = USER_ID): Promise<void> {
+  const key = getVoiceTranscriptKey(record.id, userId);
   await putJSON(key, record);
 }
 
-export async function putAIInteraction(record: AIInteraction): Promise<void> {
-  const key = getAIInteractionKey(record.id);
+export async function putAIInteraction(record: AIInteraction, userId = USER_ID): Promise<void> {
+  const key = getAIInteractionKey(record.id, userId);
   await putJSON(key, record);
 }
 

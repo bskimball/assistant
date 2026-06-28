@@ -35,9 +35,9 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 
 ### 3. Provider & configuration
 
-- Google is the sole social provider. If `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are absent, `socialProviders` is empty and the app still boots — sign-in simply reports it is unavailable rather than crashing.
+- Google is the sole social provider. If `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are absent in local development, `socialProviders` is empty and the app still boots — sign-in simply reports it is unavailable rather than crashing. Production route guards and request scoping fail closed when auth is not configured.
 - Login is restricted to Brian and Sophia's Google accounts by default: `briankimball1982@gmail.com` and `sophiamkimball@gmail.com`. The allowlist can be overridden with `ALLOWED_LOGIN_EMAILS` or `AUTH_ALLOWED_EMAILS` using comma, semicolon, or whitespace-separated addresses.
-- Secrets resolve from Cloudflare Workers env first, then `process.env`, then `globalThis`. A dev-only insecure secret is used outside production.
+- Secrets resolve from Cloudflare Workers env first, then `process.env`, then `globalThis`. A dev-only insecure secret is used outside production. Deployment uses Cloudflare Worker secrets for sensitive values (`BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_SECRET`) and Cloudflare variables for non-sensitive config (`GOOGLE_CLIENT_ID`, `BETTER_AUTH_URL`, `PUBLIC_APP_URL`); `wrangler.jsonc` declares required secrets and the build script removes generated `.dev.vars` / `.env*` files from `dist`.
 - `BETTER_AUTH_URL` / trusted origins include localhost + the configured public URL.
 
 ### 4. Request flow
@@ -56,17 +56,18 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 
 - Reproducible installs (deps declared) and a runnable auth path (D1 binding present, `user` table created).
 - Clear separation of concerns: D1 = identity, R2 = domain. No accidental second source of truth.
-- Graceful degradation keeps local/dev flows unblocked without OAuth credentials.
+- Graceful degradation keeps local/dev flows unblocked without OAuth credentials while production fails closed.
 
 **Negative**
 
 - Two persistence technologies (D1 + R2) increase operational surface (two bindings, two mental models).
 - `ensureSchema()` on the auth path adds a tiny per-cold-start cost (idempotent table checks).
-- A real remote deploy still requires `wrangler d1 create` + pasting the database id and configuring Google OAuth — documented but manual.
+- A real remote deploy still requires `wrangler d1 create` + pasting the database id, setting Cloudflare variables, setting Worker secrets, and configuring Google OAuth — documented but manual.
 
 **Risks & Mitigations**
 
 - _D1 binding missing in an environment_ → `getDb()` throws an actionable message; `ensureSchema()` is a no-op when unbound so non-auth paths never crash.
+- _Auth secrets missing in production_ → route guards and request scoping fail closed instead of binding the default local-dev user.
 - _Schema drift between drizzle model and raw `CREATE TABLE`_ → both live in this repo and are reviewed together; column names/types kept in lockstep.
 - _Family-account access sharing domain data_ → `USER_ID` remains the fixed R2 partition because this is still Brian's personal assistant data model. Sophia's account is an authorized login to the same personal workspace, not a separate tenant. If multi-user data separation is ever needed, the session `userId` becomes the partition key (large change, explicitly out of scope).
 
@@ -80,6 +81,6 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 ## Open Questions / Next Steps
 
 1. **Existing unauthorized sessions**: if a non-allowlisted Google account signed in before the allowlist existed, app routes and write server functions now reject it; optionally purge that user/session from D1.
-2. **Secrets management**: document/automate setting `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` as Worker secrets for prod.
+2. **Secrets management**: set `GOOGLE_CLIENT_SECRET` and `BETTER_AUTH_SECRET` as Worker secrets, set `GOOGLE_CLIENT_ID` / `BETTER_AUTH_URL` / `PUBLIC_APP_URL` as Cloudflare variables, and keep `.dev.vars` local-only.
 3. **D1 provisioning**: replace the placeholder `database_id` in `wrangler.jsonc` after `wrangler d1 create assistant-db`.
 4. **R2 partitioning**: if auth ever maps to multiple users, switch the R2 prefix from the fixed `brian` to the session `userId`.

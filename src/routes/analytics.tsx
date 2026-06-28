@@ -81,9 +81,7 @@ function Analytics() {
           cashflow: allTransactions
             .filter(
               (t) =>
-                t.timestamp >= dayStart &&
-                t.timestamp <= dayEnd &&
-                t.categoryGroup !== "transfer",
+                t.timestamp >= dayStart && t.timestamp <= dayEnd && t.categoryGroup !== "transfer",
             )
             .reduce((sum, t) => sum + t.amount, 0),
         };
@@ -237,7 +235,9 @@ function SummaryTile({
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <Icon className="size-3.5" /> {label}
       </div>
-      <div className={`mt-1 flex items-center gap-1.5 text-xl font-semibold tabular-nums ${valueTone}`}>
+      <div
+        className={`mt-1 flex items-center gap-1.5 text-xl font-semibold tabular-nums ${valueTone}`}
+      >
         {value}
         {trend !== undefined && trend !== 0 && (
           <span

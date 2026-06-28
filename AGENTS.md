@@ -2,7 +2,7 @@
 
 ## Project Mission
 
-Build a personal AI assistant and Life Coach that improves the user's life through:
+Build a personal AI assistant and Life Coach that improves each member's life through:
 
 - Physical fitness (workouts, planning, tracking)
 - Nutrition (meal tracking, food logging, suggestions)
@@ -11,16 +11,21 @@ Build a personal AI assistant and Life Coach that improves the user's life throu
 - Productivity (existing kanban, todos)
 - Voice-first interaction
 
-**Current user**: Brian Kimball (primary person to improve)
+**Users**: Brian Kimball and Sophia Kimball — a household sharing this app.
+
+- **Shared across both**: household finances and shared tasks/todos (see ADR-017 scoping).
+- **Dedicated per person**: nutrition and all other health data (meal/food logging, calorie & macro tracking, fitness, profile) are individual — each member's data is scoped to that person and never mixed. Tasks can be either personal or shared.
+
+When adding or changing a domain, decide its scope deliberately: per-user (health, nutrition, profile) vs. household (finances, shared tasks). See ADR-017 for the scoping mechanism.
 
 ## User Defaults
 
-- Brian is in the United States. Use US customary units in all user-facing health and fitness copy by default: pounds for bodyweight and exercise loads, inches/feet for height, and fluid ounces for hydration.
+- Both Brian and Sophia are in the United States. Use US customary units in all user-facing health and fitness copy by default: pounds for bodyweight and exercise loads, inches/feet for height, and fluid ounces for hydration.
 - Internal storage may preserve existing normalized fields (for example centimeters or milliliters) when needed for compatibility, but UI labels, coach prompts, examples, and voice confirmations should speak in USA units unless the user explicitly chooses otherwise.
 
 ## Core Principles
 
-1. **Person-first**: Every feature must demonstrably improve the user's life
+1. **Person-first**: Every feature must demonstrably improve a member's life, and must respect per-user vs. household data scopes (never leak one person's health/nutrition data to the other)
 2. **AI-friendly docs**: All documentation must be structured for agent consumption
 3. **Voice-native**: Primary interaction via voice
 4. **Privacy-first**: User data stays local or encrypted
@@ -49,7 +54,8 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 - Finance is first-class (ADR-012): `loadDailyFinance`/`saveDailyFinance` daily aggregates + a net-worth snapshot on the dashboard (no longer "optional").
 - Personal Finance Hub (ADR-016): a tabbed `/finance` route (Overview / Budget / Subscriptions / Investments / Grow) built on `src/server/finance.ts`. Ingestion is manual + CSV statement import (no paid aggregator, no stored bank credentials) with a no-dependency CSV parser, keyword categorizer + learned overrides (`category-rules.json`), and de-dupe. Adds `Budget` (`budget.json`, 50/30/20) and `Subscription` (`subscriptions.json`, with recurring-charge detection) domain types, plus `categoryGroup` on `Transaction`. `generateFinanceAdvice` is a finance-specific advisor (budget/subscriptions/investing/earn-more) — Grok-backed with a deterministic fallback — whose recommendations accept into real tasks via `acceptFinanceActions` (closed loop). Investing output is educational, never executes trades.
 - Closed-loop coaching (ADR-014): coach suggestions can be accepted into real daily tasks, voice meal logs parse explicit macros/calories instead of storing zeroes, workout sessions track duration/effort hooks, finance has a lightweight `transactions.json` cashflow ledger, analytics charts cashflow, and weekly review can schedule next-week focus tasks.
-- Authentication (ADR-010): Better Auth + Google OAuth backed by Cloudflare D1 (auth tables only — domain data stays on R2), with login restricted to `briankimball1982@gmail.com` and `sophiamkimball@gmail.com` by default. `AuthControl` in the header; degrades gracefully when OAuth is unconfigured. Remote deploy needs a real D1 id + Google secrets.
+- Authentication (ADR-010): Better Auth + Google OAuth backed by Cloudflare D1 (auth tables only — domain data stays on R2), with login restricted to `briankimball1982@gmail.com` and `sophiamkimball@gmail.com` by default. `AuthControl` in the header; local dev degrades gracefully when OAuth is unconfigured, but production fails closed if auth config is missing. Remote deploy needs a real D1 id, Cloudflare variables for non-sensitive config (`GOOGLE_CLIENT_ID`, `BETTER_AUTH_URL`, `PUBLIC_APP_URL`), and Worker secrets for sensitive values (`GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`; optional `GROK_API_KEY`).
+- Multi-user scoping + passkeys (ADR-017): two members (Brian, Sophia) with **per-user vs. shared data scopes**. Personal data lives at `assistant/{userScope}/*` (health, profile, personal tasks, voice/AI logs); shared household data at `assistant/household/*` (finances, shared tasks). A global function middleware (`src/server/auth-middleware.ts`, registered as `functionMiddleware` in `src/start.ts` — server functions are the only domain-data access path) resolves the session via `getRequest()` and binds the per-user scope via `AsyncLocalStorage` (`request-context.ts`); `getDomainStore()` is personal, `getDomainStore({ shared: true })` is household. Strict anti-leak guard: the store throws if auth is configured but no scope is bound. `ProductivityTask.shared` splits tasks across scopes — load merges personal+household, save routes by flag; Kanban has a share toggle, "Shared" badge, and All/Mine/Shared filter. **Biometric login** via `@better-auth/passkey` (WebAuthn) layered on the Google allowlist: enroll a platform passkey after Google sign-in (`AuthControl`), then "Sign in with fingerprint" on `/login`; `passkey` D1 table added to `schema.ts` + `ensureSchema()`. One-time `migrateFinanceToHousehold` (`/admin/migrate`) moves Brian's existing finance data to the household scope.
 - Server module layout (ADR-015): route-facing server functions live under `src/server/*`; plain domain operations live in `src/server/domain-impl.ts`; domain persistence goes through `src/server/store.ts`; Cloudflare/API integrations live under `src/server/adapters/*`; client-safe shared types/helpers remain under `src/lib/*`.
 - Weekly Review (`/weekly`) and Analytics (`/analytics`) are built on R2 daily aggregates (weekly rollup + editable review + AI narrative; multi-day trend charts).
 - Icons standardized on `lucide-react` (emoji/unicode glyphs removed from dashboard, Kanban, and nav).

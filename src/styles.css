@@ -56,7 +56,7 @@
 }
 
 /* Jewel palette — light mode on a warm TAUPE ground.
-   Primary Rose, secondary Indigo, accent Amber. Domain hues live in --chart-*. */
+   Primary Navy (complement to taupe). Domain hues live in --chart-*. */
 :root {
   --background: oklch(0.965 0.006 75); /* taupe 50 */
   --foreground: oklch(0.24 0.012 60);
@@ -64,19 +64,19 @@
   --card-foreground: oklch(0.24 0.012 60);
   --popover: oklch(0.992 0.003 75);
   --popover-foreground: oklch(0.24 0.012 60);
-  --primary: oklch(0.505 0.205 18); /* deep rose-red, grounds on taupe */
+  --primary: oklch(0.42 0.15 258); /* deep navy, complement to warm taupe */
   --primary-foreground: oklch(0.99 0.005 75);
   --secondary: oklch(0.93 0.006 75); /* calm taupe surface */
   --secondary-foreground: oklch(0.24 0.012 60);
   --muted: oklch(0.935 0.005 75);
   --muted-foreground: oklch(0.52 0.012 65);
-  --accent: oklch(0.93 0.035 16); /* soft rose tint */
-  --accent-foreground: oklch(0.28 0.11 18);
-  --destructive: oklch(0.55 0.2 28); /* orange-red, distinct from rose */
+  --accent: oklch(0.93 0.03 258); /* soft navy tint */
+  --accent-foreground: oklch(0.3 0.12 258);
+  --destructive: oklch(0.55 0.2 28); /* orange-red */
   --destructive-foreground: oklch(0.99 0.005 75);
   --border: oklch(0.9 0.006 75);
   --input: oklch(0.9 0.006 75);
-  --ring: oklch(0.505 0.205 18);
+  --ring: oklch(0.42 0.15 258);
   --radius: 0.625rem;
   --ledger-done: oklch(0.62 0.14 160); /* success green */
   /* Per-domain hues: rose / emerald / amber / indigo / violet */
@@ -87,12 +87,12 @@
   --chart-5: oklch(0.62 0.2 300);
   --sidebar: oklch(0.965 0.006 75);
   --sidebar-foreground: oklch(0.24 0.012 60);
-  --sidebar-primary: oklch(0.505 0.205 18);
+  --sidebar-primary: oklch(0.42 0.15 258);
   --sidebar-primary-foreground: oklch(0.99 0.005 75);
   --sidebar-accent: oklch(0.935 0.005 75);
   --sidebar-accent-foreground: oklch(0.24 0.012 60);
   --sidebar-border: oklch(0.9 0.006 75);
-  --sidebar-ring: oklch(0.505 0.205 18);
+  --sidebar-ring: oklch(0.42 0.15 258);
 
   /* Fonts — modernized to an all-sans system */
   --font-display: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;

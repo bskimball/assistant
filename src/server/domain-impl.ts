@@ -38,6 +38,7 @@ import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
 import { getDomainStore } from "@/server/store";
 import type { SoftDeleteRecord } from "@/server/adapters/r2";
 import { loadTodosImpl, saveTodosImpl } from "@/server/todos";
+import { ensureHouseholdFinanceMigrated } from "@/server/migrate";
 
 export type WorkoutPlansStore = {
   plans: WorkoutPlan[];
@@ -191,6 +192,19 @@ export function sumMealMacros(meals: DailyNutrition["mealLogs"]): Macros {
     .reduce((total, item) => addMacros(total, item.macros || emptyMacros()), emptyMacros());
 }
 
+function inferFoodMacrosFromText(
+  lower: string,
+): { macros: Macros; confidence: "low" | "medium" } | null {
+  if (
+    /\b0\s*(?:cal|cals|calorie|calories|kcal)\b/.test(lower) ||
+    /\b(water|black coffee|unsweetened tea|diet soda)\b/.test(lower)
+  ) {
+    return { macros: emptyMacros(), confidence: "medium" };
+  }
+
+  return null;
+}
+
 export function estimateMacrosFromText(text: string): {
   macros: Macros;
   confidence: "low" | "medium" | "high";
@@ -219,6 +233,10 @@ export function estimateMacrosFromText(text: string): {
   const macroCalories = protein * 4 + carbs * 4 + fat * 9;
   const inferredCalories = calories || macroCalories;
   const knownCount = [protein, carbs, fat, calories].filter((n) => n > 0).length;
+  if (knownCount === 0) {
+    const inferred = inferFoodMacrosFromText(lower);
+    if (inferred) return inferred;
+  }
   return {
     macros: {
       calories: Math.round(inferredCalories),
@@ -264,7 +282,8 @@ export async function saveDailyNutritionImpl(data: {
 }
 
 export async function loadDailyFinanceImpl(date: ISODate): Promise<DailyFinancePayload> {
-  const store = await getDomainStore();
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
   const stored = await store.daily.get<DailyFinancePayload>("daily-finance", date);
   if (stored) return stored;
   return {
@@ -304,13 +323,14 @@ export async function saveDailyFinanceImpl(data: {
     createdAt: (data.finance as any).createdAt ?? now,
     updatedAt: now,
   };
-  const store = await getDomainStore();
+  const store = await getDomainStore({ shared: true });
   await store.daily.put("daily-finance", data.date, full);
   return full;
 }
 
 export async function loadTransactionsImpl(): Promise<TransactionsStore> {
-  const store = await getDomainStore();
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
   return (
     (await store.ref.get<TransactionsStore>("transactions.json")) ?? {
       transactions: [],
@@ -326,7 +346,7 @@ export async function saveTransactionsImpl(data: {
     transactions: data.transactions,
     updatedAt: Date.now(),
   };
-  const store = await getDomainStore();
+  const store = await getDomainStore({ shared: true });
   await store.ref.put("transactions.json", payload);
   return payload;
 }
@@ -354,7 +374,8 @@ export async function appendTransactionImpl(
 export type BudgetPayload = Budget & { updatedAt: number };
 
 export async function loadBudgetImpl(): Promise<BudgetPayload | null> {
-  const store = await getDomainStore();
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
   return store.ref.get<BudgetPayload>("budget.json");
 }
 
@@ -369,7 +390,7 @@ export async function saveBudgetImpl(data: {
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
-  const store = await getDomainStore();
+  const store = await getDomainStore({ shared: true });
   await store.ref.put("budget.json", payload);
   return payload;
 }
@@ -382,7 +403,8 @@ export type SubscriptionsStore = {
 };
 
 export async function loadSubscriptionsImpl(): Promise<SubscriptionsStore> {
-  const store = await getDomainStore();
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
   return (
     (await store.ref.get<SubscriptionsStore>("subscriptions.json")) ?? {
       subscriptions: [],
@@ -398,7 +420,7 @@ export async function saveSubscriptionsImpl(data: {
     subscriptions: data.subscriptions,
     updatedAt: Date.now(),
   };
-  const store = await getDomainStore();
+  const store = await getDomainStore({ shared: true });
   await store.ref.put("subscriptions.json", payload);
   return payload;
 }
@@ -412,7 +434,8 @@ export type CategoryRulesStore = {
 };
 
 export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
-  const store = await getDomainStore();
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
   return (
     (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
       rules: {},
@@ -428,34 +451,61 @@ export async function saveCategoryRulesImpl(data: {
     rules: data.rules,
     updatedAt: Date.now(),
   };
-  const store = await getDomainStore();
+  const store = await getDomainStore({ shared: true });
   await store.ref.put("category-rules.json", payload);
   return payload;
 }
 
+/**
+ * Productivity tasks are split across two scopes (ADR-017): personal tasks live
+ * in the signed-in user's scope, shared (household) tasks in the shared scope.
+ * Load merges both — tagging each task with its `shared` origin — so a single
+ * combined view shows "mine + shared". Save routes each task back to the
+ * correct scope by its `shared` flag.
+ */
 export async function loadProductivityTasksForDayImpl(
   date: ISODate,
 ): Promise<ProductivityTasksPayload> {
-  const store = await getDomainStore();
-  return (
-    (await store.daily.get<ProductivityTasksPayload>("productivity-tasks", date)) ?? {
-      tasks: [],
-      updatedAt: Date.now(),
-    }
-  );
+  const [personalStore, sharedStore] = await Promise.all([
+    getDomainStore(),
+    getDomainStore({ shared: true }),
+  ]);
+  const [personal, shared] = await Promise.all([
+    personalStore.daily.get<ProductivityTasksPayload>("productivity-tasks", date),
+    sharedStore.daily.get<ProductivityTasksPayload>("productivity-tasks", date),
+  ]);
+  const tasks = [
+    ...(personal?.tasks ?? []).map((t) => ({ ...t, shared: false })),
+    ...(shared?.tasks ?? []).map((t) => ({ ...t, shared: true })),
+  ];
+  return {
+    tasks,
+    updatedAt: Math.max(personal?.updatedAt ?? 0, shared?.updatedAt ?? 0) || Date.now(),
+  };
 }
 
 export async function saveProductivityTasksForDayImpl(data: {
   date: ISODate;
   tasks: ProductivityTask[];
 }): Promise<ProductivityTasksPayload> {
-  const payload: ProductivityTasksPayload = {
-    tasks: data.tasks,
-    updatedAt: Date.now(),
-  };
-  const store = await getDomainStore();
-  await store.daily.put("productivity-tasks", data.date, payload);
-  return payload;
+  const now = Date.now();
+  const personalTasks = data.tasks.filter((t) => !t.shared);
+  const sharedTasks = data.tasks.filter((t) => t.shared);
+  const [personalStore, sharedStore] = await Promise.all([
+    getDomainStore(),
+    getDomainStore({ shared: true }),
+  ]);
+  await Promise.all([
+    personalStore.daily.put("productivity-tasks", data.date, {
+      tasks: personalTasks,
+      updatedAt: now,
+    }),
+    sharedStore.daily.put("productivity-tasks", data.date, {
+      tasks: sharedTasks,
+      updatedAt: now,
+    }),
+  ]);
+  return { tasks: data.tasks, updatedAt: now };
 }
 
 export async function loadDailyPlanImpl(date: ISODate): Promise<DailyPlanPayload | null> {

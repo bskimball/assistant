@@ -505,6 +505,12 @@ export interface ProductivityTask extends BaseEntity {
   /** Link to owning/surfacing DailyPlan */
   dailyPlanId?: string;
   source?: "inbox" | "daily" | "ai";
+  /**
+   * Household sharing (ADR-017). When true the task is stored in the shared
+   * household scope and visible to both members; otherwise it is personal to
+   * the signed-in user. Set on load from the store it was read from.
+   */
+  shared?: boolean;
 }
 
 export interface DailyFocusScore extends BaseEntity {
@@ -632,6 +638,7 @@ export function createProductivityTask(input: {
   energy?: "low" | "medium" | "high";
   column?: string;
   source?: ProductivityTask["source"];
+  shared?: boolean;
 }): ProductivityTask {
   const now = Date.now();
   const date = input.date ?? todayISO();
@@ -651,6 +658,7 @@ export function createProductivityTask(input: {
     energy: input.energy,
     column: input.column,
     source: input.source ?? "daily",
+    shared: input.shared ? true : undefined,
   };
 }
 

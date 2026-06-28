@@ -173,7 +173,7 @@ export function VoiceInput({
       try {
         rec.start();
         setState(forConfirm ? "confirming" : "listening");
-      } catch (e) {
+      } catch {
         setError("Could not start microphone.");
         setState("idle");
       }
