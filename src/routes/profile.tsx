@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Reveal } from "@/components/motion";
 import { cn } from "@/lib/utils";
 import { loadUserProfile, saveUserProfile } from "@/server/domain";
 import { generateCoaching } from "@/server/coach";
@@ -353,8 +354,9 @@ function ProfilePage() {
         {loading ? (
           <div className="text-sm text-muted-foreground">Loading your profile…</div>
         ) : (
-          <form onSubmit={handleSave} className="space-y-6">
-            {/* IDENTITY */}
+          <Reveal>
+            <form onSubmit={handleSave} className="space-y-6">
+              {/* IDENTITY */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
@@ -613,7 +615,8 @@ function ProfilePage() {
                 </span>
               )}
             </div>
-          </form>
+            </form>
+          </Reveal>
         )}
       </div>
     </div>

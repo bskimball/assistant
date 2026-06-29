@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient, queryOptions, keepPreviousData } from "@tanstack/react-query";
 import {
   CalendarDays,
   ChevronLeft,
@@ -18,6 +19,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Reveal, revealDelay } from "@/components/motion";
 import {
   loadDailyDashboard,
   loadProductivityTasksForDay,
@@ -37,7 +39,16 @@ import {
   type ISODate,
 } from "@/lib/domain";
 
+const weeklyDataQueryOptions = (anchor: ISODate) =>
+  queryOptions({
+    queryKey: ["weekly", toISOWeek(mondayOf(anchor))] as const,
+    queryFn: () => loadWeeklyData(anchor),
+    placeholderData: keepPreviousData,
+  });
+
 export const Route = createFileRoute("/weekly")({
+  loader: ({ context: { queryClient } }) =>
+    queryClient.ensureQueryData(weeklyDataQueryOptions(todayISO())),
   component: Weekly,
 });
 
@@ -68,6 +79,85 @@ interface WeekStats {
   perDayCompletion: { date: ISODate; pct: number; total: number }[];
 }
 
+type WeeklyReview = Awaited<ReturnType<typeof loadWeeklyReview>>;
+
+// Fetch the week's dailies + sessions + saved review, reducing the dailies into
+// WeekStats. Cached by ISO week so revisiting (or stepping back to) a week is
+// instant.
+async function loadWeeklyData(
+  anchor: ISODate,
+): Promise<{ stats: WeekStats; review: WeeklyReview }> {
+  const dates = weekDates(anchor);
+  const week = toISOWeek(mondayOf(anchor));
+  const [dashboards, sessions, review] = await Promise.all([
+    Promise.all(dates.map((d) => loadDailyDashboard({ data: d }))),
+    loadWorkoutSessions(),
+    loadWeeklyReview({ data: week }),
+  ]);
+
+  let tasksCompleted = 0;
+  let tasksTotal = 0;
+  let proteinPctSum = 0;
+  let proteinDays = 0;
+  let waterSum = 0;
+  let waterDays = 0;
+  let netWorth = 0;
+  let activeDays = 0;
+  const perDayCompletion: WeekStats["perDayCompletion"] = [];
+
+  dashboards.forEach((dash, i) => {
+    const tasks = (dash.productivity?.tasks || []).filter((t) => !t.deletedAt);
+    const done = tasks.filter((t) => t.done).length;
+    tasksTotal += tasks.length;
+    tasksCompleted += done;
+    perDayCompletion.push({
+      date: dates[i],
+      pct: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+      total: tasks.length,
+    });
+
+    const protein = dash.nutrition?.totals?.protein ?? 0;
+    const target = dash.plan?.nutritionTargets?.protein ?? 150;
+    if (protein > 0) {
+      proteinPctSum += Math.min(100, Math.round((protein / Math.max(1, target)) * 100));
+      proteinDays++;
+    }
+    const water = dash.nutrition?.waterMl ?? 0;
+    if (water > 0) {
+      waterSum += water;
+      waterDays++;
+    }
+    if (dash.finance?.netWorth) netWorth = dash.finance.netWorth;
+
+    const active =
+      tasks.length > 0 ||
+      (dash.nutrition?.mealLogs?.length ?? 0) > 0 ||
+      water > 0 ||
+      (dash.recent?.transcripts?.length ?? 0) > 0;
+    if (active) activeDays++;
+  });
+
+  const monday = mondayOf(anchor).getTime();
+  const sundayEnd = new Date(dates[6] + "T23:59:59.999").getTime();
+  const workouts = (sessions?.sessions || []).filter(
+    (s) => !s.deletedAt && s.performedAt >= monday && s.performedAt <= sundayEnd,
+  ).length;
+
+  return {
+    stats: {
+      tasksCompleted,
+      tasksTotal,
+      workouts,
+      avgProteinPct: proteinDays ? Math.round(proteinPctSum / proteinDays) : 0,
+      avgWaterOz: mlToFlOz(waterDays ? Math.round(waterSum / waterDays) : 0) ?? 0,
+      netWorth,
+      activeDays,
+      perDayCompletion,
+    },
+    review,
+  };
+}
+
 function Weekly() {
   const [anchor, setAnchor] = useState<ISODate>(todayISO());
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -82,8 +172,9 @@ function Weekly() {
     });
   const rangeLabel = `${fmtDay(dates[0])} – ${fmtDay(dates[6])}`;
 
-  const [stats, setStats] = useState<WeekStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const { data, isPending: loading } = useQuery(weeklyDataQueryOptions(anchor));
+  const stats = data?.stats ?? null;
 
   const [narrative, setNarrative] = useState<WeeklyNarrativeResult | null>(null);
   const [narrativeLoading, setNarrativeLoading] = useState(false);
@@ -97,92 +188,23 @@ function Weekly() {
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [scheduledAt, setScheduledAt] = useState<number | null>(null);
 
-  const loadWeek = useCallback(async () => {
-    setLoading(true);
-    setNarrative(null);
-    try {
-      const [dashboards, sessions, review] = await Promise.all([
-        Promise.all(dates.map((d) => loadDailyDashboard({ data: d }))),
-        loadWorkoutSessions(),
-        loadWeeklyReview({ data: week }),
-      ]);
-
-      let tasksCompleted = 0;
-      let tasksTotal = 0;
-      let proteinPctSum = 0;
-      let proteinDays = 0;
-      let waterSum = 0;
-      let waterDays = 0;
-      let netWorth = 0;
-      let activeDays = 0;
-      const perDayCompletion: WeekStats["perDayCompletion"] = [];
-
-      dashboards.forEach((dash, i) => {
-        const tasks = (dash.productivity?.tasks || []).filter((t) => !t.deletedAt);
-        const done = tasks.filter((t) => t.done).length;
-        tasksTotal += tasks.length;
-        tasksCompleted += done;
-        perDayCompletion.push({
-          date: dates[i],
-          pct: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
-          total: tasks.length,
-        });
-
-        const protein = dash.nutrition?.totals?.protein ?? 0;
-        const target = dash.plan?.nutritionTargets?.protein ?? 150;
-        if (protein > 0) {
-          proteinPctSum += Math.min(100, Math.round((protein / Math.max(1, target)) * 100));
-          proteinDays++;
-        }
-        const water = dash.nutrition?.waterMl ?? 0;
-        if (water > 0) {
-          waterSum += water;
-          waterDays++;
-        }
-        if (dash.finance?.netWorth) netWorth = dash.finance.netWorth;
-
-        const active =
-          tasks.length > 0 ||
-          (dash.nutrition?.mealLogs?.length ?? 0) > 0 ||
-          water > 0 ||
-          (dash.recent?.transcripts?.length ?? 0) > 0;
-        if (active) activeDays++;
-      });
-
-      const monday = mondayOf(anchor).getTime();
-      const sundayEnd = new Date(dates[6] + "T23:59:59.999").getTime();
-      const workouts = (sessions?.sessions || []).filter(
-        (s) => !s.deletedAt && s.performedAt >= monday && s.performedAt <= sundayEnd,
-      ).length;
-
-      setStats({
-        tasksCompleted,
-        tasksTotal,
-        workouts,
-        avgProteinPct: proteinDays ? Math.round(proteinPctSum / proteinDays) : 0,
-        avgWaterOz: mlToFlOz(waterDays ? Math.round(waterSum / waterDays) : 0) ?? 0,
-        netWorth,
-        activeDays,
-        perDayCompletion,
-      });
-
-      // Hydrate any saved review
-      setWins((review?.wins || []).join("\n"));
-      setBlockers((review?.blockers || []).join("\n"));
-      setNextWeekFocus((review?.nextWeekFocus || []).join("\n"));
-      setReflection(review?.reflection || "");
-    } catch (e) {
-      console.warn("[weekly] load failed", e);
-      setStats(null);
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor]);
-
+  // Hydrate the editable review fields once per week — keyed on `week`, not on
+  // `data` identity, so a background refetch doesn't clobber unsaved edits.
+  const hydratedWeek = useRef<string | null>(null);
   useEffect(() => {
-    loadWeek();
-  }, [loadWeek]);
+    if (!data || hydratedWeek.current === week) return;
+    hydratedWeek.current = week;
+    const review = data.review;
+    setWins((review?.wins || []).join("\n"));
+    setBlockers((review?.blockers || []).join("\n"));
+    setNextWeekFocus((review?.nextWeekFocus || []).join("\n"));
+    setReflection(review?.reflection || "");
+  }, [data, week]);
+
+  // Stepping to a different week drops the previous week's AI narrative.
+  useEffect(() => {
+    setNarrative(null);
+  }, [week]);
 
   async function generate() {
     if (!stats) return;
@@ -232,6 +254,8 @@ function Weekly() {
           reflection: reflection.trim() || undefined,
         },
       });
+      // Refresh the cached week so a later visit reflects the saved review.
+      queryClient.invalidateQueries({ queryKey: ["weekly", week] });
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 2500);
     } catch (e) {
@@ -399,7 +423,7 @@ function Weekly() {
               <div className="text-sm text-muted-foreground">Loading week…</div>
             ) : (
               <div className="flex items-end justify-between gap-2 h-32">
-                {stats?.perDayCompletion.map((d) => {
+                {stats?.perDayCompletion.map((d, i) => {
                   const dow = new Date(d.date + "T00:00:00").toLocaleDateString([], {
                     weekday: "short",
                   });
@@ -412,7 +436,12 @@ function Weekly() {
                         ? "bg-amber-500"
                         : "bg-primary";
                   return (
-                    <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+                    <Reveal
+                      as="div"
+                      key={d.date}
+                      delay={revealDelay(i)}
+                      className="flex flex-1 flex-col items-center gap-1"
+                    >
                       <div className="flex w-full flex-1 items-end">
                         <div
                           className={`w-full rounded-t transition-all ${tone}`}
@@ -427,7 +456,7 @@ function Weekly() {
                       <div className="text-[10px] tabular-nums text-muted-foreground/70">
                         {d.total ? `${d.pct}%` : "–"}
                       </div>
-                    </div>
+                    </Reveal>
                   );
                 })}
               </div>
@@ -456,7 +485,9 @@ function Weekly() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             {narrative?.reflection && (
-              <p className="text-muted-foreground">{narrative.reflection}</p>
+              <Reveal key={narrative.reflection} as="div" className="text-muted-foreground">
+                {narrative.reflection}
+              </Reveal>
             )}
 
             <ReviewField

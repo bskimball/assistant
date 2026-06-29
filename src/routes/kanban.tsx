@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VoiceInput } from "@/components/VoiceInput";
+import { Reveal, revealDelay } from "@/components/motion";
 import {
   Trash2,
   Inbox,
@@ -439,15 +440,15 @@ function KanbanBoard() {
                     </span>
                   </div>
                   <div className="flex-1 space-y-2">
-                    {colTasks.map((task) => {
+                    {colTasks.map((task, ti) => {
                       const overdue = task.due && task.due < selectedDate && !isDone;
                       return (
-                        <div
-                          key={task.id}
-                          draggable={isToday}
-                          onDragStart={(e) => handleDragStart(e, task.id)}
-                          className={`group rounded-lg border bg-background p-2.5 text-sm shadow-sm ${isDone ? "line-through opacity-70" : ""} ${overdue ? "border-red-400" : ""}`}
-                        >
+                        <Reveal as="div" key={task.id} delay={revealDelay(ti)}>
+                          <div
+                            draggable={isToday}
+                            onDragStart={(e) => handleDragStart(e, task.id)}
+                            className={`group rounded-lg border bg-background p-2.5 text-sm shadow-sm ${isDone ? "line-through opacity-70" : ""} ${overdue ? "border-red-400" : ""}`}
+                          >
                           <div className="font-medium leading-tight pr-8">{task.text}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
                             {task.shared && (
@@ -535,7 +536,8 @@ function KanbanBoard() {
                               </button>
                             </div>
                           )}
-                        </div>
+                          </div>
+                        </Reveal>
                       );
                     })}
                     {colTasks.length === 0 && (

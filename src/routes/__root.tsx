@@ -2,13 +2,15 @@ import { useEffect } from "react";
 import {
   HeadContent,
   Scripts,
-  createRootRoute,
+  createRootRouteWithContext,
   redirect,
   useRouterState,
   Link,
 } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { LayoutDashboard, Compass } from "lucide-react";
 import { AppNav } from "@/components/AppNav";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,7 @@ import appCss from "../styles.css?url";
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   // Gate the whole app: unauthenticated users are redirected to /login.
   // The result is stashed in context so /login and the shell can read it
   // without re-fetching. When auth isn't configured (no Google/secret env in
@@ -128,7 +130,31 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
         {/* Persistent nav (hidden on the login gate) */}
         {showNav && <AppNav />}
-        {children}
+        {/* Page transitions (motion). Keyed on pathname so each navigation runs
+            a subtle exit→enter; in-page search changes (same pathname) don't
+            retrigger it. `mode="wait"` lets the old page leave before the new
+            one arrives; `initial={false}` skips the animation on first paint so
+            SSR content doesn't flash in. `MotionConfig reducedMotion="user"`
+            honors the OS reduce-motion setting without changing the DOM (no
+            hydration mismatch). */}
+        <MotionConfig reducedMotion="user">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{
+                opacity: 0,
+                y: -8,
+                filter: "blur(4px)",
+                transition: { duration: 0.15, ease: "easeIn" },
+              }}
+              transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        </MotionConfig>
         <TanStackDevtools
           config={{
             position: "bottom-right",

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, queryOptions, keepPreviousData } from "@tanstack/react-query";
 import {
   Target,
   Utensils,
@@ -12,10 +13,22 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Reveal, revealDelay } from "@/components/motion";
 import { loadDailyDashboard, loadTransactions, loadWorkoutSessions } from "@/server/domain";
 import { mlToFlOz, todayISO, toISODate, type ISODate } from "@/lib/domain";
 
+const analyticsQueryOptions = (range: 7 | 14 | 30) =>
+  queryOptions({
+    queryKey: ["analytics", range] as const,
+    queryFn: () => loadAnalyticsRange(range),
+    // Keep the prior window's charts on screen while the new range loads.
+    placeholderData: keepPreviousData,
+  });
+
 export const Route = createFileRoute("/analytics")({
+  // Prime the default window so the first paint has data (SSR + revisit cache).
+  loader: ({ context: { queryClient } }) =>
+    queryClient.ensureQueryData(analyticsQueryOptions(14)),
   component: Analytics,
 });
 
@@ -41,63 +54,52 @@ function lastNDates(n: number): ISODate[] {
   return out;
 }
 
+// Fetch + reduce the trailing N days into per-day points. Cached by range in
+// the Query cache (see analyticsQueryOptions) so revisits are instant.
+async function loadAnalyticsRange(range: 7 | 14 | 30): Promise<DayPoint[]> {
+  const dates = lastNDates(range);
+  const [dashboards, sessions, txnStore] = await Promise.all([
+    Promise.all(dates.map((d) => loadDailyDashboard({ data: d }))),
+    loadWorkoutSessions(),
+    loadTransactions(),
+  ]);
+  const allSessions = (sessions?.sessions || []).filter((s) => !s.deletedAt);
+  const allTransactions = (txnStore?.transactions || []).filter((t) => !t.deletedAt);
+
+  return dashboards.map((dash, i) => {
+    const date = dates[i];
+    const tasks = (dash.productivity?.tasks || []).filter((t) => !t.deletedAt);
+    const done = tasks.filter((t) => t.done).length;
+    const protein = dash.nutrition?.totals?.protein ?? 0;
+    const target = dash.plan?.nutritionTargets?.protein ?? 150;
+    const dayStart = new Date(date + "T00:00:00").getTime();
+    const dayEnd = new Date(date + "T23:59:59.999").getTime();
+    return {
+      date,
+      completionPct: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+      tasksTotal: tasks.length,
+      proteinPct:
+        protein > 0 ? Math.min(100, Math.round((protein / Math.max(1, target)) * 100)) : 0,
+      waterOz: mlToFlOz(dash.nutrition?.waterMl ?? 0) ?? 0,
+      netWorth: dash.finance?.netWorth ?? 0,
+      workouts: allSessions.filter((s) => s.performedAt >= dayStart && s.performedAt <= dayEnd)
+        .length,
+      // Same definition as summarizeCashFlow: real income/spending only,
+      // excluding transfers (card payments, account moves).
+      cashflow: allTransactions
+        .filter(
+          (t) => t.timestamp >= dayStart && t.timestamp <= dayEnd && t.categoryGroup !== "transfer",
+        )
+        .reduce((sum, t) => sum + t.amount, 0),
+    };
+  });
+}
+
 function Analytics() {
   const [range, setRange] = useState<7 | 14 | 30>(14);
-  const [points, setPoints] = useState<DayPoint[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const dates = lastNDates(range);
-      const [dashboards, sessions, txnStore] = await Promise.all([
-        Promise.all(dates.map((d) => loadDailyDashboard({ data: d }))),
-        loadWorkoutSessions(),
-        loadTransactions(),
-      ]);
-      const allSessions = (sessions?.sessions || []).filter((s) => !s.deletedAt);
-      const allTransactions = (txnStore?.transactions || []).filter((t) => !t.deletedAt);
-
-      const pts: DayPoint[] = dashboards.map((dash, i) => {
-        const date = dates[i];
-        const tasks = (dash.productivity?.tasks || []).filter((t) => !t.deletedAt);
-        const done = tasks.filter((t) => t.done).length;
-        const protein = dash.nutrition?.totals?.protein ?? 0;
-        const target = dash.plan?.nutritionTargets?.protein ?? 150;
-        const dayStart = new Date(date + "T00:00:00").getTime();
-        const dayEnd = new Date(date + "T23:59:59.999").getTime();
-        return {
-          date,
-          completionPct: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
-          tasksTotal: tasks.length,
-          proteinPct:
-            protein > 0 ? Math.min(100, Math.round((protein / Math.max(1, target)) * 100)) : 0,
-          waterOz: mlToFlOz(dash.nutrition?.waterMl ?? 0) ?? 0,
-          netWorth: dash.finance?.netWorth ?? 0,
-          workouts: allSessions.filter((s) => s.performedAt >= dayStart && s.performedAt <= dayEnd)
-            .length,
-          // Same definition as summarizeCashFlow: real income/spending only,
-          // excluding transfers (card payments, account moves).
-          cashflow: allTransactions
-            .filter(
-              (t) =>
-                t.timestamp >= dayStart && t.timestamp <= dayEnd && t.categoryGroup !== "transfer",
-            )
-            .reduce((sum, t) => sum + t.amount, 0),
-        };
-      });
-      setPoints(pts);
-    } catch (e) {
-      console.warn("[analytics] load failed", e);
-      setPoints([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [range]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Primed by the loader; revisits hit the cache. `isPending` is only true on a
+  // genuine cold load (no cached or placeholder data).
+  const { data: points = [], isPending: loading } = useQuery(analyticsQueryOptions(range));
 
   const avg = (sel: (p: DayPoint) => number, onlyNonZero = false) => {
     const vals = points.map(sel).filter((v) => (onlyNonZero ? v > 0 : true));
@@ -180,28 +182,38 @@ function Analytics() {
           </Card>
         ) : (
           <div className="space-y-6">
-            <ChartCard icon={Target} title="Task completion %" color="var(--primary)">
-              <LineChart points={points} sel={(p) => p.completionPct} max={100} unit="%" />
-            </ChartCard>
-            <ChartCard icon={Utensils} title="Protein % of target" color="var(--primary)">
-              <LineChart points={points} sel={(p) => p.proteinPct} max={100} unit="%" />
-            </ChartCard>
-            <ChartCard icon={Droplet} title="Water (fl oz)">
-              <BarsChart points={points} sel={(p) => p.waterOz} unit=" fl oz" />
-            </ChartCard>
-            {latestNetWorth > 0 && (
-              <ChartCard icon={Wallet} title="Net worth ($)">
-                <LineChart
-                  points={points.filter((p) => p.netWorth > 0)}
-                  sel={(p) => p.netWorth}
-                  unit="$"
-                  prefix
-                />
+            <Reveal delay={revealDelay(0)}>
+              <ChartCard icon={Target} title="Task completion %" color="var(--primary)">
+                <LineChart points={points} sel={(p) => p.completionPct} max={100} unit="%" />
               </ChartCard>
+            </Reveal>
+            <Reveal delay={revealDelay(1)}>
+              <ChartCard icon={Utensils} title="Protein % of target" color="var(--primary)">
+                <LineChart points={points} sel={(p) => p.proteinPct} max={100} unit="%" />
+              </ChartCard>
+            </Reveal>
+            <Reveal delay={revealDelay(2)}>
+              <ChartCard icon={Droplet} title="Water (fl oz)">
+                <BarsChart points={points} sel={(p) => p.waterOz} unit=" fl oz" />
+              </ChartCard>
+            </Reveal>
+            {latestNetWorth > 0 && (
+              <Reveal delay={revealDelay(3)}>
+                <ChartCard icon={Wallet} title="Net worth ($)">
+                  <LineChart
+                    points={points.filter((p) => p.netWorth > 0)}
+                    sel={(p) => p.netWorth}
+                    unit="$"
+                    prefix
+                  />
+                </ChartCard>
+              </Reveal>
             )}
-            <ChartCard icon={Wallet} title="Daily cashflow ($)">
-              <BarsChart points={points} sel={(p) => p.cashflow} unit="$" />
-            </ChartCard>
+            <Reveal delay={revealDelay(4)}>
+              <ChartCard icon={Wallet} title="Daily cashflow ($)">
+                <BarsChart points={points} sel={(p) => p.cashflow} unit="$" />
+              </ChartCard>
+            </Reveal>
           </div>
         )}
       </div>

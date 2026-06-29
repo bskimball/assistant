@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { nutritionQuery, userProfileQuery, queryKeys } from "@/lib/queries";
 import {
   Utensils,
   Droplet,
@@ -18,7 +20,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { loadDailyNutrition, loadUserProfile, saveDailyNutrition } from "@/server/domain";
+import { Reveal, revealDelay } from "@/components/motion";
+import { saveDailyNutrition } from "@/server/domain";
 import { estimateFoodMacros } from "@/server/coach";
 import {
   flOzToMl,
@@ -26,7 +29,6 @@ import {
   newId,
   todayISO,
   toISODate,
-  type DailyNutrition,
   type MealLog,
   type ISODate,
 } from "@/lib/domain";
@@ -36,6 +38,14 @@ export const Route = createFileRoute("/nutrition")({
     const raw = typeof search.date === "string" ? search.date : undefined;
     const valid = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
     return { date: valid };
+  },
+  loaderDeps: ({ search }) => ({ date: search.date }),
+  loader: ({ context: { queryClient }, deps }) => {
+    const date = (deps.date as ISODate) || todayISO();
+    return Promise.all([
+      queryClient.ensureQueryData(nutritionQuery(date)),
+      queryClient.ensureQueryData(userProfileQuery()),
+    ]);
   },
   component: NutritionPage,
 });
@@ -57,9 +67,15 @@ function NutritionPage() {
     day: "numeric",
   });
 
-  const [nutrition, setNutrition] = useState<DailyNutrition | null>(null);
-  const [targets, setTargets] = useState<Targets>(DEFAULT_TARGETS);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  // Primed by the loader (keyed on the selected date) → instant on revisit.
+  const { data: nutrition = null, isPending: loading } = useQuery(nutritionQuery(selectedDate));
+  const profileQuery = useQuery(userProfileQuery());
+  const targets: Targets = {
+    calories: profileQuery.data?.calorieTargetKcal ?? DEFAULT_TARGETS.calories,
+    protein: profileQuery.data?.proteinTargetG ?? DEFAULT_TARGETS.protein,
+    waterOz: mlToFlOz(profileQuery.data?.waterTargetMl) ?? DEFAULT_TARGETS.waterOz,
+  };
 
   const [foodName, setFoodName] = useState("");
   const [foodEstimating, setFoodEstimating] = useState(false);
@@ -68,30 +84,6 @@ function NutritionPage() {
   const [waterDraft, setWaterDraft] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [n, profile] = await Promise.all([
-        loadDailyNutrition({ data: selectedDate }),
-        loadUserProfile(),
-      ]);
-      setNutrition(n);
-      setTargets({
-        calories: profile.calorieTargetKcal ?? DEFAULT_TARGETS.calories,
-        protein: profile.proteinTargetG ?? DEFAULT_TARGETS.protein,
-        waterOz: mlToFlOz(profile.waterTargetMl) ?? DEFAULT_TARGETS.waterOz,
-      });
-    } catch (e) {
-      console.error("[nutrition] load failed", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedDate]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   function flashStatus(msg: string, ms = 3000) {
     setStatus(msg);
@@ -131,7 +123,9 @@ function NutritionPage() {
         },
       },
     });
-    setNutrition(saved);
+    // We have the authoritative saved doc — write it straight into the cache so
+    // the UI updates instantly (no refetch needed).
+    queryClient.setQueryData(queryKeys.nutrition(selectedDate), saved);
     return saved;
   }
 
@@ -445,11 +439,16 @@ function NutritionPage() {
               </div>
             ) : (
               <ul className="divide-y divide-border">
-                {meals.map((m) => {
+                {meals.map((m, mi) => {
                   const items = m.foodItems || [];
                   const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
                   return (
-                    <li key={m.id} className="py-3 first:pt-0 last:pb-0">
+                    <Reveal
+                      as="li"
+                      key={m.id}
+                      delay={revealDelay(mi)}
+                      className="py-3 first:pt-0 last:pb-0"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
@@ -506,7 +505,7 @@ function NutritionPage() {
                           <Trash2 className="size-4" />
                         </Button>
                       </div>
-                    </li>
+                    </Reveal>
                   );
                 })}
               </ul>

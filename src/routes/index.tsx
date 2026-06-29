@@ -1,5 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Reveal, revealDelay } from "@/components/motion";
+import {
+  dashboardQuery,
+  workoutSessionsQuery,
+  financeHubQuery,
+  queryKeys,
+} from "@/lib/queries";
 import {
   Mic,
   Square,
@@ -29,16 +37,14 @@ import { VoiceInput, speakAssistant } from "@/components/VoiceInput";
 import { WorkoutCarousel } from "@/components/WorkoutCarousel";
 import {
   processVoiceInput,
-  loadDailyDashboard,
   saveProductivityTasksForDay,
   appendWorkoutSession,
   saveDailyFinance,
-  loadWorkoutSessions,
   appendTransaction,
   saveDailyNutrition,
   type DailyDashboardPayload,
 } from "@/server/domain";
-import { loadFinanceHub, type FinanceHubPayload } from "@/server/finance";
+import { type FinanceHubPayload } from "@/server/finance";
 import {
   acceptDailyCoachingPlan,
   generateCoaching,
@@ -46,14 +52,7 @@ import {
   type CoachingResult,
   type CoachDomain,
 } from "@/server/coach";
-import type {
-  DailyNutrition,
-  ISODate,
-  DailyFocusScore,
-  DailyPlan,
-  WorkoutSession,
-  Transaction,
-} from "@/lib/domain";
+import type { DailyNutrition, ISODate, DailyFocusScore, DailyPlan } from "@/lib/domain";
 import {
   createProductivityTask,
   flOzToMl,
@@ -80,6 +79,15 @@ export const Route = createFileRoute("/")({
     const raw = typeof search.date === "string" ? search.date : undefined;
     const valid = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
     return { date: valid };
+  },
+  loaderDeps: ({ search }) => ({ date: search.date }),
+  loader: ({ context: { queryClient }, deps }) => {
+    const date = (deps.date as ISODate) || todayISO();
+    return Promise.all([
+      queryClient.ensureQueryData(dashboardQuery(date)),
+      queryClient.ensureQueryData(workoutSessionsQuery()),
+      queryClient.ensureQueryData(financeHubQuery(date)),
+    ]);
   },
   component: UnifiedDailyDashboard,
 });
@@ -126,10 +134,29 @@ function UnifiedDailyDashboard() {
     day: "numeric",
   });
 
-  // Dashboard data state (ADR-005)
-  const [dashboard, setDashboard] = useState<DailyDashboardPayload | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Dashboard data (ADR-005) — cached by date in the Query cache and primed by
+  // the route loader, so revisiting "/" is instant. Mutations write back via the
+  // setDashboardData/setHubData helpers or invalidate via reload().
+  const queryClient = useQueryClient();
+  const dashKey = dashboardQuery(selectedDate).queryKey;
+  const hubKey = financeHubQuery(selectedDate).queryKey;
+  const dashQuery = useQuery(dashboardQuery(selectedDate));
+  const sessionsQ = useQuery(workoutSessionsQuery());
+  const hubQuery = useQuery(financeHubQuery(selectedDate));
+  const dashboard = dashQuery.data ?? null;
+  const isLoading = dashQuery.isPending;
   const [syncing, setSyncing] = useState(false);
+
+  const reload = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedDate) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.workoutSessions() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.financeHub(selectedDate) }),
+    ]);
+  const setDashboardData = (fn: (d: DailyDashboardPayload) => DailyDashboardPayload) =>
+    queryClient.setQueryData(dashKey, (d) => (d ? fn(d) : d));
+  const setHubData = (fn: (h: FinanceHubPayload) => FinanceHubPayload) =>
+    queryClient.setQueryData(hubKey, (h) => (h ? fn(h) : h));
 
   // Coaching state
   const [coaching, setCoaching] = useState<CoachingResult | null>(null);
@@ -165,9 +192,10 @@ function UnifiedDailyDashboard() {
   const [txnAmount, setTxnAmount] = useState("");
   const [txnCategory, setTxnCategory] = useState("");
   const [txnNote, setTxnNote] = useState("");
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [financeHub, setFinanceHub] = useState<FinanceHubPayload | null>(null);
-  const [workoutSessions, setWorkoutSessions] = useState<WorkoutSession[]>([]);
+  // Derived from the cached queries.
+  const financeHub = hubQuery.data ?? null;
+  const transactions = (hubQuery.data?.transactions || []).filter((t) => !t.deletedAt);
+  const workoutSessions = (sessionsQ.data?.sessions || []).filter((s) => !s.deletedAt);
 
   // Subscribe to productivity collection for instant updates
   const [tasksVersion, setTasksVersion] = useState(0);
@@ -248,54 +276,26 @@ function UnifiedDailyDashboard() {
     navigate({ search: {} });
   }
 
-  // Load data for a date (snapshot + recent activity)
-  async function loadForDate(date: ISODate) {
-    setIsLoading(true);
-    try {
-      const [data, sessionsStore, hub] = await Promise.all([
-        loadDailyDashboard({ data: date }),
-        loadWorkoutSessions(),
-        loadFinanceHub({ data: date }),
-      ]);
-      setDashboard(data);
-      setCoaching(
-        data.plan?.aiCoaching
-          ? {
-              date,
-              headline: data.plan.aiCoaching.headline,
-              suggestions: data.plan.aiCoaching.suggestions,
-              workout: data.plan.aiCoaching.workout,
-              generatedBy: data.plan.aiCoaching.generatedBy,
-              updatedAt: data.plan.aiCoaching.updatedAt,
-            }
-          : null,
-      );
-      hydrateProductivityTasks(data.productivity?.tasks || []);
-      setWorkoutSessions((sessionsStore?.sessions || []).filter((s) => !s.deletedAt));
-      setFinanceHub(hub);
-      setTransactions((hub.transactions || []).filter((t) => !t.deletedAt));
-    } catch (e) {
-      console.warn("[dashboard] loadDailyDashboard failed for", date, e);
-      setDashboard({
-        date,
-        nutrition: null,
-        finance: null,
-        productivity: { tasks: [], updatedAt: Date.now() },
-        plan: null,
-        focus: null,
-        recent: { interactions: [], transcripts: [] },
-      });
-      setFinanceHub(null);
-      hydrateProductivityTasks([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
+  // When the day's dashboard arrives or changes, hydrate the tasks collection
+  // and seed the coaching panel from the persisted plan. The dashboard is the
+  // source of truth for aiCoaching, so mirroring it here keeps them in sync.
   useEffect(() => {
-    loadForDate(selectedDate);
+    if (!dashboard) return;
+    hydrateProductivityTasks(dashboard.productivity?.tasks || []);
+    setCoaching(
+      dashboard.plan?.aiCoaching
+        ? {
+            date: selectedDate,
+            headline: dashboard.plan.aiCoaching.headline,
+            suggestions: dashboard.plan.aiCoaching.suggestions,
+            workout: dashboard.plan.aiCoaching.workout,
+            generatedBy: dashboard.plan.aiCoaching.generatedBy,
+            updatedAt: dashboard.plan.aiCoaching.updatedAt,
+          }
+        : null,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+  }, [dashboard]);
 
   // Generate coaching for the current day (cached unless force-refreshing).
   async function refreshCoaching(force = true) {
@@ -305,7 +305,8 @@ function UnifiedDailyDashboard() {
         data: { date: selectedDate, force },
       });
       setCoaching(result);
-      await loadForDate(selectedDate);
+      // generateCoaching persists into the day's plan → refresh the dashboard.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedDate) });
     } catch (e) {
       console.warn("[dashboard] coaching failed", e);
     } finally {
@@ -365,6 +366,7 @@ function UnifiedDailyDashboard() {
           })),
         },
       });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workoutSessions() });
       setVoiceStatus(`Logged: ${coaching.workout.title}`);
       speakAssistant(`Nice work. Logged ${coaching.workout.title}.`);
       setTimeout(() => setVoiceStatus(""), 2200);
@@ -400,8 +402,8 @@ function UnifiedDailyDashboard() {
           },
         },
       });
-      setDashboard((d) => (d ? { ...d, finance: saved } : d));
-      setFinanceHub((hub) => (hub ? { ...hub, snapshot: saved } : hub));
+      setDashboardData((d) => ({ ...d, finance: saved }));
+      setHubData((h) => ({ ...h, snapshot: saved }));
       setAcctName("");
       setAcctAmount("");
       refreshCoaching();
@@ -424,7 +426,7 @@ function UnifiedDailyDashboard() {
         },
       });
       hydrateProductivityTasks(result.tasksAdded.concat(getTasksForDate(selectedDate)));
-      await loadForDate(selectedDate);
+      await reload();
       setVoiceStatus(`Plan accepted: ${result.tasksAdded.length} actions added`);
       setTimeout(() => setVoiceStatus(""), 2200);
     } catch (e) {
@@ -451,15 +453,7 @@ function UnifiedDailyDashboard() {
           notes: txnNote.trim() || undefined,
         },
       });
-      setTransactions((items) => [...items, transaction]);
-      setFinanceHub((hub) =>
-        hub
-          ? {
-              ...hub,
-              transactions: [...hub.transactions, transaction],
-            }
-          : hub,
-      );
+      setHubData((h) => ({ ...h, transactions: [...h.transactions, transaction] }));
       setTxnAmount("");
       setTxnCategory("");
       setTxnNote("");
@@ -519,7 +513,7 @@ function UnifiedDailyDashboard() {
           },
         },
       });
-      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setDashboardData((d) => ({ ...d, nutrition: saved }));
       setFoodName("");
       setFoodStatus(
         `Logged ${est.name} — ${est.calories} cal, ${est.protein}g protein` +
@@ -558,7 +552,7 @@ function UnifiedDailyDashboard() {
           },
         },
       });
-      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setDashboardData((d) => ({ ...d, nutrition: saved }));
       setFoodStatus(`Water set to ${mlToFlOz(saved.waterMl) ?? 0} fl oz`);
       setTimeout(() => setFoodStatus(null), 3000);
       refreshCoaching();
@@ -594,7 +588,7 @@ function UnifiedDailyDashboard() {
           },
         },
       });
-      setDashboard((d) => (d ? { ...d, nutrition: saved } : d));
+      setDashboardData((d) => ({ ...d, nutrition: saved }));
       setFoodStatus("Removed food entry.");
       setTimeout(() => setFoodStatus(null), 3000);
       refreshCoaching();
@@ -614,7 +608,7 @@ function UnifiedDailyDashboard() {
         data: { transcriptText: text },
       });
       setVoiceStatus(result.spokenText || "Done");
-      await loadForDate(selectedDate);
+      await reload();
       if (result.success) {
         speakAssistant(result.spokenText || "Done");
       } else if (result.intent?.requiresConfirmation) {
@@ -652,7 +646,7 @@ function UnifiedDailyDashboard() {
         data: { transcriptText: transcript, forceExecute: true },
       });
       setVoiceStatus(result.spokenText || "");
-      await loadForDate(selectedDate);
+      await reload();
       if (result.success) speakAssistant(result.spokenText);
     } catch {
       setVoiceStatus("Confirm failed");
@@ -896,7 +890,12 @@ function UnifiedDailyDashboard() {
                 {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
                 {proteinCurrent > 0 ? `${proteinPct}% protein` : "Log nutrition or tasks"}
               </div>
-              <div className="mt-2 line-clamp-3 text-sm text-muted-foreground">{headline}</div>
+              <Reveal
+                key={headline}
+                className="mt-2 line-clamp-3 text-sm text-muted-foreground"
+              >
+                {headline}
+              </Reveal>
             </div>
 
             {isToday && (
@@ -998,7 +997,7 @@ function UnifiedDailyDashboard() {
                 {coaching.suggestions.map((s, i) => {
                   const Icon = DOMAIN_ICON[s.domain] || Brain;
                   return (
-                    <li key={i} className="flex gap-2.5 text-sm">
+                    <Reveal as="li" key={i} delay={revealDelay(i)} className="flex gap-2.5 text-sm">
                       <Icon
                         className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-indigo-500"}`}
                       />
@@ -1010,7 +1009,7 @@ function UnifiedDailyDashboard() {
                           </span>
                         )}
                       </div>
-                    </li>
+                    </Reveal>
                   );
                 })}
               </ul>
@@ -1081,7 +1080,7 @@ function UnifiedDailyDashboard() {
               )}
             </div>
             {coaching?.workout ? (
-              <div>
+              <Reveal key={coaching.workout.title}>
                 <WorkoutCarousel
                   title={coaching.workout.title}
                   focus={coaching.workout.focus}
@@ -1098,7 +1097,7 @@ function UnifiedDailyDashboard() {
                     <Check className="size-4" /> Mark complete
                   </Button>
                 )}
-              </div>
+              </Reveal>
             ) : (
               <div className="text-sm text-muted-foreground">
                 {coachLoading
@@ -1142,8 +1141,8 @@ function UnifiedDailyDashboard() {
             )}
             {tasks.length > 0 && (
               <ul className="mt-3 space-y-1 text-sm">
-                {tasks.slice(0, 6).map((t) => (
-                  <li key={t.id} className="flex items-center gap-2">
+                {tasks.slice(0, 6).map((t, i) => (
+                  <Reveal as="li" key={t.id} delay={revealDelay(i)} className="flex items-center gap-2">
                     <span
                       className={`flex size-4 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
                     >
@@ -1157,7 +1156,7 @@ function UnifiedDailyDashboard() {
                         <Users className="size-2.5" /> Shared
                       </span>
                     )}
-                  </li>
+                  </Reveal>
                 ))}
               </ul>
             )}
@@ -1292,7 +1291,7 @@ function UnifiedDailyDashboard() {
                     .filter((m) => !m.deletedAt)
                     .slice(-5)
                     .reverse()
-                    .map((m) => {
+                    .map((m, idx) => {
                       const items = m.foodItems || [];
                       const name =
                         items.length > 1
@@ -1301,7 +1300,12 @@ function UnifiedDailyDashboard() {
                       const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
                       const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
                       return (
-                        <li key={m.id} className="flex items-end gap-2">
+                        <Reveal
+                          as="li"
+                          key={m.id}
+                          delay={revealDelay(idx)}
+                          className="flex items-end gap-2"
+                        >
                           <span className="min-w-0 truncate">
                             <span className="text-muted-foreground">
                               {new Date(m.timestamp).toLocaleTimeString([], {
@@ -1329,7 +1333,7 @@ function UnifiedDailyDashboard() {
                               <Trash2 className="size-3.5" />
                             </Button>
                           )}
-                        </li>
+                        </Reveal>
                       );
                     })}
                 </ul>
@@ -1424,15 +1428,17 @@ function UnifiedDailyDashboard() {
             {finance?.accounts?.length ? (
               <ul className="mt-2 space-y-1 text-sm">
                 {finance.accounts.map((a, i) => (
-                  <li
+                  <Reveal
+                    as="li"
                     key={i}
+                    delay={revealDelay(i)}
                     className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
                   >
                     <span>{a.account}</span>
                     <span className="tabular-nums text-muted-foreground">
                       ${a.amount.toLocaleString()}
                     </span>
-                  </li>
+                  </Reveal>
                 ))}
               </ul>
             ) : (
@@ -1499,11 +1505,16 @@ function UnifiedDailyDashboard() {
                 {dayTransactions
                   .slice(-3)
                   .reverse()
-                  .map((t) => (
-                    <li key={t.id} className="flex items-center justify-between gap-2">
+                  .map((t, i) => (
+                    <Reveal
+                      as="li"
+                      key={t.id}
+                      delay={revealDelay(i)}
+                      className="flex items-center justify-between gap-2"
+                    >
                       <span className="truncate">{t.category || t.notes || t.type}</span>
                       <span className="tabular-nums">${t.amount.toLocaleString()}</span>
-                    </li>
+                    </Reveal>
                   ))}
               </ul>
             )}
@@ -1546,7 +1557,12 @@ function UnifiedDailyDashboard() {
               return (
                 <div className="space-y-2 text-sm">
                   {combined.map((c, idx) => (
-                    <div key={idx} className="flex gap-2 text-muted-foreground">
+                    <Reveal
+                      as="div"
+                      key={idx}
+                      delay={revealDelay(idx)}
+                      className="flex gap-2 text-muted-foreground"
+                    >
                       <span className="mt-px inline-block w-[42px] shrink-0 font-mono text-[10px] text-muted-foreground/70">
                         {new Date(c.ts).toLocaleTimeString([], {
                           hour: "2-digit",
@@ -1555,7 +1571,7 @@ function UnifiedDailyDashboard() {
                       </span>
                       <span className="shrink-0 font-medium text-foreground/80">{c.label}:</span>
                       <span className="min-w-0 flex-1">{c.text}</span>
-                    </div>
+                    </Reveal>
                   ))}
                 </div>
               );

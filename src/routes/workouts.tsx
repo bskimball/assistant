@@ -1,5 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  weeklyWorkoutPlanQuery,
+  workoutSessionsQuery,
+  userProfileQuery,
+  queryKeys,
+} from "@/lib/queries";
 import {
   Dumbbell,
   Flame,
@@ -16,24 +23,25 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  appendWorkoutSession,
-  loadUserProfile,
-  loadWorkoutSessions,
-  saveWorkoutSessions,
-} from "@/server/domain";
-import { ensureWeeklyWorkoutPlan } from "@/server/coach";
+import { Reveal, revealDelay } from "@/components/motion";
+import { appendWorkoutSession, saveWorkoutSessions } from "@/server/domain";
 import {
   todayISO,
   type ExercisePhase,
   type PlannedExercise,
   type PlannedWorkoutSession,
-  type WorkoutPlan,
-  type WorkoutSession,
 } from "@/lib/domain";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 
 export const Route = createFileRoute("/workouts")({
+  loader: ({ context: { queryClient } }) => {
+    const today = todayISO();
+    return Promise.all([
+      queryClient.ensureQueryData(weeklyWorkoutPlanQuery(today)),
+      queryClient.ensureQueryData(workoutSessionsQuery()),
+      queryClient.ensureQueryData(userProfileQuery()),
+    ]);
+  },
   component: WorkoutsPage,
 });
 
@@ -57,10 +65,18 @@ function dayKey(ts: number): string {
 function WorkoutsPage() {
   const today = todayISO();
 
-  const [plan, setPlan] = useState<WorkoutPlan | null>(null);
-  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
-  const [targetDays, setTargetDays] = useState(3);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const planQuery = useQuery(weeklyWorkoutPlanQuery(today));
+  const sessionsQuery = useQuery(workoutSessionsQuery());
+  const profileQuery = useQuery(userProfileQuery());
+  const plan = planQuery.data?.plan ?? null;
+  const sessions = (sessionsQuery.data?.sessions || []).filter((s) => !s.deletedAt);
+  const targetDays = profileQuery.data?.trainingDaysPerWeek ?? 3;
+  const loading = planQuery.isPending || sessionsQuery.isPending;
+
+  const refreshSessions = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.workoutSessions() });
+
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -69,28 +85,6 @@ function WorkoutsPage() {
   const [logTitle, setLogTitle] = useState("");
   const [logMinutes, setLogMinutes] = useState("");
   const [logEffort, setLogEffort] = useState(3);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [planRes, sessionStore, profile] = await Promise.all([
-        ensureWeeklyWorkoutPlan({ data: { date: today } }),
-        loadWorkoutSessions(),
-        loadUserProfile(),
-      ]);
-      setPlan(planRes.plan);
-      setSessions((sessionStore?.sessions || []).filter((s) => !s.deletedAt));
-      setTargetDays(profile.trainingDaysPerWeek ?? 3);
-    } catch (e) {
-      console.error("[workouts] load failed", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [today]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   function flash(msg: string, ms = 3000) {
     setStatus(msg);
@@ -127,7 +121,7 @@ function WorkoutsPage() {
   }) {
     setBusy(true);
     try {
-      const session = await appendWorkoutSession({
+      await appendWorkoutSession({
         data: {
           performedAt: opts.performedAt ?? Date.now(),
           notes: opts.title,
@@ -141,7 +135,7 @@ function WorkoutsPage() {
           })),
         },
       });
-      setSessions((items) => [...items, session]);
+      await refreshSessions();
       flash(`Logged: ${opts.title}`);
     } catch (e) {
       console.error("[workouts] log failed", e);
@@ -187,7 +181,7 @@ function WorkoutsPage() {
       const now = Date.now();
       const next = sessions.map((s) => (s.id === id ? { ...s, deletedAt: now } : s));
       await saveWorkoutSessions({ data: { sessions: next } });
-      setSessions(next.filter((s) => !s.deletedAt));
+      await refreshSessions();
       flash("Removed workout.");
     } catch (e) {
       console.error("[workouts] delete failed", e);
@@ -266,14 +260,19 @@ function WorkoutsPage() {
               </div>
             ) : (
               <ul className="divide-y divide-border">
-                {plan.plannedSessions.map((session) => {
+                {plan.plannedSessions.map((session, i) => {
                   const key = `plan-${session.date}`;
                   const isToday = session.date === today;
                   const isFuture = session.date > today;
                   const done = loggedDays.has(session.date);
                   const open = !!expanded[key];
                   return (
-                    <li key={key} className="py-3 first:pt-0 last:pb-0">
+                    <Reveal
+                      as="li"
+                      key={key}
+                      delay={revealDelay(i)}
+                      className="py-3 first:pt-0 last:pb-0"
+                    >
                       <div className="flex items-center gap-3">
                         {/* Day badge */}
                         <div
@@ -339,7 +338,7 @@ function WorkoutsPage() {
                           <PhasedExerciseList exercises={session.exercises} />
                         </div>
                       )}
-                    </li>
+                    </Reveal>
                   );
                 })}
               </ul>
@@ -421,12 +420,17 @@ function WorkoutsPage() {
               </div>
             ) : (
               <ul className="divide-y divide-border">
-                {history.map((s) => {
+                {history.map((s, i) => {
                   const key = `hist-${s.id}`;
                   const open = !!expanded[key];
                   const exs = (s.exercises || []) as PlannedExercise[];
                   return (
-                    <li key={key} className="py-3 first:pt-0 last:pb-0">
+                    <Reveal
+                      as="li"
+                      key={key}
+                      delay={revealDelay(i)}
+                      className="py-3 first:pt-0 last:pb-0"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <button
                           type="button"
@@ -480,7 +484,7 @@ function WorkoutsPage() {
                           <PhasedExerciseList exercises={exs} />
                         </div>
                       )}
-                    </li>
+                    </Reveal>
                   );
                 })}
               </ul>

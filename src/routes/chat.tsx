@@ -16,6 +16,8 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { Reveal, revealDelay } from "@/components/motion";
 import { formatDistanceToNow } from "date-fns";
 import {
   Sparkles,
@@ -35,7 +37,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { newId, todayISO } from "@/lib/domain";
 import type { ChatConversationSummary, ChatMessageRecord } from "@/lib/domain";
@@ -459,7 +460,7 @@ function ChatPage() {
   const empty = messages.length === 0;
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-page flex-col px-4 pb-16 pt-6 sm:px-6 sm:pb-4">
+    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[72rem] flex-col px-4 pb-16 pt-6 sm:px-6 sm:pb-4">
       {/* Header — eyebrow + title, consistent with the other pages */}
       <div className="flex items-end justify-between gap-3 pb-4">
         <div>
@@ -490,6 +491,19 @@ function ChatPage() {
                   <History className="size-4" /> Chat history
                 </SheetTitle>
               </SheetHeader>
+              <div className="p-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5"
+                  onClick={() => {
+                    chat.newChat();
+                    setHistoryOpen(false);
+                  }}
+                >
+                  <Plus className="size-4" /> New chat
+                </Button>
+              </div>
               <HistoryList
                 summaries={chat.summaries}
                 activeId={chat.activeId}
@@ -498,10 +512,6 @@ function ChatPage() {
                   setHistoryOpen(false);
                 }}
                 onDelete={chat.removeConversation}
-                onNew={() => {
-                  chat.newChat();
-                  setHistoryOpen(false);
-                }}
               />
             </SheetContent>
           </Sheet>
@@ -509,26 +519,39 @@ function ChatPage() {
       </div>
 
       {/* Body: persistent history sidebar (desktop) + conversation */}
-      <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
         <aside className="hidden min-h-0 lg:block">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-card">
-            <div className="flex items-center gap-2 border-b px-3 py-2.5 text-sm font-medium">
-              <History className="size-4 text-muted-foreground" /> History
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-card/40">
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <History className="size-4 text-muted-foreground" /> History
+              </div>
+              {chat.summaries.length > 0 && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground [font-variant-numeric:tabular-nums]">
+                  {chat.summaries.length}
+                </span>
+              )}
             </div>
             <HistoryList
               summaries={chat.summaries}
               activeId={chat.activeId}
               onSelect={chat.selectConversation}
               onDelete={chat.removeConversation}
-              onNew={chat.newChat}
             />
           </div>
         </aside>
 
         <section className="flex min-h-0 flex-col">
-          {/* Conversation */}
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-4 pb-4">
+          {/* Conversation — content anchors to the bottom so a short chat sits
+              just above the composer instead of leaving a tall empty gap.
+              Plain overflow (not Radix ScrollArea, whose inner display:table
+              wrapper defeats `min-h-full`). */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+              className={`mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 pb-4 ${
+                empty ? "justify-center" : "justify-end"
+              }`}
+            >
               {empty ? (
                 <div className="mt-6 rounded-2xl border bg-card/50 p-6 text-center">
                   <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -552,14 +575,16 @@ function ChatPage() {
                   </div>
                 </div>
               ) : (
-                messages.map((m) => (
-                  <MessageBubble
-                    key={m.id}
-                    message={m}
-                    onApply={(a) => chat.applyAction(m.id, a)}
-                    onDismiss={(id) => chat.dismissAction(m.id, id)}
-                  />
-                ))
+                <AnimatePresence initial={false}>
+                  {messages.map((m) => (
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      onApply={(a) => chat.applyAction(m.id, a)}
+                      onDismiss={(id) => chat.dismissAction(m.id, id)}
+                    />
+                  ))}
+                </AnimatePresence>
               )}
               {error && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -568,10 +593,10 @@ function ChatPage() {
               )}
               <div ref={bottomRef} />
             </div>
-          </ScrollArea>
+          </div>
 
           {/* Composer */}
-          <div className="pt-3">
+          <div className="mx-auto w-full max-w-4xl pt-3">
             <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring">
               <Textarea
                 value={input}
@@ -615,33 +640,36 @@ function HistoryList({
   activeId,
   onSelect,
   onDelete,
-  onNew,
 }: {
   summaries: ChatConversationSummary[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
-  onNew: () => void;
 }) {
+  if (summaries.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          <MessageSquare className="size-5" />
+        </div>
+        <p className="text-sm font-medium">No chats yet</p>
+        <p className="text-xs text-muted-foreground">
+          Your conversations with the coach will show up here.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="p-3">
-        <Button variant="outline" size="sm" className="w-full gap-1.5" onClick={onNew}>
-          <Plus className="size-4" /> New chat
-        </Button>
-      </div>
       {/* Plain overflow (not Radix ScrollArea): the viewport sizes to content
           width, which would defeat `truncate` on long conversation titles. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-1 px-3 pb-4">
-          {summaries.length === 0 ? (
-            <p className="px-1 py-6 text-center text-sm text-muted-foreground">
-              No past chats yet. Your conversations will show up here.
-            </p>
-          ) : (
-            summaries.map((s) => (
-              <div
+        <div className="flex flex-col gap-1 p-2">
+          {summaries.map((s, i) => (
+              <Reveal
+                as="div"
                 key={s.id}
+                delay={revealDelay(i)}
                 className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
                   s.id === activeId ? "border-primary/40 bg-primary/5" : "hover:bg-muted"
                 }`}
@@ -667,9 +695,8 @@ function HistoryList({
                 >
                   <Trash2 className="size-4" />
                 </button>
-              </div>
-            ))
-          )}
+              </Reveal>
+          ))}
         </div>
       </div>
     </div>
@@ -687,7 +714,13 @@ function MessageBubble({
 }) {
   const isUser = message.role === "user";
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0, y: 10, x: isUser ? 12 : -12, filter: "blur(4px)" }}
+      animate={{ opacity: 1, y: 0, x: 0, filter: "blur(0px)" }}
+      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+    >
       <div className={`flex max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
         <div
           className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
@@ -712,7 +745,7 @@ function MessageBubble({
           />
         ))}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -730,7 +763,12 @@ function ActionCard({
   if (action.status === "dismissed") return null;
 
   return (
-    <div className="flex w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5">
+    <motion.div
+      initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+      className="flex w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5"
+    >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <Icon className="size-4" />
       </div>
@@ -758,6 +796,6 @@ function ActionCard({
           </Button>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

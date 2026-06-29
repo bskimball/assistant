@@ -194,7 +194,7 @@ function BottomBar({ activeIndex }: { activeIndex: number }) {
       active ? "text-primary" : "text-muted-foreground"
     }`;
   const iconWrap = (active: boolean) =>
-    `flex size-8 items-center justify-center rounded-full transition-all duration-200 ${
+    `flex size-8 items-center justify-center rounded-full transition-[background-color,transform] duration-200 ${
       active ? "-translate-y-0.5 bg-primary/15" : ""
     }`;
 

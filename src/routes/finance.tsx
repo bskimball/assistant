@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Reveal, revealDelay } from "@/components/motion";
+import { financeHubQuery, queryKeys } from "@/lib/queries";
 import {
   Wallet,
   PiggyBank,
@@ -25,7 +28,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveDailyFinance } from "@/server/domain";
 import {
-  loadFinanceHub,
   saveBudget,
   importTransactions,
   detectSubscriptions,
@@ -71,6 +73,7 @@ export const Route = createFileRoute("/finance")({
     const valid = TABS.some((t) => t.key === raw) ? (raw as TabKey) : undefined;
     return { tab: valid };
   },
+  loader: ({ context: { queryClient } }) => queryClient.ensureQueryData(financeHubQuery(todayISO())),
   component: FinancePage,
 });
 
@@ -131,25 +134,18 @@ function FinancePage() {
   const today = todayISO();
   const month = today.slice(0, 7);
 
-  const [hub, setHub] = useState<FinanceHubPayload | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Primed by the route loader; revisits are served from cache (no refetch
+  // flash) with a background refresh.
+  const { data: hub = null, isPending: loading } = useQuery(financeHubQuery(today));
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await loadFinanceHub({ data: today });
-      setHub(data);
-    } catch (e) {
-      console.error("[finance] load failed", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [today]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Tabs call this after a mutation: invalidate → refetch the hub so every view
+  // bound to it updates.
+  const reload = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.financeHub(today) }),
+    [queryClient, today],
+  );
 
   function flash(msg: string, ms = 3500) {
     setStatus(msg);
@@ -213,21 +209,21 @@ function FinancePage() {
             Couldn’t load your finances.
           </div>
         ) : (
-          <>
+          <Reveal key={tab}>
             {tab === "overview" && (
-              <OverviewTab hub={hub} today={today} onChange={load} flash={flash} />
+              <OverviewTab hub={hub} today={today} onChange={reload} flash={flash} />
             )}
             {tab === "budget" && (
-              <BudgetTab hub={hub} month={month} onChange={load} flash={flash} />
+              <BudgetTab hub={hub} month={month} onChange={reload} flash={flash} />
             )}
             {tab === "subscriptions" && (
-              <SubscriptionsTab hub={hub} onChange={load} flash={flash} />
+              <SubscriptionsTab hub={hub} onChange={reload} flash={flash} />
             )}
             {tab === "investments" && (
-              <InvestmentsTab hub={hub} today={today} onChange={load} flash={flash} />
+              <InvestmentsTab hub={hub} today={today} onChange={reload} flash={flash} />
             )}
             {tab === "grow" && <GrowTab hub={hub} today={today} flash={flash} />}
-          </>
+          </Reveal>
         )}
       </div>
     </div>
@@ -1438,17 +1434,19 @@ function GrowTab({
           {items.map((it, i) => {
             const meta = ADVICE_META[it.category];
             return (
-              <Card key={i}>
-                <CardContent className="flex gap-3 pt-5">
-                  <meta.Icon className="mt-0.5 size-5 shrink-0 text-primary" />
-                  <div>
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {meta.label}
+              <Reveal as="div" key={i} delay={revealDelay(i)}>
+                <Card>
+                  <CardContent className="flex gap-3 pt-5">
+                    <meta.Icon className="mt-0.5 size-5 shrink-0 text-primary" />
+                    <div>
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {meta.label}
+                      </div>
+                      <div className="text-sm">{it.text}</div>
                     </div>
-                    <div className="text-sm">{it.text}</div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Reveal>
             );
           })}
           <div className="flex items-center gap-3">

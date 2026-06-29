@@ -225,6 +225,9 @@ h1,
   background: var(--primary);
 }
 
+/* Page transitions are handled by motion (`AnimatePresence` in __root.tsx),
+   which honors reduce-motion via `MotionConfig reducedMotion="user"`. */
+
 /* Reduce motion respect */
 @media (prefers-reduced-motion: reduce) {
   * {
