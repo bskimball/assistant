@@ -361,6 +361,17 @@ export interface Budget extends BaseEntity {
 export type SubscriptionCadence = "weekly" | "monthly" | "annual";
 export type SubscriptionStatus = "active" | "canceled";
 
+/**
+ * The three flavors of recurring commitment we track, from most to least
+ * essential:
+ * - `loan` — a debt with a payment (mortgage, car, student loan); may carry a
+ *   balance/APR for a payoff estimate. Counts as a Need.
+ * - `bill` — a recurring essential (utilities, insurance, rent, phone). Need.
+ * - `subscription` — discretionary recurring spend (streaming, gym, SaaS).
+ *   Lives in Wants or Savings and is the money you could cut.
+ */
+export type RecurringKind = "loan" | "bill" | "subscription";
+
 export interface Subscription extends BaseEntity {
   name: string;
   amount: number;
@@ -375,21 +386,75 @@ export interface Subscription extends BaseEntity {
   /** Last time a matching charge was seen in the ledger (ms epoch). */
   lastSeen?: Timestamp;
   /**
-   * Which 50/30/20 bucket this recurring item belongs to. Fixed obligations
-   * like a mortgage or car payment are "needs" (we surface them as Bills);
-   * streaming/discretionary recurring charges default to "wants". When unset,
-   * treat as "wants" for backward compatibility.
+   * What kind of obligation this is. When unset (legacy rows) it's inferred
+   * from `group`: a "needs" item is a bill, everything else a subscription.
+   */
+  kind?: RecurringKind;
+  /** Loans only: outstanding principal, for a payoff estimate. Optional. */
+  balance?: number;
+  /** Loans only: annual interest rate as a percent (e.g. 6.1). Optional. */
+  apr?: number;
+  /**
+   * Which 50/30/20 bucket this recurring item belongs to. Loans and bills are
+   * "needs"; discretionary subscriptions default to "wants". When unset, treat
+   * as "wants" for backward compatibility.
    */
   group?: CategoryGroup;
 }
 
 /**
- * A "bill" is a recurring item that rolls into the Needs bucket (mortgage,
- * car payment, insurance, etc.) — kept distinct from discretionary
- * subscriptions so the subscription total stays meaningful.
+ * Resolve a recurring item's kind, inferring it from the legacy `group` field
+ * for rows saved before `kind` existed (needs → bill, otherwise subscription).
  */
-export function isBillSubscription(sub: Pick<Subscription, "group">): boolean {
-  return sub.group === "needs";
+export function recurringKindOf(sub: Pick<Subscription, "kind" | "group">): RecurringKind {
+  if (sub.kind) return sub.kind;
+  return sub.group === "needs" ? "bill" : "subscription";
+}
+
+/**
+ * A "bill" here means any fixed obligation that rolls into the Needs bucket —
+ * loans and bills alike — kept distinct from discretionary subscriptions so the
+ * cuttable-subscription total stays meaningful.
+ */
+export function isBillSubscription(sub: Pick<Subscription, "kind" | "group">): boolean {
+  const kind = recurringKindOf(sub);
+  return kind === "loan" || kind === "bill";
+}
+
+/** Which 50/30/20 bucket an active recurring commitment contributes to. */
+export function recurringBudgetBucket(
+  sub: Pick<Subscription, "kind" | "group">,
+): "needs" | "wants" | "savings" {
+  const kind = recurringKindOf(sub);
+  if (kind === "loan" || kind === "bill") return "needs";
+  return sub.group === "savings" ? "savings" : "wants";
+}
+
+/**
+ * Cuttable subscriptions are discretionary recurring costs. Recurring savings
+ * contributions are tracked under the same recurring mechanism but are money
+ * kept, not subscription burn.
+ */
+export function isCuttableSubscription(sub: Pick<Subscription, "kind" | "group">): boolean {
+  return recurringKindOf(sub) === "subscription" && recurringBudgetBucket(sub) === "wants";
+}
+
+/**
+ * Months to pay off a loan given its balance, APR, and monthly payment, using
+ * the standard amortization formula. Returns null when there's not enough info
+ * or the payment doesn't cover the monthly interest (never pays off).
+ */
+export function loanPayoffMonths(
+  balance: number | undefined,
+  apr: number | undefined,
+  monthlyPayment: number,
+): number | null {
+  if (!balance || balance <= 0 || !monthlyPayment || monthlyPayment <= 0) return null;
+  const r = (apr ?? 0) / 100 / 12;
+  if (r === 0) return Math.ceil(balance / monthlyPayment);
+  const denom = 1 - (r * balance) / monthlyPayment;
+  if (denom <= 0) return null; // payment doesn't even cover interest
+  return Math.ceil(-Math.log(denom) / Math.log(1 + r));
 }
 
 /* ---------- AI growth advisor (ADR-016) ---------- */

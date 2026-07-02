@@ -24,7 +24,8 @@ import {
   newId,
   subscriptionMonthlyCost,
   spendBucketOf,
-  isBillSubscription,
+  recurringBudgetBucket,
+  isCuttableSubscription,
   cleanMerchantName,
   todayISO,
   DEFAULT_BUDGET_TARGETS,
@@ -450,6 +451,27 @@ function monthKey(ts: number): string {
   return new Date(ts).toISOString().slice(0, 7);
 }
 
+function normalizedFinanceLabel(raw?: string): string {
+  return cleanMerchantName(raw || "").toLowerCase();
+}
+
+function recurringMatchesTransaction(sub: Subscription, t: Transaction): boolean {
+  if (t.amount >= 0) return false;
+  const amount = Math.abs(t.amount);
+  const amountMatches = Math.abs(amount - sub.amount) <= Math.max(1, sub.amount * 0.05);
+  if (!amountMatches) return false;
+
+  const subName = normalizedFinanceLabel(sub.name);
+  const txnName = normalizedFinanceLabel(t.category || t.notes || "");
+  const nameMatches =
+    !!subName && !!txnName && (txnName.includes(subName) || subName.includes(txnName));
+  const accountMatches =
+    !!sub.account &&
+    !!t.account &&
+    sub.account.trim().toLowerCase() === t.account.trim().toLowerCase();
+  return nameMatches || accountMatches;
+}
+
 function rollupMonth(transactions: Transaction[], month: string): MonthBuckets {
   const b: MonthBuckets = { needs: 0, wants: 0, savings: 0, income: 0, month };
   for (const t of transactions) {
@@ -495,9 +517,19 @@ export async function loadFinanceContextImpl(date: ISODate): Promise<FinanceCont
     loadTransactionsImpl(),
   ]);
   const transactions = txns.transactions.filter((t) => !t.deletedAt);
-  const thisMonth = rollupMonth(transactions, date.slice(0, 7));
+  const month = date.slice(0, 7);
+  const thisMonth = rollupMonth(transactions, month);
   const active = subs.subscriptions.filter((s) => !s.deletedAt && s.status === "active");
-  const monthlySubscriptionCost = active.reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+  const monthTxns = transactions.filter((t) => monthKey(t.timestamp) === month);
+  for (const sub of active) {
+    if (monthTxns.some((t) => recurringMatchesTransaction(sub, t))) continue;
+    thisMonth[recurringBudgetBucket(sub)] += subscriptionMonthlyCost(sub);
+  }
+  const cuttableSubscriptions = active.filter(isCuttableSubscription);
+  const monthlySubscriptionCost = cuttableSubscriptions.reduce(
+    (s, x) => s + subscriptionMonthlyCost(x),
+    0,
+  );
   const netWorth = snapshotInfo.snapshot.netWorth;
 
   return {
@@ -511,7 +543,7 @@ export async function loadFinanceContextImpl(date: ISODate): Promise<FinanceCont
     monthlyTakeHome: budget?.monthlyTakeHome ?? thisMonth.income,
     thisMonth,
     monthlySubscriptionCost,
-    activeSubscriptionCount: active.length,
+    activeSubscriptionCount: cuttableSubscriptions.length,
   };
 }
 
@@ -585,7 +617,7 @@ function fallbackAdvice(args: {
     const stale = active.filter((s) => s.lastSeen && Date.now() - s.lastSeen > 75 * DAY);
     items.push({
       category: "subscriptions",
-      text: `You're carrying ${active.length} subscriptions totaling ~$${Math.round(monthlyTotal).toLocaleString()}/mo ($${Math.round(monthlyTotal * 12).toLocaleString()}/yr).${stale.length ? ` ${stale.length} haven't charged in 75+ days — cancel candidates.` : " Cancel any you haven't used this month."}`,
+      text: `You're carrying ${active.length} cuttable subscriptions totaling ~$${Math.round(monthlyTotal).toLocaleString()}/mo ($${Math.round(monthlyTotal * 12).toLocaleString()}/yr).${stale.length ? ` ${stale.length} haven't charged in 75+ days — cancel candidates.` : " Cancel any you haven't used this month."}`,
       action: "Audit subscriptions",
     });
   }
@@ -649,21 +681,19 @@ export const generateFinanceAdvice = createServerFn({ method: "POST" })
       ]);
       const snapshot = snapshotInfo.snapshot;
       const recurring = subsStore.subscriptions.filter((s) => !s.deletedAt);
-      // Fixed bills (mortgage, car, …) are Needs, not discretionary subs.
-      const subscriptions = recurring.filter((s) => !isBillSubscription(s));
-      const bills = recurring.filter((s) => isBillSubscription(s) && s.status === "active");
+      const subscriptions = recurring.filter(
+        (s) => s.status === "active" && isCuttableSubscription(s),
+      );
+      const activeRecurring = recurring.filter((s) => s.status === "active");
       const transactions = txnStore.transactions.filter((t) => !t.deletedAt);
       const month = date.slice(0, 7);
       const buckets = rollupMonth(transactions, month);
-      // Fold in bills not yet charged this month so Needs reflects fixed
-      // obligations even before a statement import (mirror of the UI logic).
+      // Fold in active recurring commitments not yet seen in statements so the
+      // 50/30/20 buckets mirror the Budget tab.
       const monthTxns = transactions.filter((t) => monthKey(t.timestamp) === month);
-      for (const b of bills) {
-        const paid = monthTxns.some(
-          (t) =>
-            t.amount < 0 && Math.abs(Math.abs(t.amount) - b.amount) <= Math.max(1, b.amount * 0.05),
-        );
-        if (!paid) buckets.needs += subscriptionMonthlyCost(b);
+      for (const sub of activeRecurring) {
+        if (monthTxns.some((t) => recurringMatchesTransaction(sub, t))) continue;
+        buckets[recurringBudgetBucket(sub)] += subscriptionMonthlyCost(sub);
       }
       const netWorth = snapshot.netWorth ?? 0;
 
@@ -709,7 +739,7 @@ This month (${buckets.month}):
 - Savings/investing: $${Math.round(buckets.savings).toLocaleString()}
 - Savings target gap: $${Math.round(Math.max(savingsGap, profileGoalGap)).toLocaleString()}
 - Net worth: $${netWorth.toLocaleString()}
-- Active subscriptions: ${subscriptions.filter((s) => s.status === "active").length} (~$${Math.round(monthlySubTotal).toLocaleString()}/mo)
+- Active cuttable subscriptions: ${subscriptions.filter((s) => s.status === "active").length} (~$${Math.round(monthlySubTotal).toLocaleString()}/mo)
 - Revenue experiment target: $${Math.round(revenueTarget).toLocaleString()}/mo
 
 Reply with ONLY one compact JSON object (no markdown):
