@@ -168,14 +168,14 @@ const SSE_HEADERS = {
  */
 export const chatStream = createServerFn({ method: "POST" })
   .validator((data: { messages: ChatTurn[]; date?: ISODate }) => data)
-  .handler(async (ctx: any): Promise<Response> => {
-    await requireAuthSession(ctx.request);
-    const date: ISODate = ctx.data?.date || todayISO();
+  .handler(async ({ data }): Promise<Response> => {
+    await requireAuthSession();
+    const date: ISODate = data?.date || todayISO();
 
     // Read all domain data here, while the per-user scope is still bound.
     const contextBlock = await buildUserContextBlock(date);
 
-    const turns: ChatMessage[] = (ctx.data?.messages || [])
+    const turns: ChatMessage[] = (data?.messages || [])
       .filter((m: ChatTurn) => m && (m.role === "user" || m.role === "assistant") && m.content)
       .slice(-MAX_TURNS)
       .map((m: ChatTurn) => ({ role: m.role, content: String(m.content).slice(0, MAX_CONTENT) }));
@@ -306,13 +306,13 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<ChatActionName>([
  */
 export const applyChatAction = createServerFn({ method: "POST" })
   .validator((data: { name: ChatActionName; args: Record<string, unknown> }) => data)
-  .handler(async (ctx: any): Promise<{ ok: boolean; message: string }> => {
-    await requireAuthSession(ctx.request);
-    const name = ctx.data?.name as ChatActionName;
+  .handler(async ({ data }): Promise<{ ok: boolean; message: string }> => {
+    await requireAuthSession();
+    const name = data?.name as ChatActionName;
     if (!VALID_ACTIONS.has(name)) {
       return { ok: false, message: "Unknown action." };
     }
-    const intent = actionToIntent(name, ctx.data?.args || {});
+    const intent = actionToIntent(name, data?.args || {});
     const result = await executeVoiceIntentImpl(intent);
     return { ok: result.success, message: result.spokenText };
   });
@@ -343,8 +343,8 @@ function sanitizeMessages(raw: unknown): ChatMessageRecord[] {
 
 /** List past conversations as lightweight summaries (no transcripts), recent first. */
 export const loadChatHistory = createServerFn({ method: "GET" }).handler(
-  async (ctx: any): Promise<{ conversations: ChatConversationSummary[] }> => {
-    await requireAuthSession(ctx.request);
+  async (): Promise<{ conversations: ChatConversationSummary[] }> => {
+    await requireAuthSession();
     const store = await loadChatConversationsImpl();
     const conversations = sortByRecent(
       store.conversations.filter((c) => !c.deletedAt && c.messages.length > 0),
@@ -356,19 +356,19 @@ export const loadChatHistory = createServerFn({ method: "GET" }).handler(
 /** Load one full conversation transcript by id (null if missing/deleted). */
 export const loadChatConversation = createServerFn({ method: "POST" })
   .validator((data: { id: string }) => data)
-  .handler(async (ctx: any): Promise<ChatConversation | null> => {
-    await requireAuthSession(ctx.request);
+  .handler(async ({ data }): Promise<ChatConversation | null> => {
+    await requireAuthSession();
     const store = await loadChatConversationsImpl();
-    return store.conversations.find((c) => c.id === ctx.data?.id && !c.deletedAt) ?? null;
+    return store.conversations.find((c) => c.id === data?.id && !c.deletedAt) ?? null;
   });
 
 /** Upsert a conversation's transcript. Returns the saved conversation's summary. */
 export const saveChatConversation = createServerFn({ method: "POST" })
   .validator((data: { id: string; messages: ChatMessageRecord[] }) => data)
-  .handler(async (ctx: any): Promise<{ summary: ChatConversationSummary }> => {
-    await requireAuthSession(ctx.request);
-    const id = String(ctx.data?.id || "").trim();
-    const messages = sanitizeMessages(ctx.data?.messages);
+  .handler(async ({ data }): Promise<{ summary: ChatConversationSummary }> => {
+    await requireAuthSession();
+    const id = String(data?.id || "").trim();
+    const messages = sanitizeMessages(data?.messages);
     if (!id || messages.length === 0) {
       throw new Error("A conversation id and at least one message are required.");
     }
@@ -398,9 +398,9 @@ export const saveChatConversation = createServerFn({ method: "POST" })
 /** Soft-delete a conversation by id. */
 export const deleteChatConversation = createServerFn({ method: "POST" })
   .validator((data: { id: string }) => data)
-  .handler(async (ctx: any): Promise<{ ok: boolean }> => {
-    await requireAuthSession(ctx.request);
-    const id = ctx.data?.id;
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    await requireAuthSession();
+    const id = data?.id;
     const now = Date.now();
     await updateChatConversationsImpl((conversations) =>
       conversations.map((c) => (c.id === id ? { ...c, deletedAt: now, updatedAt: now } : c)),

@@ -23,7 +23,7 @@
 import { createMiddleware } from "@tanstack/react-start";
 
 export const userScopeMiddleware = createMiddleware({ type: "function" }).server(
-  async ({ next }: any) => {
+  async ({ next }) => {
     // All domain-store access happens inside server functions, so a function
     // middleware covers every path that touches domain data — including server
     // fns invoked during SSR. `getRequest()` yields the active request (with
@@ -52,7 +52,7 @@ async function resolveScopeForRequest(request: Request | undefined): Promise<str
   if (!request) return null;
 
   try {
-    const auth = (await getAuth()) as any;
+    const auth = await getAuth();
     const session = await auth.api.getSession({ headers: request.headers });
     const email = session?.user?.email;
     if (email && isAllowedLoginEmail(email)) {

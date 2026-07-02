@@ -926,9 +926,8 @@ async function aiCoaching(
  */
 export const generateCoaching = createServerFn({ method: "POST" })
   .validator((data: { date?: ISODate; force?: boolean }) => data)
-  .handler(async (ctx: any): Promise<CoachingResult> => {
-    await requireAuthSession(ctx.request);
-    const { data } = ctx;
+  .handler(async ({ data }): Promise<CoachingResult> => {
+    await requireAuthSession();
     const date = data.date || todayISO();
     const existing = await loadDailyPlanImpl(date);
     if (!data.force && existing?.aiCoaching) {
@@ -999,9 +998,9 @@ export const generateCoaching = createServerFn({ method: "POST" })
  */
 export const ensureWeeklyWorkoutPlan = createServerFn({ method: "POST" })
   .validator((data: { date?: ISODate }) => data)
-  .handler(async (ctx: any): Promise<{ plan: WorkoutPlan }> => {
-    await requireAuthSession(ctx.request);
-    const date = ctx.data?.date || todayISO();
+  .handler(async ({ data }): Promise<{ plan: WorkoutPlan }> => {
+    await requireAuthSession();
+    const date = data?.date || todayISO();
     const profile = await loadUserProfileImpl();
     const { plan } = await getOrCreateWeeklyWorkout(date, profile);
     return { plan };
@@ -1011,9 +1010,8 @@ export const acceptDailyCoachingPlan = createServerFn({ method: "POST" })
   .validator(
     (data: { date: ISODate; suggestions: CoachSuggestion[]; workout: WorkoutSuggestion }) => data,
   )
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    const { data } = ctx;
+  .handler(async ({ data }) => {
+    await requireAuthSession();
     const now = Date.now();
     const existingTasks = await loadProductivityTasksForDayImpl(data.date);
 
@@ -1141,9 +1139,8 @@ function fallbackWeekly(s: WeeklyStatsInput): WeeklyNarrativeResult {
 
 export const generateWeeklyNarrative = createServerFn({ method: "POST" })
   .validator((data: WeeklyStatsInput) => data)
-  .handler(async (ctx: any): Promise<WeeklyNarrativeResult> => {
-    await requireAuthSession(ctx.request);
-    const { data } = ctx;
+  .handler(async ({ data }): Promise<WeeklyNarrativeResult> => {
+    await requireAuthSession();
     const apiKey = await getGrokApiKey();
     if (!apiKey) return fallbackWeekly(data);
     const profile = await loadUserProfileImpl();
@@ -1236,9 +1233,9 @@ function fallbackFoodMacros(description: string): FoodMacroEstimate {
 
 export const estimateFoodMacros = createServerFn({ method: "POST" })
   .validator((data: { description: string }) => data)
-  .handler(async (ctx: any): Promise<FoodMacroEstimate> => {
-    await requireAuthSession(ctx.request);
-    const description = String(ctx.data?.description || "").trim();
+  .handler(async ({ data }): Promise<FoodMacroEstimate> => {
+    await requireAuthSession();
+    const description = String(data?.description || "").trim();
     if (!description) {
       return fallbackFoodMacros("");
     }

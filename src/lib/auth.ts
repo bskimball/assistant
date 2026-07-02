@@ -18,18 +18,22 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { passkey } from "@better-auth/passkey";
 import { getDb } from "@/server/adapters/d1";
 
-let _auth: any = null;
+let _auth: ReturnType<typeof buildAuth> | null = null;
 
 const DEFAULT_ALLOWED_LOGIN_EMAILS = ["briankimball1982@gmail.com", "sophiamkimball@gmail.com"];
 
 /**
  * Resolve a secret/env value preferring Cloudflare Workers env, then process.env, then globalThis.
  */
-function getEnvValue(env: any, key: string): string | undefined {
-  const e = env?.[key];
-  if (e) return e;
+/** Anything env-shaped: Cloudflare's `Env`, a plain record, or absent. */
+type EnvLike = unknown;
+
+function getEnvValue(env: EnvLike, key: string): string | undefined {
+  const e = (env as Record<string, unknown> | undefined)?.[key];
+  if (typeof e === "string" && e) return e;
   if (typeof process !== "undefined" && process.env?.[key]) return process.env[key];
-  return (globalThis as any)?.[key];
+  const g = (globalThis as Record<string, unknown>)[key];
+  return typeof g === "string" && g ? g : undefined;
 }
 
 function normalizeEmail(email: string | null | undefined): string {
@@ -44,14 +48,14 @@ function parseEmailList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export function getAllowedLoginEmails(env?: any): Set<string> {
+export function getAllowedLoginEmails(env?: EnvLike): Set<string> {
   const configured = parseEmailList(
     getEnvValue(env, "ALLOWED_LOGIN_EMAILS") || getEnvValue(env, "AUTH_ALLOWED_EMAILS"),
   );
   return new Set(configured.length > 0 ? configured : DEFAULT_ALLOWED_LOGIN_EMAILS);
 }
 
-export function isAllowedLoginEmail(email: string | null | undefined, env?: any): boolean {
+export function isAllowedLoginEmail(email: string | null | undefined, env?: EnvLike): boolean {
   const normalized = normalizeEmail(email);
   return normalized.length > 0 && getAllowedLoginEmails(env).has(normalized);
 }
@@ -84,6 +88,17 @@ export async function isAuthConfigured(): Promise<boolean> {
 }
 
 export async function requireAuthSession(request?: Request): Promise<Session | null> {
+  if (!request) {
+    // Server functions don't receive the Request as an argument; resolve it
+    // from the active request context (same source the scope middleware uses).
+    // Dynamic import: server-only module, must never reach client bundles.
+    try {
+      const { getRequest } = await import("@tanstack/react-start/server");
+      request = getRequest();
+    } catch {
+      request = undefined; // fail closed below
+    }
+  }
   const configured = await isAuthConfigured();
   if (!configured) {
     if (isLocalDevRequest(request)) return null;
@@ -93,7 +108,7 @@ export async function requireAuthSession(request?: Request): Promise<Session | n
   // verify a session, so it must never pass as authenticated.
   if (!request) throw new Error("Authentication required.");
 
-  const auth = (await getAuth()) as any;
+  const auth = await getAuth();
   const headers = request?.headers ?? new Headers();
   const session = await auth.api.getSession({ headers });
   if (!session?.user) {
@@ -112,7 +127,12 @@ export async function getAuth() {
 
   // Reuse the shared drizzle instance (now includes domain + auth tables from schema)
   const db = await getDb();
+  _auth = buildAuth(env, db);
+  return _auth;
+}
 
+/** Construct the Better Auth instance; split out so its full (plugin-aware) type can be inferred. */
+function buildAuth(env: EnvLike, db: Awaited<ReturnType<typeof getDb>>) {
   const googleClientId = getEnvValue(env, "GOOGLE_CLIENT_ID");
   const googleClientSecret = getEnvValue(env, "GOOGLE_CLIENT_SECRET");
   const secret = getEnvValue(env, "BETTER_AUTH_SECRET");
@@ -128,7 +148,7 @@ export async function getAuth() {
     }
   })();
 
-  _auth = betterAuth({
+  return betterAuth({
     appName: "Compass",
 
     baseURL: baseUrl,
@@ -178,7 +198,7 @@ export async function getAuth() {
     databaseHooks: {
       user: {
         create: {
-          before: async (user: any) => {
+          before: async (user: { email: string }) => {
             if (!isAllowedLoginEmail(user.email, env)) {
               throw new APIError("FORBIDDEN", {
                 message: "This Google account is not allowed to access this assistant.",
@@ -210,9 +230,7 @@ export async function getAuth() {
       // Security: in production you may force secure cookies via
       // useSecureCookies: true,
     },
-  }) as any;
-
-  return _auth;
+  });
 }
 
 // Type helpers (use the betterAuth factory type so $Infer is always available)

@@ -20,7 +20,6 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminMigrateRouteImport } from './routes/admin.migrate'
 import { Route as ApiExerciseImageSlugRouteImport } from './routes/api/exercise-image/$slug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -79,11 +78,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminMigrateRoute = AdminMigrateRouteImport.update({
-  id: '/admin/migrate',
-  path: '/admin/migrate',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiExerciseImageSlugRoute = ApiExerciseImageSlugRouteImport.update({
   id: '/api/exercise-image/$slug',
   path: '/api/exercise-image/$slug',
@@ -107,7 +101,6 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
   '/workouts': typeof WorkoutsRoute
-  '/admin/migrate': typeof AdminMigrateRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
@@ -123,7 +116,6 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
   '/workouts': typeof WorkoutsRoute
-  '/admin/migrate': typeof AdminMigrateRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
@@ -140,7 +132,6 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/weekly': typeof WeeklyRoute
   '/workouts': typeof WorkoutsRoute
-  '/admin/migrate': typeof AdminMigrateRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
@@ -158,7 +149,6 @@ export interface FileRouteTypes {
     | '/profile'
     | '/weekly'
     | '/workouts'
-    | '/admin/migrate'
     | '/api/auth/$'
     | '/api/exercise-image/$slug'
   fileRoutesByTo: FileRoutesByTo
@@ -174,7 +164,6 @@ export interface FileRouteTypes {
     | '/profile'
     | '/weekly'
     | '/workouts'
-    | '/admin/migrate'
     | '/api/auth/$'
     | '/api/exercise-image/$slug'
   id:
@@ -190,7 +179,6 @@ export interface FileRouteTypes {
     | '/profile'
     | '/weekly'
     | '/workouts'
-    | '/admin/migrate'
     | '/api/auth/$'
     | '/api/exercise-image/$slug'
   fileRoutesById: FileRoutesById
@@ -207,7 +195,6 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   WeeklyRoute: typeof WeeklyRoute
   WorkoutsRoute: typeof WorkoutsRoute
-  AdminMigrateRoute: typeof AdminMigrateRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiExerciseImageSlugRoute: typeof ApiExerciseImageSlugRoute
 }
@@ -291,13 +278,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/migrate': {
-      id: '/admin/migrate'
-      path: '/admin/migrate'
-      fullPath: '/admin/migrate'
-      preLoaderRoute: typeof AdminMigrateRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/exercise-image/$slug': {
       id: '/api/exercise-image/$slug'
       path: '/api/exercise-image/$slug'
@@ -327,7 +307,6 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   WeeklyRoute: WeeklyRoute,
   WorkoutsRoute: WorkoutsRoute,
-  AdminMigrateRoute: AdminMigrateRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiExerciseImageSlugRoute: ApiExerciseImageSlugRoute,
 }

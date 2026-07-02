@@ -30,6 +30,17 @@ import {
   DEFAULT_BUDGET_TARGETS,
 } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
+import {
+  categorize,
+  dedupeKeyFor,
+  detectColumns,
+  findHeaderIndex,
+  inferCadence,
+  normalizeMerchant,
+  parseCsv,
+  parseDate,
+  parseMoney,
+} from "@/server/finance-parse";
 import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
 import { fetchQuotes } from "@/server/adapters/quotes";
 import {
@@ -52,299 +63,6 @@ import { getDomainStore } from "@/server/store";
 import { HOUSEHOLD_ID } from "@/lib/scope";
 
 /* ============================================================
-   CSV PARSING
-   A small RFC-4180-ish parser (handles quoted fields, escaped
-   quotes, and embedded commas/newlines). No dependency.
-   ============================================================ */
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let field = "";
-  let row: string[] = [];
-  let inQuotes = false;
-  const src = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (src[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += c;
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows.filter((r) => r.some((cell) => cell.trim() !== ""));
-}
-
-/** Column roles we try to locate from a statement's header row. */
-interface ColumnMap {
-  date: number;
-  description: number;
-  amount: number;
-  /** Separate debit/credit columns (BoA / Capital One style). */
-  debit: number;
-  credit: number;
-}
-
-function detectColumns(header: string[]): ColumnMap {
-  const norm = header.map((h) => h.trim().toLowerCase());
-  const find = (...keys: string[]) => norm.findIndex((h) => keys.some((k) => h.includes(k)));
-  return {
-    date: find("date", "posted"),
-    description: find("description", "payee", "merchant", "name", "memo"),
-    amount: find("amount", "value", "amt"),
-    debit: find("debit"),
-    credit: find("credit"),
-  };
-}
-
-/** A usable header row has a date column and at least one money column. */
-function isHeaderRow(cols: ColumnMap): boolean {
-  return cols.date >= 0 && (cols.amount >= 0 || cols.debit >= 0 || cols.credit >= 0);
-}
-
-/**
- * Locate the transaction header row. Bank of America (and some others)
- * prepend a balance-summary block before the real "Date,Description,Amount,…"
- * header, so we can't assume it's row 0. Scan the first chunk of rows for the
- * first one that looks like a real header; fall back to row 0.
- */
-function findHeaderIndex(rows: string[][]): number {
-  const limit = Math.min(rows.length, 25);
-  for (let i = 0; i < limit; i++) {
-    if (isHeaderRow(detectColumns(rows[i]))) return i;
-  }
-  return 0;
-}
-
-function parseMoney(raw: string): number {
-  if (!raw) return 0;
-  const neg = /^\(.*\)$/.test(raw.trim()) || raw.trim().startsWith("-");
-  const n = Number(raw.replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(n)) return 0;
-  return neg ? -n : n;
-}
-
-/**
- * Parse a statement date cell. Returns null when unparseable — the caller
- * skips (and reports) the row rather than mis-filing it under today's date.
- */
-function parseDate(raw: string): number | null {
-  const t = Date.parse(raw.trim());
-  if (Number.isFinite(t)) return t;
-  // Fallback for MM/DD/YYYY without explicit timezone parsing oddities.
-  const m = raw.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (m) {
-    const [, mo, d, y] = m;
-    const year = y.length === 2 ? 2000 + Number(y) : Number(y);
-    return new Date(year, Number(mo) - 1, Number(d)).getTime();
-  }
-  return null;
-}
-
-/* ============================================================
-   CATEGORIZATION (50/30/20)
-   Built-in keyword map + learned overrides (category-rules.json).
-   ============================================================ */
-
-const KEYWORD_GROUPS: { group: CategoryGroup; keywords: string[] }[] = [
-  {
-    group: "income",
-    keywords: ["payroll", "adp", "direct dep", "deposit", "salary", "paycheck", "interest paid"],
-  },
-  {
-    group: "transfer",
-    keywords: [
-      "transfer",
-      "zelle",
-      "venmo",
-      "cash app",
-      "withdrawal",
-      "atm",
-      "online banking",
-      "payment thank you",
-      "autopay",
-      "cc payment",
-      // Credit-card / bill payoffs moved out of an account are debt movement,
-      // not consumption — excluding them avoids double-counting the card's
-      // purchases plus the payment. BoA writes these as "… DES:ONLINE PMT".
-      "online pmt",
-      "online payment",
-      "bill pay",
-      "billpay",
-      "e-payment",
-      "epay",
-      "card payment",
-      "cardmember serv",
-      "card services",
-    ],
-  },
-  {
-    group: "savings",
-    keywords: [
-      "robinhood",
-      "vanguard",
-      "fidelity",
-      "401k",
-      "401(k)",
-      "ira",
-      "brokerage",
-      "betterment",
-      "wealthfront",
-      "acorns",
-      "savings",
-    ],
-  },
-  {
-    group: "needs",
-    keywords: [
-      "rent",
-      "mortgage",
-      "m&t",
-      "electric",
-      "gas company",
-      "water",
-      "utility",
-      "internet",
-      "comcast",
-      "xfinity",
-      "verizon",
-      "at&t",
-      "t-mobile",
-      "insurance",
-      "geico",
-      "progressive",
-      "pharmacy",
-      "cvs",
-      "walgreens",
-      "doctor",
-      "medical",
-      "grocery",
-      "groceries",
-      "safeway",
-      "kroger",
-      "wegmans",
-      "aldi",
-      "costco",
-      "walmart",
-      "target",
-      "shell",
-      "exxon",
-      "chevron",
-      "bp",
-      "fuel",
-      "childcare",
-      "daycare",
-      "tuition",
-      "student loan",
-    ],
-  },
-  {
-    group: "wants",
-    keywords: [
-      "netflix",
-      "hulu",
-      "spotify",
-      "disney",
-      "hbo",
-      "max",
-      "youtube",
-      "prime video",
-      "apple",
-      "amazon",
-      "doordash",
-      "uber eats",
-      "grubhub",
-      "restaurant",
-      "starbucks",
-      "dunkin",
-      "mcdonald",
-      "chipotle",
-      "bar ",
-      "steakhouse",
-      "cafe",
-      "coffee",
-      "steam",
-      "playstation",
-      "xbox",
-      "nintendo",
-      "gym",
-      "planet fitness",
-      "peloton",
-      "golf",
-      "hotel",
-      "airbnb",
-      "airline",
-      "delta",
-      "united",
-      "ticket",
-      "cinema",
-      "amc",
-    ],
-  },
-];
-
-function normalizeMerchant(desc: string): string {
-  return desc
-    .toLowerCase()
-    .replace(/\b\d{2,}\b/g, "") // strip long numbers (store ids, dates)
-    .replace(/[^a-z& ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function categorize(
-  description: string,
-  amount: number,
-  rules: Record<string, CategoryGroup>,
-): CategoryGroup {
-  const norm = normalizeMerchant(description);
-  // Learned overrides win.
-  for (const [key, group] of Object.entries(rules)) {
-    if (norm.includes(key)) return group;
-  }
-  const haystack = description.toLowerCase();
-  for (const { group, keywords } of KEYWORD_GROUPS) {
-    if (keywords.some((k) => haystack.includes(k))) return group;
-  }
-  // Unknown: positive = income, negative spend defaults to discretionary (wants)
-  // so it surfaces for review rather than silently inflating "needs".
-  return amount > 0 ? "income" : "wants";
-}
-
-function dedupeKeyFor(t: {
-  timestamp: number;
-  amount: number;
-  description: string;
-  account?: string;
-}): string {
-  const day = new Date(t.timestamp).toISOString().slice(0, 10);
-  return `${day}|${t.amount.toFixed(2)}|${normalizeMerchant(t.description)}|${t.account ?? ""}`;
-}
-
-/* ============================================================
    IMPORT
    ============================================================ */
 
@@ -359,9 +77,9 @@ export interface ImportResult {
 
 export const importTransactions = createServerFn({ method: "POST" })
   .validator((data: { csv: string; institution?: string; account?: string }) => data)
-  .handler(async (ctx: any): Promise<ImportResult> => {
-    await requireAuthSession(ctx.request);
-    const { csv, account } = ctx.data as { csv: string; account?: string };
+  .handler(async ({ data }): Promise<ImportResult> => {
+    await requireAuthSession();
+    const { csv, account } = data as { csv: string; account?: string };
     const rows = parseCsv(csv || "");
     if (rows.length < 2) return { added: 0, skipped: 0, invalidDates: 0, total: 0, sample: [] };
 
@@ -465,13 +183,6 @@ export const importTransactions = createServerFn({ method: "POST" })
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function inferCadence(intervalDays: number): Subscription["cadence"] | null {
-  if (intervalDays >= 5 && intervalDays <= 9) return "weekly";
-  if (intervalDays >= 26 && intervalDays <= 35) return "monthly";
-  if (intervalDays >= 350 && intervalDays <= 380) return "annual";
-  return null;
-}
-
 export interface DetectResult {
   candidates: Subscription[];
   stored: Subscription[];
@@ -479,9 +190,9 @@ export interface DetectResult {
 
 export const detectSubscriptions = createServerFn({ method: "POST" })
   .validator((data: { lookbackDays?: number } | undefined) => data ?? {})
-  .handler(async (ctx: any): Promise<DetectResult> => {
-    await requireAuthSession(ctx.request);
-    const lookbackDays = (ctx.data?.lookbackDays as number) || 180;
+  .handler(async ({ data }): Promise<DetectResult> => {
+    await requireAuthSession();
+    const lookbackDays = (data?.lookbackDays as number) || 180;
     const cutoff = Date.now() - lookbackDays * DAY;
 
     const [{ transactions }, storedStore] = await Promise.all([
@@ -545,9 +256,9 @@ export const detectSubscriptions = createServerFn({ method: "POST" })
 
 export const saveSubscriptions = createServerFn({ method: "POST" })
   .validator((data: { subscriptions: Subscription[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return saveSubscriptionsImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return saveSubscriptionsImpl(data);
   });
 
 /* ============================================================
@@ -564,17 +275,17 @@ export const saveBudget = createServerFn({ method: "POST" })
       };
     }) => data,
   )
-  .handler(async (ctx: any): Promise<BudgetPayload> => {
-    await requireAuthSession(ctx.request);
-    return saveBudgetImpl(ctx.data);
+  .handler(async ({ data }): Promise<BudgetPayload> => {
+    await requireAuthSession();
+    return saveBudgetImpl(data);
   });
 
 /** Re-bucket a single transaction and remember the choice as a rule. */
 export const recategorizeTransaction = createServerFn({ method: "POST" })
   .validator((data: { id: string; group: CategoryGroup }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    const { id, group } = ctx.data as { id: string; group: CategoryGroup };
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { id, group } = data as { id: string; group: CategoryGroup };
     const now = Date.now();
     let learnedKey: string | null = null;
     await updateTransactionsImpl((transactions) =>
@@ -598,9 +309,9 @@ export const recategorizeTransaction = createServerFn({ method: "POST" })
  */
 export const setTransactionExcluded = createServerFn({ method: "POST" })
   .validator((data: { id: string; excluded: boolean }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    const { id, excluded } = ctx.data as { id: string; excluded: boolean };
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { id, excluded } = data as { id: string; excluded: boolean };
     const now = Date.now();
     await updateTransactionsImpl((transactions) =>
       transactions.map((t) =>
@@ -618,8 +329,8 @@ export const setTransactionExcluded = createServerFn({ method: "POST" })
  */
 export const recategorizeAllTransactions = createServerFn({ method: "POST" })
   .validator((data: Record<string, never> | undefined) => data ?? {})
-  .handler(async (ctx: any): Promise<{ changed: number; total: number }> => {
-    await requireAuthSession(ctx.request);
+  .handler(async (): Promise<{ changed: number; total: number }> => {
+    await requireAuthSession();
     const rules = (await loadCategoryRulesImpl()).rules;
     const now = Date.now();
     let changed = 0;
@@ -653,9 +364,9 @@ export interface QuotesResult {
 
 export const refreshQuotes = createServerFn({ method: "POST" })
   .validator((data: { symbols: string[] }) => data)
-  .handler(async (ctx: any): Promise<QuotesResult> => {
-    await requireAuthSession(ctx.request);
-    const symbols = (ctx.data?.symbols as string[]) ?? [];
+  .handler(async ({ data }): Promise<QuotesResult> => {
+    await requireAuthSession();
+    const symbols = (data?.symbols as string[]) ?? [];
     const prices = await fetchQuotes(symbols);
     return { prices, asOf: Date.now() };
   });
@@ -675,8 +386,6 @@ export interface FinanceHubPayload {
 async function loadFinanceSnapshotForHub(
   day: ISODate,
 ): Promise<{ snapshot: DailyFinancePayload; sourceDate: ISODate }> {
-  const { ensureHouseholdFinanceMigrated } = await import("@/server/migrate");
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   const exact = await store.daily.get<DailyFinancePayload>("daily-finance", day);
   if (exact) return { snapshot: exact, sourceDate: day };
@@ -707,9 +416,9 @@ async function loadFinanceSnapshotForHub(
 
 export const loadFinanceHub = createServerFn({ method: "GET" })
   .validator((date: ISODate | undefined) => date)
-  .handler(async (ctx: any): Promise<FinanceHubPayload> => {
-    await requireAuthSession(ctx.request);
-    const day = (ctx.data as ISODate | undefined) || todayISO();
+  .handler(async ({ data }): Promise<FinanceHubPayload> => {
+    await requireAuthSession();
+    const day = (data as ISODate | undefined) || todayISO();
     const [snapshotInfo, budget, subs, txns] = await Promise.all([
       loadFinanceSnapshotForHub(day),
       loadBudgetImpl(),
@@ -920,17 +629,17 @@ function fallbackAdvice(args: {
 }
 
 export const generateFinanceAdvice = createServerFn({ method: "POST" })
-  .validator((data: { date?: ISODate } | undefined) => data ?? {})
+  .validator((data: { date?: ISODate } | undefined) => ({ date: data?.date }))
   .handler(
-    async (
-      ctx: any,
-    ): Promise<{
+    async ({
+      data,
+    }): Promise<{
       items: FinanceAdviceItem[];
       generatedBy: "ai" | "fallback";
       disclaimer: string;
     }> => {
-      await requireAuthSession(ctx.request);
-      const date = (ctx.data?.date as ISODate) || todayISO();
+      await requireAuthSession();
+      const date = data?.date || todayISO();
       const [budget, subsStore, txnStore, snapshotInfo, profile] = await Promise.all([
         loadBudgetImpl(),
         loadSubscriptionsImpl(),
@@ -1057,9 +766,9 @@ Rules:
 /** Turn advisor recommendations into real, tracked tasks (closed loop, ADR-014). */
 export const acceptFinanceActions = createServerFn({ method: "POST" })
   .validator((data: { date: ISODate; items: FinanceAdviceItem[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    const { date, items } = ctx.data as {
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { date, items } = data as {
       date: ISODate;
       items: FinanceAdviceItem[];
     };

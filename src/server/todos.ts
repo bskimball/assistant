@@ -41,9 +41,9 @@ export const loadTodos = createServerFn({ method: "GET" }).handler(loadTodosImpl
  */
 export const saveTodos = createServerFn({ method: "POST" })
   .validator((data: { items: Todo[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return saveTodosImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return saveTodosImpl(data);
   });
 
 export async function saveTodosImpl(data: { items: Todo[] }): Promise<StoredTodos> {
@@ -61,9 +61,9 @@ export async function saveTodosImpl(data: { items: Todo[] }): Promise<StoredTodo
  */
 export const ensureInitialTodos = createServerFn({ method: "POST" })
   .validator((seed: Todo[]) => seed)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return ensureInitialTodosImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return ensureInitialTodosImpl(data);
   });
 
 export async function ensureInitialTodosImpl(seed: Todo[]): Promise<StoredTodos> {

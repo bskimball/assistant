@@ -17,17 +17,25 @@ export interface SessionState {
 }
 
 export const getSessionState = createServerFn({ method: "GET" }).handler(
-  async (ctx: any): Promise<SessionState> => {
+  async (): Promise<SessionState> => {
+    // Dynamic import: server-only module, must never reach client bundles.
+    const { getRequest } = await import("@tanstack/react-start/server");
+    let request: Request | undefined;
+    try {
+      request = getRequest();
+    } catch {
+      request = undefined;
+    }
     const configured = await isAuthConfigured();
     if (!configured) {
       return {
         authenticated: false,
-        configured: !isLocalDevRequest(ctx?.request),
+        configured: !isLocalDevRequest(request),
       };
     }
     try {
-      const auth = (await getAuth()) as any;
-      const headers = ctx?.request?.headers ?? new Headers();
+      const auth = await getAuth();
+      const headers = request?.headers ?? new Headers();
       const session = await auth.api.getSession({ headers });
       return {
         authenticated: !!session?.user && isAllowedLoginEmail(session.user.email),

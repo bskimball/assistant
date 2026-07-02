@@ -46,9 +46,9 @@ export const loadUserProfile = createServerFn({ method: "GET" }).handler(async (
 
 export const saveUserProfile = createServerFn({ method: "POST" })
   .validator((profile: Partial<UserProfile>) => profile)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveUserProfileImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveUserProfileImpl(data);
   });
 
 /* =========================================
@@ -67,9 +67,9 @@ export const loadWorkoutPlans = createServerFn({ method: "GET" }).handler(async 
 
 export const saveWorkoutPlans = createServerFn({ method: "POST" })
   .validator((data: { plans: WorkoutPlan[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveWorkoutPlansImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveWorkoutPlansImpl(data);
   });
 
 /* Active plan helper (enforces the invariant at read time too) */
@@ -93,17 +93,17 @@ export const loadWorkoutSessions = createServerFn({ method: "GET" }).handler(asy
 
 export const saveWorkoutSessions = createServerFn({ method: "POST" })
   .validator((data: { sessions: WorkoutSession[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveWorkoutSessionsImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveWorkoutSessionsImpl(data);
   });
 
 /** Append a single completed workout session (quick-log from the dashboard). */
 export const appendWorkoutSession = createServerFn({ method: "POST" })
   .validator((session: Omit<WorkoutSession, "id" | "createdAt">) => session)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.appendWorkoutSessionImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.appendWorkoutSessionImpl(data);
   });
 
 /* =========================================
@@ -125,9 +125,9 @@ export const saveDailyNutrition = createServerFn({ method: "POST" })
       nutrition: Omit<DailyNutrition, "id" | "createdAt" | "updatedAt" | "deletedAt" | "date">;
     }) => payload,
   )
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveDailyNutritionImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveDailyNutritionImpl(data);
   });
 
 /* =========================================
@@ -138,9 +138,9 @@ export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number };
 
 export const loadDailyFinance = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async (ctx: any): Promise<DailyFinancePayload> => {
-    await requireAuthSession(ctx.request);
-    return impl.loadDailyFinanceImpl(ctx.data);
+  .handler(async ({ data }): Promise<DailyFinancePayload> => {
+    await requireAuthSession();
+    return impl.loadDailyFinanceImpl(data);
   });
 
 export const saveDailyFinance = createServerFn({ method: "POST" })
@@ -155,9 +155,9 @@ export const saveDailyFinance = createServerFn({ method: "POST" })
       };
     }) => payload,
   )
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveDailyFinanceImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveDailyFinanceImpl(data);
   });
 
 export type TransactionsStore = {
@@ -165,23 +165,16 @@ export type TransactionsStore = {
   updatedAt: number;
 };
 
-export const loadTransactions = createServerFn({ method: "GET" }).handler(async (ctx: any) => {
-  await requireAuthSession(ctx.request);
+export const loadTransactions = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAuthSession();
   return impl.loadTransactionsImpl();
 });
 
-export const saveTransactions = createServerFn({ method: "POST" })
-  .validator((data: { transactions: Transaction[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveTransactionsImpl(ctx.data);
-  });
-
 export const appendTransaction = createServerFn({ method: "POST" })
   .validator((transaction: Omit<Transaction, "id" | "createdAt">) => transaction)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.appendTransactionImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.appendTransactionImpl(data);
   });
 
 /* =========================================
@@ -202,9 +195,9 @@ export const loadProductivityTasksForDay = createServerFn({ method: "GET" })
 
 export const saveProductivityTasksForDay = createServerFn({ method: "POST" })
   .validator((data: { date: ISODate; tasks: ProductivityTask[] }) => data)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveProductivityTasksForDayImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveProductivityTasksForDayImpl(data);
   });
 
 /* =========================================
@@ -221,9 +214,9 @@ export const loadDailyPlan = createServerFn({ method: "GET" })
 
 export const saveDailyPlan = createServerFn({ method: "POST" })
   .validator((plan: DailyPlan) => plan)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveDailyPlanImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveDailyPlanImpl(data);
   });
 
 export const loadDailyFocusScore = createServerFn({ method: "GET" })
@@ -234,9 +227,9 @@ export const loadDailyFocusScore = createServerFn({ method: "GET" })
 
 export const saveDailyFocusScore = createServerFn({ method: "POST" })
   .validator((score: DailyFocusScore) => score)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveDailyFocusScoreImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveDailyFocusScoreImpl(data);
   });
 
 export const loadWeeklyReview = createServerFn({ method: "GET" })
@@ -247,9 +240,9 @@ export const loadWeeklyReview = createServerFn({ method: "GET" })
 
 export const saveWeeklyReview = createServerFn({ method: "POST" })
   .validator((review: WeeklyReview) => review)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveWeeklyReviewImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveWeeklyReviewImpl(data);
   });
 
 /* =========================================
@@ -287,9 +280,9 @@ export const appendAIInteraction = createServerFn({ method: "POST" })
     (interaction: Omit<AIInteraction, "id" | "createdAt" | "updatedAt" | "deletedAt">) =>
       interaction,
   )
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.appendAIInteractionImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.appendAIInteractionImpl(data);
   });
 
 export const appendVoiceTranscript = createServerFn({ method: "POST" })
@@ -297,9 +290,9 @@ export const appendVoiceTranscript = createServerFn({ method: "POST" })
     (transcript: Omit<VoiceTranscript, "id" | "createdAt" | "updatedAt" | "deletedAt">) =>
       transcript,
   )
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.appendVoiceTranscriptImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.appendVoiceTranscriptImpl(data);
   });
 
 /* =========================================
@@ -313,9 +306,9 @@ export type { VoiceProcessResult } from "@/server/domain-impl";
 /** Main entry for the voice pipeline. Persists transcript + interaction + executes. */
 export const processVoiceInput = createServerFn({ method: "POST" })
   .validator((data: { transcriptText: string; language?: string; forceExecute?: boolean }) => data)
-  .handler(async (ctx: any): Promise<VoiceProcessResult> => {
-    await requireAuthSession(ctx.request);
-    return impl.processVoiceInputImpl(ctx.data);
+  .handler(async ({ data }): Promise<VoiceProcessResult> => {
+    await requireAuthSession();
+    return impl.processVoiceInputImpl(data);
   });
 
 /* =========================================
@@ -328,9 +321,9 @@ export const loadExerciseLibrary = createServerFn({ method: "GET" }).handler(asy
 
 export const saveExerciseLibrary = createServerFn({ method: "POST" })
   .validator((lib: ExerciseLibrary) => lib)
-  .handler(async (ctx: any) => {
-    await requireAuthSession(ctx.request);
-    return impl.saveExerciseLibraryImpl(ctx.data);
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return impl.saveExerciseLibraryImpl(data);
   });
 
 /* =========================================
@@ -355,8 +348,8 @@ export async function recordSoftDeletedKey(
 export async function softDeleteInStore<T extends BaseEntity>(
   _storeName: string,
   id: string,
-  loadFn: () => Promise<{ items?: T[]; [k: string]: any }>,
-  saveFn: (payload: any) => Promise<any>,
+  loadFn: Parameters<typeof impl.softDeleteInStoreImpl<T>>[1],
+  saveFn: Parameters<typeof impl.softDeleteInStoreImpl<T>>[2],
   containerKey?: string,
   domainHint?: string,
 ): Promise<void> {

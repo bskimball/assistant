@@ -40,7 +40,6 @@ import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
 import { getDomainStore } from "@/server/store";
 import type { SoftDeleteRecord } from "@/server/adapters/r2";
 import { loadTodosImpl, saveTodosImpl } from "@/server/todos";
-import { ensureHouseholdFinanceMigrated } from "@/server/migrate";
 
 export type WorkoutPlansStore = {
   plans: WorkoutPlan[];
@@ -309,7 +308,6 @@ export async function saveDailyNutritionImpl(data: {
 }
 
 export async function loadDailyFinanceImpl(date: ISODate): Promise<DailyFinancePayload> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   const stored = await store.daily.get<DailyFinancePayload>("daily-finance", date);
   if (stored) return stored;
@@ -356,7 +354,6 @@ export async function saveDailyFinanceImpl(data: {
 }
 
 export async function loadTransactionsImpl(): Promise<TransactionsStore> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   return (
     (await store.ref.get<TransactionsStore>("transactions.json")) ?? {
@@ -364,18 +361,6 @@ export async function loadTransactionsImpl(): Promise<TransactionsStore> {
       updatedAt: Date.now(),
     }
   );
-}
-
-export async function saveTransactionsImpl(data: {
-  transactions: Transaction[];
-}): Promise<TransactionsStore> {
-  const payload: TransactionsStore = {
-    transactions: data.transactions,
-    updatedAt: Date.now(),
-  };
-  const store = await getDomainStore({ shared: true });
-  await store.ref.put("transactions.json", payload);
-  return payload;
 }
 
 /**
@@ -387,7 +372,6 @@ export async function saveTransactionsImpl(data: {
 export async function updateTransactionsImpl(
   mutate: (transactions: Transaction[]) => Transaction[],
 ): Promise<TransactionsStore> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   return store.ref.update<TransactionsStore>("transactions.json", (current) => ({
     transactions: mutate(current?.transactions ?? []),
@@ -415,7 +399,6 @@ export async function appendTransactionImpl(
 export type BudgetPayload = Budget & { updatedAt: number };
 
 export async function loadBudgetImpl(): Promise<BudgetPayload | null> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   return store.ref.get<BudgetPayload>("budget.json");
 }
@@ -444,7 +427,6 @@ export type SubscriptionsStore = {
 };
 
 export async function loadSubscriptionsImpl(): Promise<SubscriptionsStore> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   return (
     (await store.ref.get<SubscriptionsStore>("subscriptions.json")) ?? {
@@ -475,7 +457,6 @@ export type CategoryRulesStore = {
 };
 
 export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   return (
     (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
@@ -489,7 +470,6 @@ export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
 export async function updateCategoryRulesImpl(
   mutate: (rules: Record<string, CategoryGroup>) => Record<string, CategoryGroup>,
 ): Promise<CategoryRulesStore> {
-  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
   return store.ref.update<CategoryRulesStore>("category-rules.json", (current) => ({
     rules: mutate(current?.rules ?? {}),
@@ -1072,29 +1052,30 @@ export async function recordSoftDeletedKeyImpl(
   await store.recordSoftDelete(key, deletedAt, domain);
 }
 
+/** Collection stores keep their entities under one of these list keys. */
+type SoftDeleteContainer<T> = { items?: T[]; plans?: T[]; sessions?: T[] };
+
 export async function softDeleteInStoreImpl<T extends BaseEntity>(
   id: string,
-  loadFn: () => Promise<{ items?: T[]; [k: string]: any }>,
-  saveFn: (payload: any) => Promise<any>,
+  loadFn: () => Promise<SoftDeleteContainer<T>>,
+  saveFn: (payload: SoftDeleteContainer<T>) => Promise<unknown>,
   containerKey?: string,
   domainHint?: string,
 ): Promise<void> {
   const store = await loadFn();
-  const items: T[] = (store as any).items ?? (store as any).plans ?? (store as any).sessions ?? [];
+  const items: T[] = store.items ?? store.plans ?? store.sessions ?? [];
   const now = Date.now();
   const updated = items.map((it) =>
     it.id === id ? ({ ...it, deletedAt: now, updatedAt: now } as T) : it,
   );
-  let written: any;
-  if ((store as any).plans) {
-    written = await saveFn({ plans: updated });
-  } else if ((store as any).sessions) {
-    written = await saveFn({ sessions: updated });
+  if (store.plans) {
+    await saveFn({ plans: updated });
+  } else if (store.sessions) {
+    await saveFn({ sessions: updated });
   } else {
-    written = await saveFn({ items: updated });
+    await saveFn({ items: updated });
   }
   if (containerKey) await recordSoftDeletedKeyImpl(containerKey, now, domainHint);
-  return written;
 }
 
 export async function runHardDeleteMaintenanceImpl(daysBack = 8): Promise<{
