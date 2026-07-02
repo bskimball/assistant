@@ -142,6 +142,15 @@ type ImportedAccountSummary = {
 };
 
 type BudgetBucket = "needs" | "wants" | "savings";
+type BudgetRecurringItem = {
+  id: string;
+  name: string;
+  kind: RecurringKind;
+  cadence: Subscription["cadence"];
+  monthlyAmount: number;
+  account?: string;
+  seenThisMonth: boolean;
+};
 
 function summarizeImportedAccounts(transactions: Transaction[]): ImportedAccountSummary[] {
   const map = new Map<string, ImportedAccountSummary>();
@@ -181,17 +190,55 @@ function recurringMatchesTransaction(sub: Subscription, t: Transaction): boolean
   return nameMatches || accountMatches;
 }
 
+function recurringItemsForMonth(
+  subscriptions: Subscription[],
+  monthTxns: Transaction[],
+): Record<BudgetBucket, BudgetRecurringItem[]> {
+  const items: Record<BudgetBucket, BudgetRecurringItem[]> = { needs: [], wants: [], savings: [] };
+  for (const sub of subscriptions) {
+    if (sub.status !== "active") continue;
+    const bucket = recurringBudgetBucket(sub);
+    items[bucket].push({
+      id: sub.id,
+      name: sub.name,
+      kind: recurringKindOf(sub),
+      cadence: sub.cadence,
+      monthlyAmount: subscriptionMonthlyCost(sub),
+      account: sub.account,
+      seenThisMonth: monthTxns.some((t) => recurringMatchesTransaction(sub, t)),
+    });
+  }
+  for (const bucket of ["needs", "wants", "savings"] as const) {
+    items[bucket].sort((a, b) => b.monthlyAmount - a.monthlyAmount);
+  }
+  return items;
+}
+
 function recurringAdditionsForMonth(
   subscriptions: Subscription[],
   monthTxns: Transaction[],
 ): Record<BudgetBucket, number> {
-  const additions: Record<BudgetBucket, number> = { needs: 0, wants: 0, savings: 0 };
-  for (const sub of subscriptions) {
-    if (sub.status !== "active") continue;
-    if (monthTxns.some((t) => recurringMatchesTransaction(sub, t))) continue;
-    additions[recurringBudgetBucket(sub)] += subscriptionMonthlyCost(sub);
-  }
-  return additions;
+  const items = recurringItemsForMonth(subscriptions, monthTxns);
+  return recurringAdditionsFromItems(items);
+}
+
+function recurringAdditionsFromItems(
+  items: Record<BudgetBucket, BudgetRecurringItem[]>,
+): Record<BudgetBucket, number> {
+  return {
+    needs: items.needs.reduce(
+      (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
+      0,
+    ),
+    wants: items.wants.reduce(
+      (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
+      0,
+    ),
+    savings: items.savings.reduce(
+      (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
+      0,
+    ),
+  };
 }
 
 function recurringAdditionsSummary(additions: Record<BudgetBucket, number>): string {
@@ -679,9 +726,10 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   }
 
   // Recurring commitments are normalized into the same 50/30/20 buckets as
-  // imported transactions. Only add them when no matching charge is already in
-  // the selected month's statement data.
-  const recurringAdditions = recurringAdditionsForMonth(hub.subscriptions, monthTxns);
+  // imported transactions. Show the full monthly plan every month, but only add
+  // rows that are not already represented by imported statement data.
+  const recurringItems = recurringItemsForMonth(hub.subscriptions, monthTxns);
+  const recurringAdditions = recurringAdditionsFromItems(recurringItems);
   for (const b of ["needs", "wants", "savings"] as const) {
     buckets[b] += recurringAdditions[b];
   }
@@ -804,7 +852,7 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
                   targetPct={Math.round(targets[b] * 100)}
                   goal={b === "savings" ? "save" : "spend"}
                   txns={bucketTxns[b]}
-                  recurringEstimate={recurringAdditions[b]}
+                  recurringItems={recurringItems[b]}
                   onToggleExclude={toggleExclude}
                 />
               ))}
@@ -1207,6 +1255,10 @@ const CADENCE_ABBR: Record<Subscription["cadence"], string> = {
   annual: "yr",
 };
 
+function recurringKindLabel(kind: RecurringKind): string {
+  return kind === "loan" ? "Loan" : kind === "bill" ? "Bill" : "Subscription";
+}
+
 /* ---------------- Subscriptions ---------------- */
 
 // The three spendable 50/30/20 buckets a recurring item can land in. Unset
@@ -1271,8 +1323,9 @@ function GroupPicker({
   );
 }
 
-// The kind of obligation controls which section a row lives in and whether it's
-// a Need (loans + bills) or discretionary (subscriptions).
+// The kind of obligation controls which section a row lives in. The budget
+// bucket is separate: loans are always Needs, bills can be Needs or Wants, and
+// subscriptions can be Wants or recurring Savings.
 const KIND_OPTIONS: { key: RecurringKind; label: string; activeClass: string }[] = [
   {
     key: "loan",
@@ -1327,8 +1380,47 @@ function KindPicker({
   );
 }
 
-// A two-way Want/Save toggle for subscriptions (a subset of GroupPicker — a
-// subscription is never a Need; that's what "Bill" is for).
+function NeedWantPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: "needs" | "wants";
+  onChange: (g: "needs" | "wants") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Need or want"
+      className="inline-flex shrink-0 rounded-md border bg-muted/40 p-0.5"
+    >
+      {(["needs", "wants"] as const).map((g) => {
+        const active = value === g;
+        return (
+          <button
+            key={g}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => onChange(g)}
+            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+              active
+                ? g === "needs"
+                  ? "bg-background text-sky-600 shadow-sm dark:text-sky-400"
+                  : "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {g === "needs" ? "Need" : "Want"}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// A two-way Want/Save toggle for subscriptions.
 function SaveWantPicker({
   value,
   onChange,
@@ -1383,7 +1475,7 @@ function RecurringRow({
 }: {
   s: Subscription;
   onChangeKind: (s: Subscription, k: RecurringKind) => void;
-  onChangeGroup: (s: Subscription, g: "wants" | "savings") => void;
+  onChangeGroup: (s: Subscription, g: SpendGroup) => void;
   onToggleCancel: (s: Subscription) => void;
 }) {
   const kind = recurringKindOf(s);
@@ -1399,6 +1491,7 @@ function RecurringRow({
         ].filter(Boolean)
       : [];
   const subGroup = groupOf(s) === "savings" ? "savings" : "wants";
+  const billGroup = groupOf(s) === "wants" ? "wants" : "needs";
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
       <div className="min-w-0 flex-1">
@@ -1418,6 +1511,9 @@ function RecurringRow({
       {!canceled && (
         <div className="flex items-center gap-1.5">
           <KindPicker value={kind} onChange={(k) => onChangeKind(s, k)} />
+          {kind === "bill" && (
+            <NeedWantPicker value={billGroup} onChange={(g) => onChangeGroup(s, g)} />
+          )}
           {kind === "subscription" && (
             <SaveWantPicker value={subGroup} onChange={(g) => onChangeGroup(s, g)} />
           )}
@@ -1450,7 +1546,7 @@ const SECTION_META: {
   Icon: typeof Landmark;
 }[] = [
   { kind: "loan", label: "Loans", hint: "Needs", Icon: Landmark },
-  { kind: "bill", label: "Bills & essentials", hint: "Needs", Icon: Receipt },
+  { kind: "bill", label: "Bills", hint: "Needs/Wants", Icon: Receipt },
   { kind: "subscription", label: "Subscriptions & savings", hint: "Wants/Savings", Icon: Repeat },
 ];
 
@@ -1461,7 +1557,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [cadence, setCadence] = useState<Subscription["cadence"]>("monthly");
-  const [group, setGroup] = useState<"wants" | "savings">("wants");
+  const [group, setGroup] = useState<SpendGroup>("needs");
   const [balance, setBalance] = useState("");
   const [apr, setApr] = useState("");
 
@@ -1526,12 +1622,21 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     await persist(next);
   }
 
-  // Reclassifying carries the 50/30/20 group with it: loans + bills are Needs;
-  // a subscription keeps its Want/Save (defaulting a former Need to Want).
+  // Reclassifying keeps the budget bucket where it still makes sense. Loans are
+  // always Needs; bills keep Need/Want; subscriptions keep Want/Save.
   async function changeKind(s: Subscription, nextKind: RecurringKind) {
     if (recurringKindOf(s) === nextKind) return;
+    const currentGroup = groupOf(s);
     const nextGroup: CategoryGroup =
-      nextKind === "subscription" ? (groupOf(s) === "needs" ? "wants" : groupOf(s)) : "needs";
+      nextKind === "loan"
+        ? "needs"
+        : nextKind === "bill"
+          ? currentGroup === "wants"
+            ? "wants"
+            : "needs"
+          : currentGroup === "savings"
+            ? "savings"
+            : "wants";
     await persist(
       hub.subscriptions.map((x) =>
         x.id === s.id ? { ...x, kind: nextKind, group: nextGroup } : x,
@@ -1542,16 +1647,41 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     );
   }
 
-  async function changeGroup(s: Subscription, next: "wants" | "savings") {
+  async function changeGroup(s: Subscription, next: SpendGroup) {
     if (groupOf(s) === next) return;
     await persist(hub.subscriptions.map((x) => (x.id === s.id ? { ...x, group: next } : x)));
-    flash(`${cleanMerchantName(s.name)} marked as a ${next === "savings" ? "saving" : "want"}.`);
+    flash(`${cleanMerchantName(s.name)} marked as ${GROUP_LABELS[next]}.`);
   }
 
   function setCandidateKind(c: Subscription, nextKind: RecurringKind) {
-    const nextGroup: CategoryGroup = nextKind === "subscription" ? "wants" : "needs";
+    const currentGroup = groupOf(c);
+    const nextGroup: CategoryGroup =
+      nextKind === "loan"
+        ? "needs"
+        : nextKind === "bill"
+          ? currentGroup === "wants"
+            ? "wants"
+            : "needs"
+          : currentGroup === "savings"
+            ? "savings"
+            : "wants";
     setCandidates((cs) =>
       cs ? cs.map((x) => (x.id === c.id ? { ...x, kind: nextKind, group: nextGroup } : x)) : cs,
+    );
+  }
+
+  function changeManualKind(nextKind: RecurringKind) {
+    setKind(nextKind);
+    setGroup((currentGroup) =>
+      nextKind === "loan"
+        ? "needs"
+        : nextKind === "bill"
+          ? currentGroup === "wants"
+            ? "wants"
+            : "needs"
+          : currentGroup === "savings"
+            ? "savings"
+            : "wants",
     );
   }
 
@@ -1568,7 +1698,16 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
       status: "active",
       source: "manual",
       kind,
-      group: kind === "subscription" ? group : "needs",
+      group:
+        kind === "loan"
+          ? "needs"
+          : kind === "bill"
+            ? group === "wants"
+              ? "wants"
+              : "needs"
+            : group === "savings"
+              ? "savings"
+              : "wants",
       ...(kind === "loan"
         ? { balance: Number(balance) || undefined, apr: Number(apr) || undefined }
         : {}),
@@ -1578,7 +1717,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     setAmount("");
     setBalance("");
     setApr("");
-    setGroup("wants");
+    setGroup(kind === "subscription" ? "wants" : "needs");
     flash(`Added to ${SECTION_META.find((m) => m.kind === kind)!.label}.`);
   }
 
@@ -1718,7 +1857,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
         <CardContent>
           <form onSubmit={addManual} className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <KindPicker value={kind} onChange={setKind} />
+              <KindPicker value={kind} onChange={changeManualKind} />
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1744,7 +1883,15 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                 <option value="monthly">Monthly</option>
                 <option value="annual">Annual</option>
               </select>
-              {kind === "subscription" && <SaveWantPicker value={group} onChange={setGroup} />}
+              {kind === "bill" && (
+                <NeedWantPicker value={group === "wants" ? "wants" : "needs"} onChange={setGroup} />
+              )}
+              {kind === "subscription" && (
+                <SaveWantPicker
+                  value={group === "savings" ? "savings" : "wants"}
+                  onChange={setGroup}
+                />
+              )}
               <Button type="submit" size="sm" className="gap-1" disabled={!name.trim() || !amount}>
                 <Plus className="size-4" /> Add
               </Button>
@@ -2217,7 +2364,7 @@ function BudgetBar({
   targetPct,
   goal = "spend",
   txns = [],
-  recurringEstimate = 0,
+  recurringItems = [],
   onToggleExclude,
 }: {
   label: string;
@@ -2226,7 +2373,7 @@ function BudgetBar({
   targetPct: number;
   goal?: "spend" | "save";
   txns?: Transaction[];
-  recurringEstimate?: number;
+  recurringItems?: BudgetRecurringItem[];
   onToggleExclude?: (id: string, excluded: boolean) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -2261,7 +2408,11 @@ function BudgetBar({
         ? `${fmtMoney(remaining)} left`
         : `${fmtMoney(-remaining)} over`;
   const noteColor = state === "bad" ? "text-destructive" : "text-muted-foreground";
-  const expandable = (txns.length > 0 && !!onToggleExclude) || recurringEstimate > 0;
+  const recurringEstimate = recurringItems.reduce(
+    (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
+    0,
+  );
+  const expandable = (txns.length > 0 && !!onToggleExclude) || recurringItems.length > 0;
   return (
     <div>
       <button
@@ -2293,17 +2444,36 @@ function BudgetBar({
       </button>
       {open && expandable && (
         <ul className="mt-2 divide-y divide-border rounded-md border border-border/60 bg-muted/20">
-          {recurringEstimate > 0 && (
-            <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+          {recurringItems.length > 0 && (
+            <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs font-medium">
               <div className="min-w-0 flex-1">
-                <div className="truncate">Recurring commitments not imported yet</div>
-                <div className="text-muted-foreground">Estimated from the Recurring tab</div>
+                <div className="truncate">Monthly recurring plan</div>
+                <div className="text-muted-foreground">
+                  {recurringEstimate > 0
+                    ? `${fmtMoney(recurringEstimate)} not seen in statements yet`
+                    : "All planned items already appear in statements"}
+                </div>
               </div>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                {fmtMoney(recurringEstimate)}
-              </span>
             </li>
           )}
+          {recurringItems.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate">{cleanMerchantName(item.name)}</div>
+                <div className="truncate text-muted-foreground">
+                  {recurringKindLabel(item.kind)} · {CADENCE_ABBR[item.cadence]}
+                  {item.account ? ` · ${item.account}` : ""}
+                  {item.seenThisMonth ? " · seen in statements" : " · from Recurring tab"}
+                </div>
+              </div>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {fmtMoney(item.monthlyAmount)}/mo
+              </span>
+            </li>
+          ))}
           {txns.map((t) => {
             const excluded = !!t.excludeFromBudget;
             return (

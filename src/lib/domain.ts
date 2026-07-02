@@ -395,9 +395,9 @@ export interface Subscription extends BaseEntity {
   /** Loans only: annual interest rate as a percent (e.g. 6.1). Optional. */
   apr?: number;
   /**
-   * Which 50/30/20 bucket this recurring item belongs to. Loans and bills are
-   * "needs"; discretionary subscriptions default to "wants". When unset, treat
-   * as "wants" for backward compatibility.
+   * Which 50/30/20 bucket this recurring item belongs to. Loans are always
+   * needs. Bills can be needs or wants (for example lawn care). Discretionary
+   * subscriptions default to wants and can also represent recurring savings.
    */
   group?: CategoryGroup;
 }
@@ -412,9 +412,9 @@ export function recurringKindOf(sub: Pick<Subscription, "kind" | "group">): Recu
 }
 
 /**
- * A "bill" here means any fixed obligation that rolls into the Needs bucket —
- * loans and bills alike — kept distinct from discretionary subscriptions so the
- * cuttable-subscription total stays meaningful.
+ * A "bill" here means a fixed recurring obligation, not necessarily a Needs
+ * bucket item. This keeps monthly bills distinct from discretionary
+ * subscriptions so the cuttable-subscription total stays meaningful.
  */
 export function isBillSubscription(sub: Pick<Subscription, "kind" | "group">): boolean {
   const kind = recurringKindOf(sub);
@@ -426,7 +426,8 @@ export function recurringBudgetBucket(
   sub: Pick<Subscription, "kind" | "group">,
 ): "needs" | "wants" | "savings" {
   const kind = recurringKindOf(sub);
-  if (kind === "loan" || kind === "bill") return "needs";
+  if (kind === "loan") return "needs";
+  if (kind === "bill") return sub.group === "wants" ? "wants" : "needs";
   return sub.group === "savings" ? "savings" : "wants";
 }
 

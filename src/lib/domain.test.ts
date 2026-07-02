@@ -63,7 +63,7 @@ describe("recurringKindOf / isBillSubscription", () => {
     expect(recurringKindOf({})).toBe("subscription");
   });
 
-  it("treats loans and bills as Needs obligations, subscriptions as not", () => {
+  it("treats loans and bills as recurring obligations, subscriptions as not", () => {
     expect(isBillSubscription({ kind: "loan" })).toBe(true);
     expect(isBillSubscription({ kind: "bill" })).toBe(true);
     expect(isBillSubscription({ kind: "subscription" })).toBe(false);
@@ -73,6 +73,8 @@ describe("recurringKindOf / isBillSubscription", () => {
 
   it("maps recurring commitments to the right budget bucket", () => {
     expect(recurringBudgetBucket({ kind: "loan", group: "wants" })).toBe("needs");
+    expect(recurringBudgetBucket({ kind: "bill", group: "needs" })).toBe("needs");
+    expect(recurringBudgetBucket({ kind: "bill", group: "wants" })).toBe("wants");
     expect(recurringBudgetBucket({ kind: "bill", group: "savings" })).toBe("needs");
     expect(recurringBudgetBucket({ kind: "subscription", group: "savings" })).toBe("savings");
     expect(recurringBudgetBucket({ kind: "subscription", group: "wants" })).toBe("wants");
