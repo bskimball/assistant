@@ -147,7 +147,11 @@ function parseMoney(raw: string): number {
   return neg ? -n : n;
 }
 
-function parseDate(raw: string): number {
+/**
+ * Parse a statement date cell. Returns null when unparseable — the caller
+ * skips (and reports) the row rather than mis-filing it under today's date.
+ */
+function parseDate(raw: string): number | null {
   const t = Date.parse(raw.trim());
   if (Number.isFinite(t)) return t;
   // Fallback for MM/DD/YYYY without explicit timezone parsing oddities.
@@ -157,7 +161,7 @@ function parseDate(raw: string): number {
     const year = y.length === 2 ? 2000 + Number(y) : Number(y);
     return new Date(year, Number(mo) - 1, Number(d)).getTime();
   }
-  return Date.now();
+  return null;
 }
 
 /* ============================================================
@@ -347,6 +351,8 @@ function dedupeKeyFor(t: {
 export interface ImportResult {
   added: number;
   skipped: number;
+  /** Rows dropped because their date cell couldn't be parsed. */
+  invalidDates: number;
   total: number;
   sample: { description: string; amount: number; group: CategoryGroup }[];
 }
@@ -357,7 +363,7 @@ export const importTransactions = createServerFn({ method: "POST" })
     await requireAuthSession(ctx.request);
     const { csv, account } = ctx.data as { csv: string; account?: string };
     const rows = parseCsv(csv || "");
-    if (rows.length < 2) return { added: 0, skipped: 0, total: 0, sample: [] };
+    if (rows.length < 2) return { added: 0, skipped: 0, invalidDates: 0, total: 0, sample: [] };
 
     const headerIdx = findHeaderIndex(rows);
     const cols = detectColumns(rows[headerIdx]);
@@ -374,12 +380,17 @@ export const importTransactions = createServerFn({ method: "POST" })
     const parsed: Transaction[] = [];
     const sample: ImportResult["sample"] = [];
     let skipped = 0;
+    let invalidDates = 0;
 
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       const description = (cols.description >= 0 ? r[cols.description] : r.join(" ")).trim();
       if (!description) continue;
       const timestamp = cols.date >= 0 ? parseDate(r[cols.date]) : now;
+      if (timestamp === null) {
+        invalidDates++;
+        continue;
+      }
 
       let amount: number;
       if (cols.amount >= 0) {
@@ -433,6 +444,7 @@ export const importTransactions = createServerFn({ method: "POST" })
     return {
       added: parsed.length,
       skipped,
+      invalidDates,
       total: rows.length - headerIdx - 1,
       sample,
     };

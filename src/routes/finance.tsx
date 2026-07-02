@@ -570,7 +570,11 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
         data: { csv, institution, account: institution },
       });
       await onChange();
-      flash(`Imported ${res.added} new transactions (${res.skipped} duplicates skipped).`);
+      flash(
+        `Imported ${res.added} new transactions (${res.skipped} duplicates skipped` +
+          (res.invalidDates ? `, ${res.invalidDates} rows dropped for unreadable dates` : "") +
+          `).`,
+      );
     } catch (err) {
       console.error(err);
       flash("Import failed — is it a CSV statement export?");
