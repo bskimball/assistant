@@ -38,9 +38,9 @@ import {
   loadSubscriptionsImpl,
   saveSubscriptionsImpl,
   loadCategoryRulesImpl,
-  saveCategoryRulesImpl,
+  updateCategoryRulesImpl,
   loadTransactionsImpl,
-  saveTransactionsImpl,
+  updateTransactionsImpl,
   loadDailyFinanceImpl,
   loadUserProfileImpl,
   loadProductivityTasksForDayImpl,
@@ -368,79 +368,86 @@ export const importTransactions = createServerFn({ method: "POST" })
     const headerIdx = findHeaderIndex(rows);
     const cols = detectColumns(rows[headerIdx]);
     const rules = (await loadCategoryRulesImpl()).rules;
-    const existing = await loadTransactionsImpl();
-    const seen = new Set(
-      existing.transactions
-        .filter((t) => !t.deletedAt)
-        .map((t) => t.dedupeKey)
-        .filter(Boolean) as string[],
-    );
 
     const now = Date.now();
-    const parsed: Transaction[] = [];
-    const sample: ImportResult["sample"] = [];
+    let parsed: Transaction[] = [];
+    let sample: ImportResult["sample"] = [];
     let skipped = 0;
     let invalidDates = 0;
 
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-      const r = rows[i];
-      const description = (cols.description >= 0 ? r[cols.description] : r.join(" ")).trim();
-      if (!description) continue;
-      const timestamp = cols.date >= 0 ? parseDate(r[cols.date]) : now;
-      if (timestamp === null) {
-        invalidDates++;
-        continue;
+    // CAS update: dedupe against the ledger as it is at write time, so a
+    // concurrent import/edit by the other member can't be dropped or produce
+    // duplicates. The mutate may re-run on conflict, so it resets its stats.
+    await updateTransactionsImpl((transactions) => {
+      parsed = [];
+      sample = [];
+      skipped = 0;
+      invalidDates = 0;
+      const seen = new Set(
+        transactions
+          .filter((t) => !t.deletedAt)
+          .map((t) => t.dedupeKey)
+          .filter(Boolean) as string[],
+      );
+
+      for (let i = headerIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        const description = (cols.description >= 0 ? r[cols.description] : r.join(" ")).trim();
+        if (!description) continue;
+        const timestamp = cols.date >= 0 ? parseDate(r[cols.date]) : now;
+        if (timestamp === null) {
+          invalidDates++;
+          continue;
+        }
+
+        let amount: number;
+        if (cols.amount >= 0) {
+          amount = parseMoney(r[cols.amount]);
+        } else if (cols.debit >= 0 || cols.credit >= 0) {
+          const debit = cols.debit >= 0 ? parseMoney(r[cols.debit]) : 0;
+          const credit = cols.credit >= 0 ? parseMoney(r[cols.credit]) : 0;
+          amount = Math.abs(credit) - Math.abs(debit);
+        } else {
+          continue;
+        }
+        if (!amount) continue;
+
+        const acct = account?.trim() || undefined;
+        const dedupeKey = dedupeKeyFor({
+          timestamp,
+          amount,
+          description,
+          account: acct,
+        });
+        if (seen.has(dedupeKey)) {
+          skipped++;
+          continue;
+        }
+        seen.add(dedupeKey);
+
+        const group = categorize(description, amount, rules);
+        const txn: Transaction = {
+          id: newId("txn"),
+          createdAt: now,
+          timestamp,
+          type: amount > 0 ? "deposit" : "withdrawal",
+          amount,
+          currency: "USD",
+          account: acct,
+          category: description.slice(0, 60),
+          categoryGroup: group,
+          notes: undefined,
+          dedupeKey,
+          source: "import",
+        };
+        parsed.push(txn);
+        if (sample.length < 6)
+          sample.push({ description: description.slice(0, 40), amount, group });
       }
 
-      let amount: number;
-      if (cols.amount >= 0) {
-        amount = parseMoney(r[cols.amount]);
-      } else if (cols.debit >= 0 || cols.credit >= 0) {
-        const debit = cols.debit >= 0 ? parseMoney(r[cols.debit]) : 0;
-        const credit = cols.credit >= 0 ? parseMoney(r[cols.credit]) : 0;
-        amount = Math.abs(credit) - Math.abs(debit);
-      } else {
-        continue;
-      }
-      if (!amount) continue;
+      return parsed.length ? [...transactions, ...parsed] : transactions;
+    });
 
-      const acct = account?.trim() || undefined;
-      const dedupeKey = dedupeKeyFor({
-        timestamp,
-        amount,
-        description,
-        account: acct,
-      });
-      if (seen.has(dedupeKey)) {
-        skipped++;
-        continue;
-      }
-      seen.add(dedupeKey);
-
-      const group = categorize(description, amount, rules);
-      const txn: Transaction = {
-        id: newId("txn"),
-        createdAt: now,
-        timestamp,
-        type: amount > 0 ? "deposit" : "withdrawal",
-        amount,
-        currency: "USD",
-        account: acct,
-        category: description.slice(0, 60),
-        categoryGroup: group,
-        notes: undefined,
-        dedupeKey,
-        source: "import",
-      };
-      parsed.push(txn);
-      if (sample.length < 6) sample.push({ description: description.slice(0, 40), amount, group });
-    }
-
-    if (parsed.length) {
-      await saveTransactionsImpl({
-        transactions: [...existing.transactions, ...parsed],
-      });
-    }
     return {
       added: parsed.length,
       skipped,
@@ -568,20 +575,18 @@ export const recategorizeTransaction = createServerFn({ method: "POST" })
   .handler(async (ctx: any) => {
     await requireAuthSession(ctx.request);
     const { id, group } = ctx.data as { id: string; group: CategoryGroup };
-    const store = await loadTransactionsImpl();
     const now = Date.now();
     let learnedKey: string | null = null;
-    const transactions = store.transactions.map((t) => {
-      if (t.id !== id) return t;
-      learnedKey = normalizeMerchant(t.category || "");
-      return { ...t, categoryGroup: group, updatedAt: now };
-    });
-    await saveTransactionsImpl({ transactions });
+    await updateTransactionsImpl((transactions) =>
+      transactions.map((t) => {
+        if (t.id !== id) return t;
+        learnedKey = normalizeMerchant(t.category || "");
+        return { ...t, categoryGroup: group, updatedAt: now };
+      }),
+    );
     if (learnedKey) {
-      const rulesStore = await loadCategoryRulesImpl();
-      await saveCategoryRulesImpl({
-        rules: { ...rulesStore.rules, [learnedKey]: group },
-      });
+      const key = learnedKey;
+      await updateCategoryRulesImpl((rules) => ({ ...rules, [key]: group }));
     }
     return { ok: true };
   });
@@ -596,12 +601,12 @@ export const setTransactionExcluded = createServerFn({ method: "POST" })
   .handler(async (ctx: any) => {
     await requireAuthSession(ctx.request);
     const { id, excluded } = ctx.data as { id: string; excluded: boolean };
-    const store = await loadTransactionsImpl();
     const now = Date.now();
-    const transactions = store.transactions.map((t) =>
-      t.id === id ? { ...t, excludeFromBudget: excluded, updatedAt: now } : t,
+    await updateTransactionsImpl((transactions) =>
+      transactions.map((t) =>
+        t.id === id ? { ...t, excludeFromBudget: excluded, updatedAt: now } : t,
+      ),
     );
-    await saveTransactionsImpl({ transactions });
     return { ok: true };
   });
 
@@ -615,22 +620,23 @@ export const recategorizeAllTransactions = createServerFn({ method: "POST" })
   .validator((data: Record<string, never> | undefined) => data ?? {})
   .handler(async (ctx: any): Promise<{ changed: number; total: number }> => {
     await requireAuthSession(ctx.request);
-    const [{ transactions }, rulesStore] = await Promise.all([
-      loadTransactionsImpl(),
-      loadCategoryRulesImpl(),
-    ]);
-    const rules = rulesStore.rules;
+    const rules = (await loadCategoryRulesImpl()).rules;
     const now = Date.now();
     let changed = 0;
-    const next = transactions.map((t) => {
-      if (t.deletedAt) return t;
-      const group = categorize(t.category || "", t.amount, rules);
-      if (group === t.categoryGroup) return t;
-      changed++;
-      return { ...t, categoryGroup: group, updatedAt: now };
+    let total = 0;
+    // Mutate may re-run on CAS conflict; stats reset each attempt.
+    await updateTransactionsImpl((transactions) => {
+      changed = 0;
+      total = transactions.length;
+      return transactions.map((t) => {
+        if (t.deletedAt) return t;
+        const group = categorize(t.category || "", t.amount, rules);
+        if (group === t.categoryGroup) return t;
+        changed++;
+        return { ...t, categoryGroup: group, updatedAt: now };
+      });
     });
-    if (changed) await saveTransactionsImpl({ transactions: next });
-    return { changed, total: transactions.length };
+    return { changed, total };
   });
 
 /* ============================================================

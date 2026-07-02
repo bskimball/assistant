@@ -114,6 +114,41 @@ export async function putJSON<T>(key: string, value: T): Promise<void> {
 }
 
 /**
+ * Atomically update a JSON object with optimistic concurrency (etag CAS).
+ * Reads the current value, applies `mutate`, and writes back only if the
+ * object hasn't changed since the read, retrying on conflict. This prevents
+ * lost updates on contended objects — e.g. both household members (or two
+ * tabs) mutating transactions.json concurrently via read-modify-write.
+ */
+export async function updateJSON<T>(
+  key: string,
+  mutate: (current: T | null) => T,
+  attempts = 4,
+): Promise<T> {
+  const bucket = await getR2Bucket();
+  for (let i = 0; i < attempts; i++) {
+    const obj = await bucket.get(key);
+    let current: T | null = null;
+    if (obj) {
+      try {
+        current = JSON.parse(await obj.text()) as T;
+      } catch {
+        current = null;
+      }
+    }
+    const next = mutate(current);
+    // Write only if unchanged since our read: same etag, or still absent.
+    const onlyIf: R2Conditional = obj ? { etagMatches: obj.etag } : { etagDoesNotMatch: "*" };
+    const res = await bucket.put(key, JSON.stringify(next, null, 0), {
+      onlyIf,
+      httpMetadata: { contentType: "application/json" },
+    });
+    if (res) return next;
+  }
+  throw new Error(`Concurrent updates kept conflicting for ${key}; please retry.`);
+}
+
+/**
  * Delete an object.
  */
 export async function deleteObject(key: string): Promise<void> {
@@ -290,14 +325,15 @@ export async function recordSoftDelete(
 ): Promise<void> {
   const date = new Date(deletedAt).toISOString().slice(0, 10);
   const idxKey = getDeletedIndexKey(date, userId);
-  const existing = await getDeletedIndex(date, userId);
   const record: SoftDeleteRecord = { key: deletedKey, deletedAt, domain };
-  // Avoid exact dups for the same key+deletedAt
-  const deduped = existing.filter(
-    (r) => !(r.key === record.key && r.deletedAt === record.deletedAt),
-  );
-  deduped.push(record);
-  await putJSON(idxKey, deduped);
+  await updateJSON<SoftDeleteRecord[]>(idxKey, (existing) => {
+    // Avoid exact dups for the same key+deletedAt
+    const deduped = (Array.isArray(existing) ? existing : []).filter(
+      (r) => !(r.key === record.key && r.deletedAt === record.deletedAt),
+    );
+    deduped.push(record);
+    return deduped;
+  });
 }
 
 /**

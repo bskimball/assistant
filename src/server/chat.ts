@@ -41,7 +41,7 @@ import { buildUserContextBlock } from "@/server/context";
 import {
   executeVoiceIntentImpl,
   loadChatConversationsImpl,
-  saveChatConversationsImpl,
+  updateChatConversationsImpl,
 } from "@/server/domain-impl";
 
 /** A single conversation turn sent from the client. */
@@ -373,23 +373,26 @@ export const saveChatConversation = createServerFn({ method: "POST" })
       throw new Error("A conversation id and at least one message are required.");
     }
 
-    const store = await loadChatConversationsImpl();
-    const existing = store.conversations.find((c) => c.id === id);
-    const now = Date.now();
-    const conversation: ChatConversation = {
-      id,
-      title: deriveTitle(messages),
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      messages,
-    };
-
-    const merged = upsertConversation(
-      store.conversations.filter((c) => !c.deletedAt),
-      conversation,
-    ).slice(0, MAX_CONVERSATIONS);
-    await saveChatConversationsImpl({ conversations: merged });
-    return { summary: toSummary(conversation) };
+    // CAS update: the mutate may re-run on write conflict, so it recomputes
+    // from the freshest conversations each attempt.
+    let saved: ChatConversation | null = null;
+    await updateChatConversationsImpl((conversations) => {
+      const existing = conversations.find((c) => c.id === id);
+      const now = Date.now();
+      saved = {
+        id,
+        title: deriveTitle(messages),
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        messages,
+      };
+      return upsertConversation(
+        conversations.filter((c) => !c.deletedAt),
+        saved,
+      ).slice(0, MAX_CONVERSATIONS);
+    });
+    if (!saved) throw new Error("Failed to save the conversation.");
+    return { summary: toSummary(saved) };
   });
 
 /** Soft-delete a conversation by id. */
@@ -398,11 +401,9 @@ export const deleteChatConversation = createServerFn({ method: "POST" })
   .handler(async (ctx: any): Promise<{ ok: boolean }> => {
     await requireAuthSession(ctx.request);
     const id = ctx.data?.id;
-    const store = await loadChatConversationsImpl();
     const now = Date.now();
-    const conversations = store.conversations.map((c) =>
-      c.id === id ? { ...c, deletedAt: now, updatedAt: now } : c,
+    await updateChatConversationsImpl((conversations) =>
+      conversations.map((c) => (c.id === id ? { ...c, deletedAt: now, updatedAt: now } : c)),
     );
-    await saveChatConversationsImpl({ conversations });
     return { ok: true };
   });

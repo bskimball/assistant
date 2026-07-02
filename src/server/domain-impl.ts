@@ -114,16 +114,19 @@ export async function loadChatConversationsImpl(): Promise<ChatConversationsStor
   );
 }
 
-export async function saveChatConversationsImpl(data: {
-  conversations: ChatConversation[];
-}): Promise<ChatConversationsStore> {
-  const payload: ChatConversationsStore = {
-    conversations: data.conversations,
-    updatedAt: Date.now(),
-  };
+/**
+ * Atomically mutate the chat history (etag CAS + retry) so two tabs saving
+ * turns concurrently can't drop each other's conversations. `mutate` may run
+ * more than once on conflict — keep it pure over its input.
+ */
+export async function updateChatConversationsImpl(
+  mutate: (conversations: ChatConversation[]) => ChatConversation[],
+): Promise<ChatConversationsStore> {
   const store = await getDomainStore();
-  await store.ref.put("chat-conversations.json", payload);
-  return payload;
+  return store.ref.update<ChatConversationsStore>("chat-conversations.json", (current) => ({
+    conversations: mutate(current?.conversations ?? []),
+    updatedAt: Date.now(),
+  }));
 }
 
 export async function loadWorkoutPlansImpl(): Promise<WorkoutPlansStore> {
@@ -375,11 +378,27 @@ export async function saveTransactionsImpl(data: {
   return payload;
 }
 
+/**
+ * Atomically mutate the shared transaction ledger (etag CAS + retry). Both
+ * household members write this file, so every ledger mutation must go through
+ * here rather than load → save, or concurrent writers drop each other's data.
+ * `mutate` may run more than once on conflict — keep it pure over its input.
+ */
+export async function updateTransactionsImpl(
+  mutate: (transactions: Transaction[]) => Transaction[],
+): Promise<TransactionsStore> {
+  await ensureHouseholdFinanceMigrated();
+  const store = await getDomainStore({ shared: true });
+  return store.ref.update<TransactionsStore>("transactions.json", (current) => ({
+    transactions: mutate(current?.transactions ?? []),
+    updatedAt: Date.now(),
+  }));
+}
+
 export async function appendTransactionImpl(
   data: Omit<Transaction, "id" | "createdAt">,
 ): Promise<Transaction> {
   const now = Date.now();
-  const stored = await loadTransactionsImpl();
   const transaction: Transaction = {
     id: newId("txn"),
     createdAt: now,
@@ -387,9 +406,7 @@ export async function appendTransactionImpl(
     currency: data.currency ?? "USD",
     timestamp: data.timestamp ?? now,
   };
-  await saveTransactionsImpl({
-    transactions: [...stored.transactions, transaction],
-  });
+  await updateTransactionsImpl((transactions) => [...transactions, transaction]);
   return transaction;
 }
 
@@ -468,16 +485,16 @@ export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
   );
 }
 
-export async function saveCategoryRulesImpl(data: {
-  rules: Record<string, CategoryGroup>;
-}): Promise<CategoryRulesStore> {
-  const payload: CategoryRulesStore = {
-    rules: data.rules,
-    updatedAt: Date.now(),
-  };
+/** Atomically merge learned category rules (etag CAS + retry, shared file). */
+export async function updateCategoryRulesImpl(
+  mutate: (rules: Record<string, CategoryGroup>) => Record<string, CategoryGroup>,
+): Promise<CategoryRulesStore> {
+  await ensureHouseholdFinanceMigrated();
   const store = await getDomainStore({ shared: true });
-  await store.ref.put("category-rules.json", payload);
-  return payload;
+  return store.ref.update<CategoryRulesStore>("category-rules.json", (current) => ({
+    rules: mutate(current?.rules ?? {}),
+    updatedAt: Date.now(),
+  }));
 }
 
 /**

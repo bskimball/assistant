@@ -49,6 +49,12 @@ export interface WeeklyStore {
 export interface RefStore {
   get<T>(name: string): Promise<T | null>;
   put<T>(name: string, value: T): Promise<void>;
+  /**
+   * Atomic read-modify-write with optimistic concurrency (etag CAS + retry).
+   * Use for contended collections (shared household files, chat history) so
+   * concurrent writers can't silently drop each other's updates.
+   */
+  update<T>(name: string, mutate: (current: T | null) => T): Promise<T>;
   key(name: string): string;
 }
 
@@ -109,6 +115,8 @@ export async function getDomainStore(opts?: StoreScopeOptions): Promise<DomainSt
       key: (name) => r2.getRefKey(name, scope),
       get: <T>(name: string) => r2.getJSON<T>(r2.getRefKey(name, scope)),
       put: <T>(name: string, value: T) => r2.putJSON(r2.getRefKey(name, scope), value),
+      update: <T>(name: string, mutate: (current: T | null) => T) =>
+        r2.updateJSON<T>(r2.getRefKey(name, scope), mutate),
     },
     log: {
       key: (domain, date) => r2.getLogKey(domain, date, scope),
