@@ -96,6 +96,9 @@ export const migrateFinanceToHousehold = createServerFn({ method: "POST" }).hand
     const { resolveUserScope } = await import("@/lib/scope");
     const session = await requireAuthSession(ctx?.request);
     // Only Brian (whose `assistant/brian/*` data is the source) may force this.
+    // A null session only occurs in unconfigured local dev (requireAuthSession
+    // throws otherwise), where the dev scope is Brian's — so require a matching
+    // session whenever one exists.
     if (session && resolveUserScope(session.user?.email) !== SOURCE_SCOPE) {
       return { migrated: false, copied: 0, reason: "not-authorized" };
     }

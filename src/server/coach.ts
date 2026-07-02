@@ -27,7 +27,7 @@ import type {
 } from "@/lib/domain";
 import {
   todayISO,
-  toISODate,
+  addDaysISO,
   computeAge,
   createProductivityTask,
   cmToInches,
@@ -144,12 +144,9 @@ export interface TrendSignals {
 
 /** Build the list of ISO dates for a trailing window ending on `date` (inclusive). */
 function trailingDates(date: ISODate, days: number): ISODate[] {
-  const end = new Date(date + "T00:00:00");
   const out: ISODate[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(end);
-    d.setDate(d.getDate() - i);
-    out.push(toISODate(d));
+    out.push(addDaysISO(date, -i));
   }
   return out;
 }
@@ -490,20 +487,10 @@ function fallbackWorkout(signals: DaySignals): WorkoutSuggestion {
 }
 
 function weekBounds(date: ISODate): { start: ISODate; end: ISODate } {
-  const d = new Date(date + "T00:00:00");
-  const day = d.getDay();
+  const day = new Date(date + "T12:00:00Z").getUTCDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
-  const start = new Date(d);
-  start.setDate(d.getDate() + mondayOffset);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return { start: toISODate(start), end: toISODate(end) };
-}
-
-function addDays(date: ISODate, days: number): ISODate {
-  const d = new Date(date + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return toISODate(d);
+  const start = addDaysISO(date, mondayOffset);
+  return { start, end: addDaysISO(start, 6) };
 }
 
 function trainingDayIndexes(target = 3): number[] {
@@ -590,7 +577,7 @@ function buildWeeklyWorkoutPlan(
     // Expand each day into the full arc: warm-up → main → core → cooldown.
     const session = composeSession(template);
     return {
-      date: addDays(start, i),
+      date: addDaysISO(start, i),
       title: session.title,
       focus: session.focus,
       estimatedMinutes: session.estimatedMinutes,

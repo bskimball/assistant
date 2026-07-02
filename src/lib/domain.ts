@@ -808,9 +808,29 @@ export function newId(prefix = ""): string {
   return prefix ? `${prefix}-${ts}-${rand}` : `${ts}-${rand}`;
 }
 
-/** Day key helper (local date) */
+/**
+ * The household's timezone, used when day keys are computed server-side.
+ * Cloudflare Workers run in UTC, so without this every server-derived "today"
+ * flips to tomorrow during the members' evening (8pm EDT). In the browser the
+ * runtime is already in the member's local timezone, so it is used as-is.
+ */
+export const HOUSEHOLD_TIMEZONE = "America/New_York";
+
+// en-CA formats as YYYY-MM-DD. Constructed once — Intl formatters are costly.
+const householdDayFormatter =
+  typeof document === "undefined"
+    ? new Intl.DateTimeFormat("en-CA", {
+        timeZone: HOUSEHOLD_TIMEZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      })
+    : null;
+
+/** Day key helper (member-local date; household timezone on the server) */
 export function toISODate(d: Date | number = new Date()): ISODate {
   const date = typeof d === "number" ? new Date(d) : d;
+  if (householdDayFormatter) return householdDayFormatter.format(date);
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -819,6 +839,18 @@ export function toISODate(d: Date | number = new Date()): ISODate {
 
 export function todayISO(): ISODate {
   return toISODate();
+}
+
+/**
+ * Add whole days to an ISO date with pure UTC math. Runtime-timezone-proof:
+ * `new Date(iso + "T00:00:00")` → `toISODate(...)` round trips shift a day on
+ * the server (UTC parse, household-timezone format), so day arithmetic on
+ * ISO strings must go through this instead. Noon UTC is immune to DST shifts.
+ */
+export function addDaysISO(date: ISODate, days: number): ISODate {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /** Simple ISO week (approximate, sufficient for personal use) */
@@ -838,9 +870,7 @@ export function resolveVoiceTargetDate(input: unknown, base: ISODate = todayISO(
   const s = input.trim().toLowerCase();
   if (!s || s === "today") return base;
   if (s === "tomorrow") {
-    const d = new Date(base + "T00:00:00");
-    d.setDate(d.getDate() + 1);
-    return toISODate(d);
+    return addDaysISO(base, 1);
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s as ISODate;
   return base;

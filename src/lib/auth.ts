@@ -84,12 +84,14 @@ export async function isAuthConfigured(): Promise<boolean> {
 }
 
 export async function requireAuthSession(request?: Request): Promise<Session | null> {
-  if (!request) return null;
   const configured = await isAuthConfigured();
   if (!configured) {
     if (isLocalDevRequest(request)) return null;
     throw new Error("Authentication is not configured for this deployment.");
   }
+  // Fail closed: with auth configured, a missing request means we cannot
+  // verify a session, so it must never pass as authenticated.
+  if (!request) throw new Error("Authentication required.");
 
   const auth = (await getAuth()) as any;
   const headers = request?.headers ?? new Headers();
