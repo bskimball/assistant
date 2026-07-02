@@ -27,8 +27,7 @@ const analyticsQueryOptions = (range: 7 | 14 | 30) =>
 
 export const Route = createFileRoute("/analytics")({
   // Prime the default window so the first paint has data (SSR + revisit cache).
-  loader: ({ context: { queryClient } }) =>
-    queryClient.ensureQueryData(analyticsQueryOptions(14)),
+  loader: ({ context: { queryClient } }) => queryClient.ensureQueryData(analyticsQueryOptions(14)),
   component: Analytics,
 });
 

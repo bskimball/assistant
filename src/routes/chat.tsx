@@ -666,36 +666,36 @@ function HistoryList({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-1 p-2">
           {summaries.map((s, i) => (
-              <Reveal
-                as="div"
-                key={s.id}
-                delay={revealDelay(i)}
-                className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
-                  s.id === activeId ? "border-primary/40 bg-primary/5" : "hover:bg-muted"
-                }`}
+            <Reveal
+              as="div"
+              key={s.id}
+              delay={revealDelay(i)}
+              className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
+                s.id === activeId ? "border-primary/40 bg-primary/5" : "hover:bg-muted"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelect(s.id)}
+                className="flex min-w-0 flex-1 items-start gap-2 text-left"
               >
-                <button
-                  type="button"
-                  onClick={() => onSelect(s.id)}
-                  className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                >
-                  <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{s.title}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {formatDistanceToNow(s.updatedAt, { addSuffix: true })} · {s.messageCount} msg
-                    </span>
+                <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{s.title}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {formatDistanceToNow(s.updatedAt, { addSuffix: true })} · {s.messageCount} msg
                   </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(s.id)}
-                  aria-label="Delete conversation"
-                  className="shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </Reveal>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(s.id)}
+                aria-label="Delete conversation"
+                className="shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </Reveal>
           ))}
         </div>
       </div>

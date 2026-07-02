@@ -449,93 +449,95 @@ function KanbanBoard() {
                             onDragStart={(e) => handleDragStart(e, task.id)}
                             className={`group rounded-lg border bg-background p-2.5 text-sm shadow-sm ${isDone ? "line-through opacity-70" : ""} ${overdue ? "border-red-400" : ""}`}
                           >
-                          <div className="font-medium leading-tight pr-8">{task.text}</div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
-                            {task.shared && (
-                              <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 font-medium text-primary">
-                                <Users className="size-2.5" /> Shared
-                              </span>
-                            )}
-                            {task.project && (
-                              <span className="rounded bg-muted px-1">{task.project}</span>
-                            )}
-                            {task.due && (
-                              <span className={overdue ? "text-red-600 font-medium" : ""}>
-                                due {task.due}
-                              </span>
-                            )}
-                            {task.estimatedMinutes && <span>{task.estimatedMinutes}m</span>}
-                          </div>
-                          {isToday && (
-                            <div className="mt-1.5 flex items-center gap-0.5 opacity-70 group-hover:opacity-100">
-                              <button
-                                onClick={() =>
-                                  moveTaskToColumn(task.id, cycleToColumn(task.column, -1))
-                                }
-                                className="rounded p-1 hover:bg-muted"
-                                aria-label="Move left"
-                                title="Move left"
-                              >
-                                <ArrowLeft className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() =>
-                                  moveTaskToColumn(task.id, cycleToColumn(task.column, 1))
-                                }
-                                className="rounded p-1 hover:bg-muted"
-                                aria-label="Move right"
-                                title="Move right"
-                              >
-                                <ArrowRight className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() => toggleTaskDone(task.id)}
-                                className="rounded p-1 hover:bg-muted"
-                                aria-label={isDone ? "Mark not done" : "Mark done"}
-                                title={isDone ? "Undo" : "Done"}
-                              >
-                                {isDone ? (
-                                  <Undo2 className="size-3.5" />
-                                ) : (
-                                  <Check className="size-3.5" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const nt = prompt("Edit:", task.text);
-                                  if (nt) {
-                                    upsertProductivityTaskClient({ ...task, text: nt });
-                                    persistTasks(selectedDate);
-                                  }
-                                }}
-                                className="rounded p-1 hover:bg-muted"
-                                aria-label="Edit"
-                                title="Edit"
-                              >
-                                <Pencil className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() => toggleTaskShared(task.id)}
-                                className="rounded p-1 hover:bg-muted"
-                                aria-label={task.shared ? "Make personal" : "Share with household"}
-                                title={task.shared ? "Make personal" : "Share with household"}
-                              >
-                                {task.shared ? (
-                                  <Lock className="size-3.5" />
-                                ) : (
-                                  <Users className="size-3.5" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => deleteTask(task.id)}
-                                className="ml-auto rounded p-1 text-destructive hover:bg-muted"
-                                aria-label="Delete"
-                                title="Delete"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
+                            <div className="font-medium leading-tight pr-8">{task.text}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
+                              {task.shared && (
+                                <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 font-medium text-primary">
+                                  <Users className="size-2.5" /> Shared
+                                </span>
+                              )}
+                              {task.project && (
+                                <span className="rounded bg-muted px-1">{task.project}</span>
+                              )}
+                              {task.due && (
+                                <span className={overdue ? "text-red-600 font-medium" : ""}>
+                                  due {task.due}
+                                </span>
+                              )}
+                              {task.estimatedMinutes && <span>{task.estimatedMinutes}m</span>}
                             </div>
-                          )}
+                            {isToday && (
+                              <div className="mt-1.5 flex items-center gap-0.5 opacity-70 group-hover:opacity-100">
+                                <button
+                                  onClick={() =>
+                                    moveTaskToColumn(task.id, cycleToColumn(task.column, -1))
+                                  }
+                                  className="rounded p-1 hover:bg-muted"
+                                  aria-label="Move left"
+                                  title="Move left"
+                                >
+                                  <ArrowLeft className="size-3.5" />
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    moveTaskToColumn(task.id, cycleToColumn(task.column, 1))
+                                  }
+                                  className="rounded p-1 hover:bg-muted"
+                                  aria-label="Move right"
+                                  title="Move right"
+                                >
+                                  <ArrowRight className="size-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => toggleTaskDone(task.id)}
+                                  className="rounded p-1 hover:bg-muted"
+                                  aria-label={isDone ? "Mark not done" : "Mark done"}
+                                  title={isDone ? "Undo" : "Done"}
+                                >
+                                  {isDone ? (
+                                    <Undo2 className="size-3.5" />
+                                  ) : (
+                                    <Check className="size-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const nt = prompt("Edit:", task.text);
+                                    if (nt) {
+                                      upsertProductivityTaskClient({ ...task, text: nt });
+                                      persistTasks(selectedDate);
+                                    }
+                                  }}
+                                  className="rounded p-1 hover:bg-muted"
+                                  aria-label="Edit"
+                                  title="Edit"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => toggleTaskShared(task.id)}
+                                  className="rounded p-1 hover:bg-muted"
+                                  aria-label={
+                                    task.shared ? "Make personal" : "Share with household"
+                                  }
+                                  title={task.shared ? "Make personal" : "Share with household"}
+                                >
+                                  {task.shared ? (
+                                    <Lock className="size-3.5" />
+                                  ) : (
+                                    <Users className="size-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => deleteTask(task.id)}
+                                  className="ml-auto rounded p-1 text-destructive hover:bg-muted"
+                                  aria-label="Delete"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </Reveal>
                       );

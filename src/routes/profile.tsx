@@ -357,264 +357,264 @@ function ProfilePage() {
           <Reveal>
             <form onSubmit={handleSave} className="space-y-6">
               {/* IDENTITY */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <User className="size-4 text-primary" /> Identity
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Display name">
-                  <Input
-                    value={form.displayName}
-                    onChange={(e) => set("displayName", e.target.value)}
-                    placeholder="Brian"
-                  />
-                </Field>
-                <Field label={`Birth date${age != null ? ` (age ${age})` : ""}`}>
-                  <BirthDatePicker value={form.birthDate} onChange={(v) => set("birthDate", v)} />
-                </Field>
-                <Field label="Sex">
-                  <select
-                    className={selectClass}
-                    value={form.sex}
-                    onChange={(e) => set("sex", e.target.value)}
-                  >
-                    <option value="">—</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="other">Other</option>
-                  </select>
-                </Field>
-                <Field label="Height (in)">
-                  <Input
-                    type="number"
-                    value={form.heightIn}
-                    onChange={(e) => set("heightIn", e.target.value)}
-                    placeholder="71"
-                  />
-                </Field>
-                <Field label="Units">
-                  <select
-                    className={selectClass}
-                    value={form.units}
-                    onChange={(e) => set("units", e.target.value)}
-                  >
-                    <option value="imperial">US customary (lb/in/oz)</option>
-                    <option value="metric">Metric</option>
-                  </select>
-                </Field>
-                <Field label="Timezone" hint="e.g. America/Chicago">
-                  <Input
-                    value={form.timezone}
-                    onChange={(e) => set("timezone", e.target.value)}
-                    placeholder="America/Chicago"
-                  />
-                </Field>
-              </CardContent>
-            </Card>
-
-            {/* COACHING & GOALS */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Target className="size-4 text-primary" /> Coaching &amp; Goals
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Field
-                  label="Top goals"
-                  hint="Comma-separated, e.g. lose 10 lb, save $20k, bench 225 lb"
-                >
-                  <Input
-                    value={form.goals}
-                    onChange={(e) => set("goals", e.target.value)}
-                    placeholder="lose 10 lb, save $20k, run a 5k"
-                  />
-                </Field>
-                <Field label="Activity level">
-                  <select
-                    className={selectClass}
-                    value={form.activityLevel}
-                    onChange={(e) => set("activityLevel", e.target.value)}
-                  >
-                    <option value="">—</option>
-                    <option value="sedentary">Sedentary</option>
-                    <option value="light">Light</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="active">Active</option>
-                    <option value="very_active">Very active</option>
-                  </select>
-                </Field>
-              </CardContent>
-            </Card>
-
-            {/* FITNESS */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Dumbbell className="size-4 text-primary" /> Fitness
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Field
-                  label="Injuries / limits"
-                  hint="The coach will never prescribe movements that aggravate these"
-                >
-                  <Input
-                    value={form.injuries}
-                    onChange={(e) => set("injuries", e.target.value)}
-                    placeholder="left knee, no overhead pressing"
-                  />
-                </Field>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="Training days / week">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <User className="size-4 text-primary" /> Identity
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Display name">
                     <Input
-                      type="number"
-                      min="0"
-                      max="7"
-                      value={form.trainingDaysPerWeek}
-                      onChange={(e) => set("trainingDaysPerWeek", e.target.value)}
-                      placeholder="4"
+                      value={form.displayName}
+                      onChange={(e) => set("displayName", e.target.value)}
+                      placeholder="Brian"
                     />
                   </Field>
-                  <Field label="Equipment access" hint="Comma-separated">
-                    <Input
-                      value={form.equipmentAccess}
-                      onChange={(e) => set("equipmentAccess", e.target.value)}
-                      placeholder="full gym, dumbbells, pull-up bar"
-                    />
+                  <Field label={`Birth date${age != null ? ` (age ${age})` : ""}`}>
+                    <BirthDatePicker value={form.birthDate} onChange={(v) => set("birthDate", v)} />
                   </Field>
-                </div>
-                <Field
-                  label="Preferred workout styles"
-                  hint="What the trainer should emphasize. None selected = balanced mix of strength, calisthenics & yoga."
-                >
-                  <div className="flex flex-wrap gap-2">
-                    {WORKOUT_STYLES.map((s) => {
-                      const active = form.preferredWorkoutStyles.includes(s.value);
-                      return (
-                        <button
-                          key={s.value}
-                          type="button"
-                          onClick={() => toggleWorkoutStyle(s.value)}
-                          aria-pressed={active}
-                          title={s.hint}
-                          className={cn(
-                            "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                            active
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-input bg-background hover:bg-muted",
-                          )}
-                        >
-                          {s.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </Field>
-              </CardContent>
-            </Card>
-
-            {/* NUTRITION */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Utensils className="size-4 text-primary" /> Nutrition
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Field
-                  label="Dietary restrictions"
-                  hint="The coach will never suggest foods that violate these"
-                >
-                  <Input
-                    value={form.dietaryRestrictions}
-                    onChange={(e) => set("dietaryRestrictions", e.target.value)}
-                    placeholder="vegetarian, no dairy, nut allergy"
-                  />
-                </Field>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <Field label="Protein target (g)">
-                    <Input
-                      type="number"
-                      value={form.proteinTargetG}
-                      onChange={(e) => set("proteinTargetG", e.target.value)}
-                      placeholder="150"
-                    />
-                  </Field>
-                  <Field label="Calorie target (kcal)">
-                    <Input
-                      type="number"
-                      value={form.calorieTargetKcal}
-                      onChange={(e) => set("calorieTargetKcal", e.target.value)}
-                      placeholder="2400"
-                    />
-                  </Field>
-                  <Field label="Water target (fl oz)">
-                    <Input
-                      type="number"
-                      value={form.waterTargetOz}
-                      onChange={(e) => set("waterTargetOz", e.target.value)}
-                      placeholder="85"
-                    />
-                  </Field>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* FINANCE */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Wallet className="size-4 text-primary" /> Finance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="Investing risk tolerance">
+                  <Field label="Sex">
                     <select
                       className={selectClass}
-                      value={form.riskTolerance}
-                      onChange={(e) => set("riskTolerance", e.target.value)}
+                      value={form.sex}
+                      onChange={(e) => set("sex", e.target.value)}
                     >
                       <option value="">—</option>
-                      <option value="conservative">Conservative</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="aggressive">Aggressive</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
                     </select>
                   </Field>
-                  <Field label="Monthly savings goal ($)">
+                  <Field label="Height (in)">
                     <Input
                       type="number"
-                      value={form.monthlySavingsGoal}
-                      onChange={(e) => set("monthlySavingsGoal", e.target.value)}
-                      placeholder="1500"
+                      value={form.heightIn}
+                      onChange={(e) => set("heightIn", e.target.value)}
+                      placeholder="71"
                     />
                   </Field>
-                </div>
-                <Field label="Finance notes" hint="Anything the advisor should keep in mind">
-                  <Textarea
-                    value={form.financeNotes}
-                    onChange={(e) => set("financeNotes", e.target.value)}
-                    placeholder="Paying down a car loan; maxing 401k match; prefer index funds."
-                    rows={3}
-                  />
-                </Field>
-              </CardContent>
-            </Card>
+                  <Field label="Units">
+                    <select
+                      className={selectClass}
+                      value={form.units}
+                      onChange={(e) => set("units", e.target.value)}
+                    >
+                      <option value="imperial">US customary (lb/in/oz)</option>
+                      <option value="metric">Metric</option>
+                    </select>
+                  </Field>
+                  <Field label="Timezone" hint="e.g. America/Chicago">
+                    <Input
+                      value={form.timezone}
+                      onChange={(e) => set("timezone", e.target.value)}
+                      placeholder="America/Chicago"
+                    />
+                  </Field>
+                </CardContent>
+              </Card>
 
-            <div className="flex items-center gap-3 pb-4">
-              <Button type="submit" disabled={saving} className="gap-1.5">
-                {savedAt ? <Check className="size-4" /> : <Save className="size-4" />}
-                {saving ? "Saving…" : "Save profile"}
-              </Button>
-              {savedAt && (
-                <span className="text-sm text-muted-foreground">
-                  Saved — your coach has been updated.
-                </span>
-              )}
-            </div>
+              {/* COACHING & GOALS */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Target className="size-4 text-primary" /> Coaching &amp; Goals
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Field
+                    label="Top goals"
+                    hint="Comma-separated, e.g. lose 10 lb, save $20k, bench 225 lb"
+                  >
+                    <Input
+                      value={form.goals}
+                      onChange={(e) => set("goals", e.target.value)}
+                      placeholder="lose 10 lb, save $20k, run a 5k"
+                    />
+                  </Field>
+                  <Field label="Activity level">
+                    <select
+                      className={selectClass}
+                      value={form.activityLevel}
+                      onChange={(e) => set("activityLevel", e.target.value)}
+                    >
+                      <option value="">—</option>
+                      <option value="sedentary">Sedentary</option>
+                      <option value="light">Light</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="active">Active</option>
+                      <option value="very_active">Very active</option>
+                    </select>
+                  </Field>
+                </CardContent>
+              </Card>
+
+              {/* FITNESS */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Dumbbell className="size-4 text-primary" /> Fitness
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Field
+                    label="Injuries / limits"
+                    hint="The coach will never prescribe movements that aggravate these"
+                  >
+                    <Input
+                      value={form.injuries}
+                      onChange={(e) => set("injuries", e.target.value)}
+                      placeholder="left knee, no overhead pressing"
+                    />
+                  </Field>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field label="Training days / week">
+                      <Input
+                        type="number"
+                        min="0"
+                        max="7"
+                        value={form.trainingDaysPerWeek}
+                        onChange={(e) => set("trainingDaysPerWeek", e.target.value)}
+                        placeholder="4"
+                      />
+                    </Field>
+                    <Field label="Equipment access" hint="Comma-separated">
+                      <Input
+                        value={form.equipmentAccess}
+                        onChange={(e) => set("equipmentAccess", e.target.value)}
+                        placeholder="full gym, dumbbells, pull-up bar"
+                      />
+                    </Field>
+                  </div>
+                  <Field
+                    label="Preferred workout styles"
+                    hint="What the trainer should emphasize. None selected = balanced mix of strength, calisthenics & yoga."
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {WORKOUT_STYLES.map((s) => {
+                        const active = form.preferredWorkoutStyles.includes(s.value);
+                        return (
+                          <button
+                            key={s.value}
+                            type="button"
+                            onClick={() => toggleWorkoutStyle(s.value)}
+                            aria-pressed={active}
+                            title={s.hint}
+                            className={cn(
+                              "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                              active
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-input bg-background hover:bg-muted",
+                            )}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                </CardContent>
+              </Card>
+
+              {/* NUTRITION */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Utensils className="size-4 text-primary" /> Nutrition
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Field
+                    label="Dietary restrictions"
+                    hint="The coach will never suggest foods that violate these"
+                  >
+                    <Input
+                      value={form.dietaryRestrictions}
+                      onChange={(e) => set("dietaryRestrictions", e.target.value)}
+                      placeholder="vegetarian, no dairy, nut allergy"
+                    />
+                  </Field>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <Field label="Protein target (g)">
+                      <Input
+                        type="number"
+                        value={form.proteinTargetG}
+                        onChange={(e) => set("proteinTargetG", e.target.value)}
+                        placeholder="150"
+                      />
+                    </Field>
+                    <Field label="Calorie target (kcal)">
+                      <Input
+                        type="number"
+                        value={form.calorieTargetKcal}
+                        onChange={(e) => set("calorieTargetKcal", e.target.value)}
+                        placeholder="2400"
+                      />
+                    </Field>
+                    <Field label="Water target (fl oz)">
+                      <Input
+                        type="number"
+                        value={form.waterTargetOz}
+                        onChange={(e) => set("waterTargetOz", e.target.value)}
+                        placeholder="85"
+                      />
+                    </Field>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* FINANCE */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Wallet className="size-4 text-primary" /> Finance
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field label="Investing risk tolerance">
+                      <select
+                        className={selectClass}
+                        value={form.riskTolerance}
+                        onChange={(e) => set("riskTolerance", e.target.value)}
+                      >
+                        <option value="">—</option>
+                        <option value="conservative">Conservative</option>
+                        <option value="moderate">Moderate</option>
+                        <option value="aggressive">Aggressive</option>
+                      </select>
+                    </Field>
+                    <Field label="Monthly savings goal ($)">
+                      <Input
+                        type="number"
+                        value={form.monthlySavingsGoal}
+                        onChange={(e) => set("monthlySavingsGoal", e.target.value)}
+                        placeholder="1500"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Finance notes" hint="Anything the advisor should keep in mind">
+                    <Textarea
+                      value={form.financeNotes}
+                      onChange={(e) => set("financeNotes", e.target.value)}
+                      placeholder="Paying down a car loan; maxing 401k match; prefer index funds."
+                      rows={3}
+                    />
+                  </Field>
+                </CardContent>
+              </Card>
+
+              <div className="flex items-center gap-3 pb-4">
+                <Button type="submit" disabled={saving} className="gap-1.5">
+                  {savedAt ? <Check className="size-4" /> : <Save className="size-4" />}
+                  {saving ? "Saving…" : "Save profile"}
+                </Button>
+                {savedAt && (
+                  <span className="text-sm text-muted-foreground">
+                    Saved — your coach has been updated.
+                  </span>
+                )}
+              </div>
             </form>
           </Reveal>
         )}

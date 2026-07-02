@@ -73,7 +73,8 @@ export const Route = createFileRoute("/finance")({
     const valid = TABS.some((t) => t.key === raw) ? (raw as TabKey) : undefined;
     return { tab: valid };
   },
-  loader: ({ context: { queryClient } }) => queryClient.ensureQueryData(financeHubQuery(todayISO())),
+  loader: ({ context: { queryClient } }) =>
+    queryClient.ensureQueryData(financeHubQuery(todayISO())),
   component: FinancePage,
 });
 
@@ -649,6 +650,7 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
               {plannedNeeds > 0 && (
                 <p className="text-[11px] text-muted-foreground">
                   Needs includes {fmtMoney(plannedNeeds)} of fixed bills not yet charged this month.
+                  Manage bills on the Subscriptions tab.
                 </p>
               )}
               {excludedTotal > 0 && (
@@ -665,8 +667,6 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
           )}
         </CardContent>
       </Card>
-
-      <BillsCard hub={hub} onChange={onChange} flash={flash} />
 
       <button
         type="button"
@@ -815,133 +815,111 @@ const CADENCE_ABBR: Record<Subscription["cadence"], string> = {
   annual: "yr",
 };
 
-function BillsCard({ hub, onChange, flash }: TabProps) {
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [cadence, setCadence] = useState<Subscription["cadence"]>("monthly");
-  const [busy, setBusy] = useState(false);
+/* ---------------- Subscriptions ---------------- */
 
-  const bills = hub.subscriptions.filter((s) => isBillSubscription(s) && s.status === "active");
-  const monthlyTotal = bills.reduce((s, b) => s + subscriptionMonthlyCost(b), 0);
+// The three spendable 50/30/20 buckets a recurring item can land in. Unset
+// subscriptions are treated as "wants" for backward compatibility.
+type SpendGroup = "needs" | "wants" | "savings";
 
-  async function persist(next: Subscription[]) {
-    await saveSubscriptions({ data: { subscriptions: next } });
-    await onChange();
-  }
+function groupOf(s: Pick<Subscription, "group">): SpendGroup {
+  return s.group === "needs" || s.group === "savings" ? s.group : "wants";
+}
 
-  async function addBill(e: React.FormEvent) {
-    e.preventDefault();
-    const amt = Number(amount);
-    if (!name.trim() || !Number.isFinite(amt) || amt <= 0) return;
-    setBusy(true);
-    try {
-      const bill: Subscription = {
-        id: `sub-${Date.now()}`,
-        createdAt: Date.now(),
-        name: name.trim(),
-        amount: amt,
-        cadence,
-        status: "active",
-        source: "manual",
-        group: "needs",
-      };
-      await persist([...hub.subscriptions, bill]);
-      setName("");
-      setAmount("");
-      flash("Bill added.");
-    } finally {
-      setBusy(false);
-    }
-  }
+const GROUP_OPTIONS: { key: SpendGroup; label: string; activeClass: string }[] = [
+  {
+    key: "needs",
+    label: "Need",
+    activeClass: "bg-background text-sky-600 shadow-sm dark:text-sky-400",
+  },
+  {
+    key: "wants",
+    label: "Want",
+    activeClass: "bg-background text-foreground shadow-sm",
+  },
+  {
+    key: "savings",
+    label: "Save",
+    activeClass: "bg-background text-emerald-600 shadow-sm dark:text-emerald-400",
+  },
+];
 
-  async function remove(s: Subscription) {
-    setBusy(true);
-    try {
-      await persist(hub.subscriptions.filter((x) => x.id !== s.id));
-      flash(`Removed ${s.name}.`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function GroupPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: SpendGroup;
+  onChange: (g: SpendGroup) => void;
+  disabled?: boolean;
+}) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between text-base">
-          <span>Fixed monthly bills</span>
-          <span className="text-xs font-normal text-muted-foreground tabular-nums">
-            {fmtMoney(monthlyTotal)}/mo
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Recurring obligations like your mortgage and car payment. These count toward your Needs
-          budget above.
-        </p>
-        {bills.length > 0 && (
-          <ul className="mb-3 divide-y divide-border">
-            {bills.map((b) => (
-              <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <div className="min-w-0 flex-1 truncate">{b.name}</div>
-                <div className="text-xs text-muted-foreground tabular-nums">
-                  {fmtMoney(b.amount)}/{CADENCE_ABBR[b.cadence]}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 text-xs text-muted-foreground"
-                  onClick={() => remove(b)}
-                  disabled={busy}
-                >
-                  <X className="size-3.5" /> Remove
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <form onSubmit={addBill} className="flex flex-wrap items-center gap-2">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Name (e.g. Mortgage)"
-            className="flex-1 min-w-[140px]"
-            disabled={busy}
-          />
-          <Input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="Amount"
-            className="w-28"
-            disabled={busy}
-          />
-          <select
-            value={cadence}
-            onChange={(e) => setCadence(e.target.value as Subscription["cadence"])}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-            disabled={busy}
+    <div
+      role="group"
+      aria-label="Spending category"
+      className="inline-flex shrink-0 rounded-md border bg-muted/40 p-0.5"
+    >
+      {GROUP_OPTIONS.map((o) => {
+        const active = value === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => onChange(o.key)}
+            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+              active ? o.activeClass : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="annual">Annual</option>
-          </select>
-          <Button
-            type="submit"
-            size="sm"
-            className="gap-1"
-            disabled={busy || !name.trim() || !amount}
-          >
-            <Plus className="size-4" /> Add
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-/* ---------------- Subscriptions ---------------- */
+function SubscriptionRow({
+  s,
+  onChangeGroup,
+  onToggleCancel,
+}: {
+  s: Subscription;
+  onChangeGroup: (s: Subscription, g: SpendGroup) => void;
+  onToggleCancel: (s: Subscription) => void;
+}) {
+  const canceled = s.status === "canceled";
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className={`truncate ${canceled ? "line-through opacity-60" : ""}`}>
+          {cleanMerchantName(s.name)}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {fmtMoney(s.amount)}/{CADENCE_ABBR[s.cadence]}
+          {s.source === "detected" ? " · detected" : ""}
+        </div>
+      </div>
+      {!canceled && <GroupPicker value={groupOf(s)} onChange={(g) => onChangeGroup(s, g)} />}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 gap-1 text-xs text-muted-foreground"
+        onClick={() => onToggleCancel(s)}
+      >
+        {canceled ? (
+          <>
+            <Check className="size-3.5" /> Reactivate
+          </>
+        ) : (
+          <>
+            <X className="size-3.5" /> Cancel
+          </>
+        )}
+      </Button>
+    </li>
+  );
+}
 
 function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
   const [busy, setBusy] = useState(false);
@@ -949,18 +927,29 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [cadence, setCadence] = useState<Subscription["cadence"]>("monthly");
+  const [group, setGroup] = useState<SpendGroup>("wants");
+  const [showBills, setShowBills] = useState(true);
 
-  // Bills (mortgage, car, …) live under Budget; keep this tab to discretionary
-  // subscriptions only so the totals here stay meaningful.
-  const subs = hub.subscriptions
-    .filter((s) => !isBillSubscription(s))
-    // Active first, then by monthly cost descending so the biggest leak is on top.
-    .sort((a, b) => {
-      if (a.status !== b.status) return a.status === "active" ? -1 : 1;
-      return subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a);
-    });
+  // Every recurring charge lives here — categorizing one re-sorts it between the
+  // Discretionary and Fixed-bills sections in place, so nothing ever vanishes to
+  // another tab. Active first, then by monthly cost descending (biggest first).
+  const subs = [...hub.subscriptions].sort((a, b) => {
+    if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+    return subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a);
+  });
+  const discretionary = subs.filter((s) => groupOf(s) !== "needs");
+  const bills = subs.filter((s) => groupOf(s) === "needs");
+
   const active = subs.filter((s) => s.status === "active");
-  const monthlyTotal = active.reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+  const sumMonthly = (g: SpendGroup) =>
+    active.filter((x) => groupOf(x) === g).reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+  // The headline total is what you could *cut*: wants only. Recurring savings is
+  // money kept, and Needs (bills) are non-negotiable — both are tallied apart so
+  // they don't inflate the discretionary burn.
+  const wantsMonthly = sumMonthly("wants");
+  const savingsMonthly = sumMonthly("savings");
+  const billsMonthly = sumMonthly("needs");
+  const monthlyTotal = wantsMonthly;
 
   async function detect() {
     setBusy(true);
@@ -1001,6 +990,21 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
     await persist(next);
   }
 
+  async function changeGroup(s: Subscription, next: SpendGroup) {
+    if (groupOf(s) === next) return;
+    await persist(hub.subscriptions.map((x) => (x.id === s.id ? { ...x, group: next } : x)));
+    const label = cleanMerchantName(s.name);
+    flash(
+      next === "needs"
+        ? `${label} → Fixed bills (counts as a Need).`
+        : `${label} marked as a ${next === "savings" ? "saving" : "want"}.`,
+    );
+  }
+
+  function setCandidateGroup(c: Subscription, next: SpendGroup) {
+    setCandidates((cs) => (cs ? cs.map((x) => (x.id === c.id ? { ...x, group: next } : x)) : cs));
+  }
+
   async function addManual(e: React.FormEvent) {
     e.preventDefault();
     const amt = Number(amount);
@@ -1013,11 +1017,13 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
       cadence,
       status: "active",
       source: "manual",
+      group,
     };
     await persist([...hub.subscriptions, sub]);
     setName("");
     setAmount("");
-    flash("Subscription added.");
+    setGroup("wants");
+    flash(group === "needs" ? "Added to Fixed bills (Need)." : "Subscription added.");
   }
 
   return (
@@ -1026,11 +1032,19 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
         <Stat label="Monthly" value={fmtMoney(monthlyTotal)} />
         <Stat label="Annual" value={fmtMoney(monthlyTotal * 12)} tone="down" />
       </div>
+      {(savingsMonthly > 0 || billsMonthly > 0) && (
+        <p className="-mt-1 text-xs text-muted-foreground">
+          Monthly above counts wants only — the spend you could cut.
+          {billsMonthly > 0 && ` Fixed bills add ${fmtMoney(billsMonthly)}/mo (Needs).`}
+          {savingsMonthly > 0 &&
+            ` Recurring savings adds ${fmtMoney(savingsMonthly)}/mo (kept, not spent).`}
+        </p>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-base">
-            <span>Active subscriptions</span>
+            <span>Recurring charges</span>
             <Button
               variant="outline"
               size="sm"
@@ -1049,43 +1063,72 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
         </CardHeader>
         <CardContent>
           {subs.length ? (
-            <ul className="divide-y divide-border">
-              {subs.map((s) => (
-                <li key={s.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className={`truncate ${s.status === "canceled" ? "line-through opacity-60" : ""}`}
-                    >
-                      {cleanMerchantName(s.name)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {fmtMoney(s.amount)}/
-                      {s.cadence === "monthly" ? "mo" : s.cadence === "annual" ? "yr" : "wk"}
-                      {s.source === "detected" ? " · detected" : ""}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 text-xs text-muted-foreground"
-                    onClick={() => toggleCancel(s)}
+            <div className="space-y-5">
+              <section>
+                <div className="mb-1 flex items-center justify-between">
+                  <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Discretionary · Wants &amp; Savings
+                  </h3>
+                  {discretionary.length > 0 && (
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {fmtMoney(wantsMonthly + savingsMonthly)}/mo
+                    </span>
+                  )}
+                </div>
+                {discretionary.length ? (
+                  <ul className="divide-y divide-border">
+                    {discretionary.map((s) => (
+                      <SubscriptionRow
+                        key={s.id}
+                        s={s}
+                        onChangeGroup={changeGroup}
+                        onToggleCancel={toggleCancel}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="py-2 text-xs text-muted-foreground">
+                    Nothing discretionary yet — tag a charge Want or Save to track it here.
+                  </p>
+                )}
+              </section>
+
+              {bills.length > 0 && (
+                <section>
+                  <button
+                    type="button"
+                    onClick={() => setShowBills((v) => !v)}
+                    aria-expanded={showBills}
+                    className="mb-1 flex w-full items-center justify-between text-left"
                   >
-                    {s.status === "active" ? (
-                      <>
-                        <X className="size-3.5" /> Cancel
-                      </>
-                    ) : (
-                      <>
-                        <Check className="size-3.5" /> Reactivate
-                      </>
-                    )}
-                  </Button>
-                </li>
-              ))}
-            </ul>
+                    <span className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <ChevronDown
+                        className={`size-3.5 transition-transform ${showBills ? "" : "-rotate-90"}`}
+                      />
+                      Fixed bills · Needs
+                    </span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {fmtMoney(billsMonthly)}/mo
+                    </span>
+                  </button>
+                  {showBills && (
+                    <ul className="divide-y divide-border">
+                      {bills.map((s) => (
+                        <SubscriptionRow
+                          key={s.id}
+                          s={s}
+                          onChangeGroup={changeGroup}
+                          onToggleCancel={toggleCancel}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )}
+            </div>
           ) : (
             <div className="text-sm text-muted-foreground">
-              No subscriptions tracked. Detect them from imported statements or add manually below.
+              No recurring charges tracked. Detect them from imported statements or add one below.
             </div>
           )}
         </CardContent>
@@ -1099,7 +1142,10 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
           <CardContent>
             <ul className="divide-y divide-border">
               {candidates.map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <li
+                  key={c.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{cleanMerchantName(c.name)}</div>
                     <div className="text-xs text-muted-foreground">
@@ -1107,6 +1153,7 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
                       {c.cadence === "monthly" ? "mo" : c.cadence === "annual" ? "yr" : "wk"}
                     </div>
                   </div>
+                  <GroupPicker value={groupOf(c)} onChange={(g) => setCandidateGroup(c, g)} />
                   <Button
                     size="sm"
                     variant="outline"
@@ -1151,10 +1198,16 @@ function SubscriptionsTab({ hub, onChange, flash }: TabProps) {
               <option value="monthly">Monthly</option>
               <option value="annual">Annual</option>
             </select>
+            <GroupPicker value={group} onChange={setGroup} />
             <Button type="submit" size="sm" className="gap-1" disabled={!name.trim() || !amount}>
               <Plus className="size-4" /> Add
             </Button>
           </form>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Need = essential recurring cost, Want = discretionary, Save = recurring contribution to
+            savings/investing. Needs are listed under Fixed bills above and count toward your
+            Budget.
+          </p>
         </CardContent>
       </Card>
     </div>

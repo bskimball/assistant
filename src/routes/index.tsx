@@ -2,12 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Reveal, revealDelay } from "@/components/motion";
-import {
-  dashboardQuery,
-  workoutSessionsQuery,
-  financeHubQuery,
-  queryKeys,
-} from "@/lib/queries";
+import { dashboardQuery, workoutSessionsQuery, financeHubQuery, queryKeys } from "@/lib/queries";
 import {
   Mic,
   Square,
@@ -890,10 +885,7 @@ function UnifiedDailyDashboard() {
                 {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
                 {proteinCurrent > 0 ? `${proteinPct}% protein` : "Log nutrition or tasks"}
               </div>
-              <Reveal
-                key={headline}
-                className="mt-2 line-clamp-3 text-sm text-muted-foreground"
-              >
+              <Reveal key={headline} className="mt-2 line-clamp-3 text-sm text-muted-foreground">
                 {headline}
               </Reveal>
             </div>
@@ -1142,7 +1134,12 @@ function UnifiedDailyDashboard() {
             {tasks.length > 0 && (
               <ul className="mt-3 space-y-1 text-sm">
                 {tasks.slice(0, 6).map((t, i) => (
-                  <Reveal as="li" key={t.id} delay={revealDelay(i)} className="flex items-center gap-2">
+                  <Reveal
+                    as="li"
+                    key={t.id}
+                    delay={revealDelay(i)}
+                    className="flex items-center gap-2"
+                  >
                     <span
                       className={`flex size-4 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
                     >

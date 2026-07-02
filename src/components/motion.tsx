@@ -97,7 +97,10 @@ export function Stagger({
       className={className}
       initial="hidden"
       animate="visible"
-      variants={{ hidden: {}, visible: { transition: { staggerChildren: stagger, delayChildren } } }}
+      variants={{
+        hidden: {},
+        visible: { transition: { staggerChildren: stagger, delayChildren } },
+      }}
     >
       {children}
     </M>
