@@ -49,6 +49,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         name: "description",
         content: "A personal AI life coach for fitness, nutrition, finance, and productivity.",
       },
+      { name: "robots", content: "noindex,nofollow" },
       // PWA / installability
       { name: "application-name", content: "Compass" },
       { name: "mobile-web-app-capable", content: "yes" },

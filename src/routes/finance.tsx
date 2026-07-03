@@ -63,6 +63,7 @@ import {
   type Subscription,
   type Transaction,
   type Position,
+  type AccountBalance,
   type FinanceAdviceItem,
 } from "@/lib/domain";
 
@@ -362,6 +363,10 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editCurrency, setEditCurrency] = useState("USD");
   const accounts = hub.snapshot.accounts || [];
   const importedAccounts = summarizeImportedAccounts(hub.transactions);
   const savedBalanceNames = new Set(accounts.map((a) => a.account.toLowerCase()));
@@ -370,6 +375,20 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
   );
   const balanceSourceDate =
     hub.snapshotSourceDate && hub.snapshotSourceDate !== today ? hub.snapshotSourceDate : null;
+
+  async function saveAccounts(next: AccountBalance[]) {
+    await saveDailyFinance({
+      data: {
+        date: today,
+        finance: {
+          date: today,
+          accounts: next,
+          positions: hub.snapshot.positions || [],
+        },
+      },
+    });
+    await onChange();
+  }
 
   async function addAccount(e: React.FormEvent) {
     e.preventDefault();
@@ -381,19 +400,9 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
       const idx = next.findIndex((a) => a.account.toLowerCase() === name.trim().toLowerCase());
       if (idx >= 0) next[idx] = { ...next[idx], amount: amt };
       else next.push({ account: name.trim(), amount: amt, currency: "USD" });
-      await saveDailyFinance({
-        data: {
-          date: today,
-          finance: {
-            date: today,
-            accounts: next,
-            positions: hub.snapshot.positions || [],
-          },
-        },
-      });
+      await saveAccounts(next);
       setName("");
       setAmount("");
-      await onChange();
       flash("Balance saved.");
     } catch (err) {
       console.error(err);
@@ -407,21 +416,53 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
     setBusy(true);
     try {
       const next = accounts.filter((a) => a.account.toLowerCase() !== account.toLowerCase());
-      await saveDailyFinance({
-        data: {
-          date: today,
-          finance: {
-            date: today,
-            accounts: next,
-            positions: hub.snapshot.positions || [],
-          },
-        },
-      });
-      await onChange();
+      await saveAccounts(next);
+      if (editingAccount === account) setEditingAccount(null);
       flash("Account removed.");
     } catch (err) {
       console.error(err);
       flash("Couldn’t remove that account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEditAccount(account: AccountBalance) {
+    setEditingAccount(account.account);
+    setEditName(account.account);
+    setEditAmount(String(account.amount));
+    setEditCurrency(account.currency || "USD");
+  }
+
+  async function saveAccountEdit(originalAccount: string) {
+    const trimmedName = editName.trim();
+    const amt = Number(editAmount);
+    const currency = editCurrency.trim().toUpperCase() || "USD";
+    if (!trimmedName || !Number.isFinite(amt)) return;
+
+    const duplicate = accounts.some(
+      (a) =>
+        a.account.toLowerCase() !== originalAccount.toLowerCase() &&
+        a.account.toLowerCase() === trimmedName.toLowerCase(),
+    );
+    if (duplicate) {
+      flash("Another account already uses that name.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const next = accounts.map((a) =>
+        a.account.toLowerCase() === originalAccount.toLowerCase()
+          ? { ...a, account: trimmedName, amount: amt, currency }
+          : a,
+      );
+      await saveAccounts(next);
+      setEditingAccount(null);
+      flash("Account updated.");
+    } catch (err) {
+      console.error(err);
+      flash("Couldn’t update that account.");
     } finally {
       setBusy(false);
     }
@@ -484,28 +525,103 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
           {accounts.length ? (
             <>
               <ul className="mb-3 space-y-1 text-sm">
-                {accounts.map((a) => (
-                  <li
-                    key={a.account}
-                    className="flex items-center justify-between gap-2 border-b border-border/40 py-1.5 last:border-0"
-                  >
-                    <span className="min-w-0 flex-1 truncate">{a.account}</span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {fmtMoney(a.amount)}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => removeAccount(a.account)}
-                      disabled={busy}
-                      aria-label={`Remove ${a.account}`}
-                      title="Remove account"
+                {accounts.map((a) => {
+                  const isEditing = editingAccount === a.account;
+                  return (
+                    <li
+                      key={a.account}
+                      className={
+                        "flex flex-col gap-2 border-b border-border/40 py-1.5 last:border-0 sm:flex-row sm:items-center sm:justify-between"
+                      }
                     >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </li>
-                ))}
+                      {isEditing ? (
+                        <>
+                          <div
+                            className={
+                              "grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5rem]"
+                            }
+                          >
+                            <Input
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              aria-label="Account name"
+                              className="h-8"
+                            />
+                            <Input
+                              value={editAmount}
+                              onChange={(e) => setEditAmount(e.target.value)}
+                              inputMode="decimal"
+                              aria-label="Account balance"
+                              className="h-8"
+                            />
+                            <Input
+                              value={editCurrency}
+                              onChange={(e) => setEditCurrency(e.target.value)}
+                              aria-label="Currency"
+                              className="h-8 uppercase"
+                              maxLength={3}
+                            />
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => saveAccountEdit(a.account)}
+                              disabled={busy || !editName.trim() || !editAmount}
+                              aria-label={`Save ${a.account}`}
+                              title="Save account"
+                            >
+                              <Check className="size-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => setEditingAccount(null)}
+                              disabled={busy}
+                              aria-label={`Cancel editing ${a.account}`}
+                              title="Cancel"
+                            >
+                              <X className="size-3.5" />
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="min-w-0 flex-1 truncate">{a.account}</span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            {fmtMoney(a.amount)}
+                          </span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => startEditAccount(a)}
+                              disabled={busy}
+                              aria-label={`Edit ${a.account}`}
+                              title="Edit account"
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => removeAccount(a.account)}
+                              disabled={busy}
+                              aria-label={`Remove ${a.account}`}
+                              title="Remove account"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
               {importedWithoutBalance.length > 0 && (
                 <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
@@ -575,7 +691,8 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
             </Button>
           </form>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            Balances upsert by name. Remove a balance when you stop tracking an account.
+            Add new balances below, or edit a saved row to rename an account, update its balance, or
+            change its currency.
           </p>
         </CardContent>
       </Card>

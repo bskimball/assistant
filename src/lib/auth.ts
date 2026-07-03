@@ -137,6 +137,10 @@ function buildAuth(env: EnvLike, db: Awaited<ReturnType<typeof getDb>>) {
   const googleClientSecret = getEnvValue(env, "GOOGLE_CLIENT_SECRET");
   const secret = getEnvValue(env, "BETTER_AUTH_SECRET");
   const baseUrl = getEnvValue(env, "BETTER_AUTH_URL") || "http://localhost:3000";
+  const isDevelopment = process.env.NODE_ENV === "development";
+  const developmentTrustedOrigins = isDevelopment
+    ? ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"]
+    : [];
 
   // WebAuthn relying-party id must be the registrable domain (hostname only).
   // Derived from the base URL so it's correct on localhost and the prod domain.
@@ -165,13 +169,7 @@ function buildAuth(env: EnvLike, db: Awaited<ReturnType<typeof getDb>>) {
       provider: "sqlite",
     }),
 
-    trustedOrigins: [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:5173",
-      baseUrl,
-      getEnvValue(env, "PUBLIC_APP_URL") || undefined,
-    ]
+    trustedOrigins: [...developmentTrustedOrigins, baseUrl, getEnvValue(env, "PUBLIC_APP_URL")]
       .filter((u): u is string => typeof u === "string" && u.length > 0)
       .filter((url, index, self) => self.indexOf(url) === index),
 

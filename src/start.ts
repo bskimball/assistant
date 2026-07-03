@@ -6,8 +6,10 @@
  * scope. See `src/server/auth-middleware.ts`.
  */
 
-import { createCsrfMiddleware, createStart } from "@tanstack/react-start";
+import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
 import { userScopeMiddleware } from "@/server/auth-middleware";
+
+const NOINDEX_HEADER = "noindex, nofollow";
 
 /**
  * CSRF protection for server functions. They are same-origin RPC endpoints, so
@@ -21,6 +23,24 @@ const csrfMiddleware = createCsrfMiddleware({
 });
 
 /**
+ * Keep Compass out of search indexes even if a crawler reaches the Worker.
+ */
+const noIndexMiddleware = createMiddleware({ type: "request" }).server(async ({ next }) => {
+  const result = await next();
+  const { response } = result;
+  const headers = new Headers(response.headers);
+  headers.set("X-Robots-Tag", NOINDEX_HEADER);
+  return {
+    ...result,
+    response: new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }),
+  };
+});
+
+/**
  * Bind the per-user scope on every server-function call (ADR-017). All domain
  * data access goes through server functions, so `functionMiddleware` covers
  * every path — including server fns invoked during SSR. Without this, the
@@ -28,6 +48,6 @@ const csrfMiddleware = createCsrfMiddleware({
  * anti-leak guard throws.
  */
 export const startInstance = createStart(() => ({
-  requestMiddleware: [csrfMiddleware],
+  requestMiddleware: [noIndexMiddleware, csrfMiddleware],
   functionMiddleware: [userScopeMiddleware],
 }));

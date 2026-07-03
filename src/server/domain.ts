@@ -41,6 +41,7 @@ import type { VoiceProcessResult } from "@/server/domain-impl";
    ========================================= */
 
 export const loadUserProfile = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAuthSession();
   return impl.loadUserProfileImpl();
 });
 
@@ -62,6 +63,7 @@ export type WorkoutPlansStore = {
 };
 
 export const loadWorkoutPlans = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAuthSession();
   return impl.loadWorkoutPlansImpl();
 });
 
@@ -88,6 +90,7 @@ export type WorkoutSessionsStore = {
 };
 
 export const loadWorkoutSessions = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAuthSession();
   return impl.loadWorkoutSessionsImpl();
 });
 
@@ -115,6 +118,7 @@ export type DailyNutritionPayload = DailyNutrition & { updatedAt: number };
 export const loadDailyNutrition = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(async ({ data: date }) => {
+    await requireAuthSession();
     return impl.loadDailyNutritionImpl(date);
   });
 
@@ -190,6 +194,7 @@ export type ProductivityTasksPayload = {
 export const loadProductivityTasksForDay = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(async ({ data: date }) => {
+    await requireAuthSession();
     return impl.loadProductivityTasksForDayImpl(date);
   });
 
@@ -209,6 +214,7 @@ export type DailyPlanPayload = DailyPlan & { updatedAt: number };
 export const loadDailyPlan = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(async ({ data: date }) => {
+    await requireAuthSession();
     return impl.loadDailyPlanImpl(date);
   });
 
@@ -222,6 +228,7 @@ export const saveDailyPlan = createServerFn({ method: "POST" })
 export const loadDailyFocusScore = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(async ({ data: date }) => {
+    await requireAuthSession();
     return impl.loadDailyFocusScoreImpl(date);
   });
 
@@ -235,6 +242,7 @@ export const saveDailyFocusScore = createServerFn({ method: "POST" })
 export const loadWeeklyReview = createServerFn({ method: "GET" })
   .validator((week: ISOWeek) => week)
   .handler(async ({ data: week }) => {
+    await requireAuthSession();
     return impl.loadWeeklyReviewImpl(week);
   });
 
@@ -268,6 +276,7 @@ export type DailyDashboardPayload = {
 export const loadDailyDashboard = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(async ({ data: date }): Promise<DailyDashboardPayload> => {
+    await requireAuthSession();
     return impl.loadDailyDashboardImpl(date);
   });
 
@@ -316,6 +325,7 @@ export const processVoiceInput = createServerFn({ method: "POST" })
    ========================================= */
 
 export const loadExerciseLibrary = createServerFn({ method: "GET" }).handler(async () => {
+  await requireAuthSession();
   return impl.loadExerciseLibraryImpl();
 });
 

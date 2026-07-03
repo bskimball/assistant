@@ -3,6 +3,8 @@
   "name": "assistant",
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
   "main": "@tanstack/react-start/server-entry",
   "routes": [
     {

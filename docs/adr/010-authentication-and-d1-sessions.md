@@ -49,6 +49,8 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 ### 5. Access scope (v1)
 
 - Two permitted Google accounts. Route guards and write server functions treat any other Google session as unauthenticated, and Better Auth user creation is blocked for non-allowlisted email addresses.
+- `workers.dev` and preview URLs are disabled in `wrangler.jsonc` so the custom domain is the intended public entry point.
+- Search indexing is disabled with `public/robots.txt`, an HTML `robots` meta tag, and a global `X-Robots-Tag: noindex, nofollow` response header.
 
 ## Consequences
 
@@ -73,7 +75,7 @@ Adopt **Better Auth with Google OAuth**, backed by **Cloudflare D1 (SQLite) for 
 
 ## Alternatives Considered
 
-1. **Cloudflare Access (zero-app-code auth)** — Offload auth entirely to Cloudflare Access in front of the Worker. Simplest possible, no tables. Rejected for v1 because it couples the app to a specific deployment posture and complicates local dev; revisit if app-level auth proves heavy.
+1. **Cloudflare Access (zero-app-code auth)** — Offload auth entirely to Cloudflare Access in front of the Worker. Simplest possible, no tables. Rejected for v1 because it couples the app to a specific deployment posture and complicates local dev; keep Google auth as the app-level gate.
 2. **Migrate all domain data to D1** — Use the relational store everywhere and retire R2. Rejected: R2 aggregates (ADR-003) already work, and a migration is high-risk with no current payoff. Auth needs a relational/queryable store; domain data does not.
 3. **Roll-your-own session cookie** — Minimal dependency footprint. Rejected: OAuth, CSRF, session rotation, and rate limiting are easy to get wrong; Better Auth provides them.
 4. **Email/password instead of Google** — Avoids an external IdP. Rejected for a personal app where a Google account already exists; Google is lower-friction and more secure than managing password hashes.
