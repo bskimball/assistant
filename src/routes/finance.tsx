@@ -27,6 +27,7 @@ import {
   Trash2,
   Landmark,
   Receipt,
+  Pencil,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1472,15 +1473,119 @@ function RecurringRow({
   onChangeKind,
   onChangeGroup,
   onToggleCancel,
+  onSaveEdit,
 }: {
   s: Subscription;
   onChangeKind: (s: Subscription, k: RecurringKind) => void;
   onChangeGroup: (s: Subscription, g: SpendGroup) => void;
   onToggleCancel: (s: Subscription) => void;
+  onSaveEdit: (s: Subscription, patch: Partial<Subscription>) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(s.name);
+  const [editAmount, setEditAmount] = useState(String(s.amount));
+  const [editCadence, setEditCadence] = useState<Subscription["cadence"]>(s.cadence);
+  const [editBalance, setEditBalance] = useState(s.balance != null ? String(s.balance) : "");
+  const [editApr, setEditApr] = useState(s.apr != null ? String(s.apr) : "");
   const kind = recurringKindOf(s);
   const canceled = s.status === "canceled";
   const monthly = subscriptionMonthlyCost(s);
+
+  function startEdit() {
+    setEditName(s.name);
+    setEditAmount(String(s.amount));
+    setEditCadence(s.cadence);
+    setEditBalance(s.balance != null ? String(s.balance) : "");
+    setEditApr(s.apr != null ? String(s.apr) : "");
+    setEditing(true);
+  }
+
+  function saveEdit() {
+    const amt = Number(editAmount);
+    if (!editName.trim() || !Number.isFinite(amt) || amt <= 0) return;
+    onSaveEdit(s, {
+      name: editName.trim(),
+      amount: amt,
+      cadence: editCadence,
+      ...(kind === "loan"
+        ? { balance: Number(editBalance) || undefined, apr: Number(editApr) || undefined }
+        : {}),
+    });
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <li className="space-y-2 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            aria-label="Name"
+            className="h-8 min-w-[140px] flex-1"
+          />
+          <Input
+            type="number"
+            step="0.01"
+            value={editAmount}
+            onChange={(e) => setEditAmount(e.target.value)}
+            aria-label="Amount"
+            className="h-8 w-24"
+          />
+          <select
+            value={editCadence}
+            onChange={(e) => setEditCadence(e.target.value as Subscription["cadence"])}
+            className="h-8 rounded-md border bg-background px-2 text-sm"
+            aria-label="Cadence"
+          >
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
+        {kind === "loan" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="number"
+              step="0.01"
+              value={editBalance}
+              onChange={(e) => setEditBalance(e.target.value)}
+              placeholder="Balance (optional)"
+              aria-label="Loan balance"
+              className="h-8 w-36"
+            />
+            <Input
+              type="number"
+              step="0.01"
+              value={editApr}
+              onChange={(e) => setEditApr(e.target.value)}
+              placeholder="APR % (optional)"
+              aria-label="Loan APR"
+              className="h-8 w-32"
+            />
+          </div>
+        )}
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={saveEdit}
+            disabled={!editName.trim() || !editAmount || Number(editAmount) <= 0}
+          >
+            <Check className="size-3.5" /> Save
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs text-muted-foreground"
+            onClick={() => setEditing(false)}
+          >
+            <X className="size-3.5" /> Cancel
+          </Button>
+        </div>
+      </li>
+    );
+  }
   const payoff = kind === "loan" ? loanPayoffMonths(s.balance, s.apr, monthly) : null;
   const loanMeta =
     kind === "loan"
@@ -1518,6 +1623,17 @@ function RecurringRow({
             <SaveWantPicker value={subGroup} onChange={(g) => onChangeGroup(s, g)} />
           )}
         </div>
+      )}
+      {!canceled && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs text-muted-foreground"
+          onClick={startEdit}
+          aria-label={`Edit ${cleanMerchantName(s.name)}`}
+        >
+          <Pencil className="size-3.5" /> Edit
+        </Button>
       )}
       <Button
         variant="ghost"
@@ -1645,6 +1761,11 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     flash(
       `${cleanMerchantName(s.name)} → ${SECTION_META.find((m) => m.kind === nextKind)!.label}.`,
     );
+  }
+
+  async function saveEdit(s: Subscription, patch: Partial<Subscription>) {
+    await persist(hub.subscriptions.map((x) => (x.id === s.id ? { ...x, ...patch } : x)));
+    flash(`Updated ${cleanMerchantName(patch.name ?? s.name)}.`);
   }
 
   async function changeGroup(s: Subscription, next: SpendGroup) {
@@ -1790,6 +1911,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                             onChangeKind={changeKind}
                             onChangeGroup={changeGroup}
                             onToggleCancel={toggleCancel}
+                            onSaveEdit={saveEdit}
                           />
                         ))}
                       </ul>
