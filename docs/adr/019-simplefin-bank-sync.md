@@ -111,7 +111,7 @@ Asked 2026-07-03; no response received, so the ADR assumes the recommended optio
 Written for hand-off. Read `docs/ai/architecture.md` and ADR-015/017 first. Two codebase constraints shape everything below:
 
 - **Scope binding**: `getDomainStore()` throws unless a user scope is bound via `AsyncLocalStorage` (`src/server/request-context.ts`, seeded by `src/server/auth-middleware.ts`). Server functions get this for free; a cron `scheduled()` handler does **not** — it must wrap its work in `runWithUserScope("brian", ...)` (any known scope works: all SimpleFIN state and finance data is read/written with `{ shared: true }`, which resolves to the `household` prefix regardless of the bound user).
-- **Secrets/env**: follow the `src/server/adapters/ai.ts` pattern for reading `SIMPLEFIN_SEAL_KEY` — Cloudflare env via `getCloudflareEnv()`, then `process.env`, then `.dev.vars` fallback for local dev. Deploys go through Workers Builds on push to master; `npm run build` gates on check + tests.
+- **Secrets/env**: follow the shared `src/server/env.ts` seam for reading `SIMPLEFIN_SEAL_KEY` — Cloudflare env first, then test/process overrides. Local `.dev.vars` values are provided by `vp dev` / Wrangler rather than parsed by app code. Deploys go through Workers Builds on push to master; `npm run build` gates on check + tests.
 
 ### Phase 0 — cron plumbing spike (gates everything)
 

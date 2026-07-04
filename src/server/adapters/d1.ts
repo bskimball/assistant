@@ -6,7 +6,7 @@
  * Cloudflare R2 via `src/server/adapters/r2.ts` + `src/server/domain.ts`.
  *
  * Pattern:
- * - Dynamic import of `cloudflare:workers` keeps this server-only.
+ * - Cloudflare binding lookup is centralized in `src/server/env.ts`.
  * - `getDb()` lazily binds drizzle to the D1 `DB` binding.
  * - `ensureSchema()` is an idempotent CREATE TABLE IF NOT EXISTS bootstrap so a
  *   fresh D1 database works without a separate migration step (single-user app).

@@ -35,7 +35,7 @@ Keep these wrappers thin: validate input, require auth for writes, call plain im
 - `src/server/store.ts`: the domain store interface. Domain implementation code should use `getDomainStore()` instead of importing R2 directly.
 - `src/server/adapters/r2.ts`: Cloudflare R2 binding, key construction, JSON/JSONL object access, voice/AI per-object writes, and delete-index shard helpers.
 - `src/server/adapters/d1.ts`: Better Auth D1/Drizzle access only.
-- `src/server/env.ts`: Cloudflare binding/secret resolution plus local `.dev.vars` fallback for development. Adapter modules should call this seam instead of importing `cloudflare:workers` or reparsing local env files.
+- `src/server/env.ts`: Cloudflare binding/secret resolution. Local `.dev.vars` values are supplied by Cloudflare dev tooling (`vp dev` / Wrangler), not parsed by app code. Adapter modules should call this seam instead of importing `cloudflare:workers` or reparsing local env files.
 
 **AI boundary**
 
@@ -85,7 +85,7 @@ D1 is not a domain store. Do not put nutrition, finance, productivity, coaching,
 - New AI feature: add transport/provider behavior to `src/server/adapters/ai.ts`, keep prompt/domain orchestration in the domain or coach layer, and provide a deterministic fallback.
 - New finance math, budget, or recurring reconciliation behavior: update `src/lib/finance-math.ts` and its tests first, then consume that result from server functions/routes.
 - New external finance sync behavior: keep HTTP/secrets in `src/server/adapters/simplefin.ts`, persistence/orchestration in `src/server/finance-sync.ts`, and route-facing calls in `src/server/finance.ts`.
-- New Cloudflare secret/binding lookup: add it through `src/server/env.ts`, not by adding adapter-local `cloudflare:workers` imports or `.dev.vars` parsers.
+- New Cloudflare secret/binding lookup: add it through `src/server/env.ts`, not by adding adapter-local `cloudflare:workers` imports, `.dev.vars` parsers, or Wrangler runtime imports.
 - New auth or session behavior: use `src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/server/session.ts`, and `src/server/adapters/d1.ts`.
 
 ## Pitfalls
