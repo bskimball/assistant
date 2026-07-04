@@ -220,6 +220,7 @@ export interface Transaction extends BaseEntity {
   asset?: string;
   quantity?: number;
   notes?: string;
+  source?: "manual" | "import" | "sync";
 }
 
 /** ========== PRODUCTIVITY ========== */

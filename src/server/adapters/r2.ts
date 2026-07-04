@@ -20,11 +20,7 @@
  */
 
 import type { AIInteraction, VoiceTranscript } from "@/lib/domain";
-
-async function getCloudflareEnv() {
-  const { env } = await import("cloudflare:workers");
-  return env;
-}
+import { getCloudflareBinding } from "@/server/env";
 
 // Fixed user for personal deployment (Brian). Future: derive from session / Access.
 export const USER_ID = "brian";
@@ -42,8 +38,7 @@ export function getKey(collection: string, userId: string = USER_ID): string {
  * Throws with actionable message if unavailable (common during misconfigured dev).
  */
 export async function getR2Bucket(): Promise<R2Bucket> {
-  const env = await getCloudflareEnv();
-  const bucket = env.R2 as R2Bucket | undefined;
+  const bucket = await getCloudflareBinding<R2Bucket>("R2");
   if (!bucket) {
     throw new Error(
       'R2 bucket binding "R2" is not available. ' +

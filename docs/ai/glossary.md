@@ -100,6 +100,24 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 - Cloudflare D1 (SQLite) persists Better Auth tables only: `user`, `session`, `account`, `verification` (`DB` binding). Domain data stays in R2 — D1 is never a second source of truth for domain state.
 
+## Bank Sync (ADR-019)
+
+**SimpleFIN Bridge**
+
+- The third-party aggregator (powered by MX) that holds the household's read-only bank connections and exposes them to the app. The app never sees bank credentials; connection setup/repair happens on the Bridge's own site. $15/year, ~daily refresh, ≤24 API requests/day expected.
+
+**SimpleFIN Access URL**
+
+- The permanent credential (URL with embedded auth) obtained by claiming a one-time Setup Token. Grants read-only access to all linked accounts. Stored encrypted-at-rest (AES-GCM, `SIMPLEFIN_SEAL_KEY` Workers secret) inside `assistant/household/simplefin.json`; server-only, never sent to the client; rotated by claiming a fresh setup token.
+
+**Sync cutover date**
+
+- Recorded at first successful sync. Only transactions dated on/after it are ingested from SimpleFIN (`dedupeKey = "sfin:" + <txn id>`); pre-cutover CSV-imported history is never touched, so synced and imported rows can't double-count.
+
+**Loan link**
+
+- An explicit association between a SimpleFIN account and an existing `kind: "loan"` `Subscription`. Each sync auto-updates the subscription's `balance` (payoff math runs on real principal) while the manual `apr` stays authoritative. Loan accounts are never auto-created — only suggested.
+
 ## Agent Navigation (ADR-015)
 
 **Architecture map**
@@ -169,7 +187,7 @@ This glossary defines the canonical terms used across ADRs, code, and AI prompts
 
 ---
 
-**Last updated**: 2026-06-23 (`docs/ai/architecture.md` added as the progressive architecture map for future agents. ADR-015 consolidated server code under `src/server`, added `store.ts` as the domain store interface, split plain domain operations into `domain-impl.ts`, and moved Grok transport behind `src/server/adapters/ai.ts`. ADR-013 implemented: long-lived `UserProfile` + trailing 7-day `TrendSignals` feed the Coach Engine, making suggestions personalized and momentum-aware in both the AI and deterministic-fallback paths. Prior: ADR-010/011/012 — Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
+**Last updated**: 2026-07-03 (ADR-019 proposed: SimpleFIN Bridge bank sync — sealed Access URL in `assistant/household/simplefin.json`, daily cron + manual sync, cutover-date transaction ingestion, explicit loan links. Prior: `docs/ai/architecture.md` added as the progressive architecture map for future agents. ADR-015 consolidated server code under `src/server`, added `store.ts` as the domain store interface, split plain domain operations into `domain-impl.ts`, and moved Grok transport behind `src/server/adapters/ai.ts`. ADR-013 implemented: long-lived `UserProfile` + trailing 7-day `TrendSignals` feed the Coach Engine, making suggestions personalized and momentum-aware in both the AI and deterministic-fallback paths. Prior: ADR-010/011/012 — Better Auth + D1 for auth-only (domain stays on R2); AI Coach engine producing cross-domain suggestions + workout/weekly narratives with a zero-config deterministic fallback; first-class Finance Snapshot daily aggregate. Dashboard rebuilt on lucide icons; Weekly Review + Analytics views built on daily aggregates. ADR-005 prior: Unified Daily Improvement Dashboard as default route, progress rings + headline, date nav + URL state, mic FAB. ADR-004 voice wired in.)
 
 **R2 paths for voice (ADR-004)**:
 

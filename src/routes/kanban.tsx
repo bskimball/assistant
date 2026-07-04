@@ -3,6 +3,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Toggle } from "@/components/ui/toggle";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { VoiceInput } from "@/components/VoiceInput";
 import { Reveal, revealDelay } from "@/components/motion";
 import {
@@ -304,9 +307,12 @@ function KanbanBoard() {
             {/* Read-only indicator sits under the nav; reserved height avoids layout shift */}
             <div className="flex h-5 items-center justify-end">
               {!isToday && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <Badge
+                  variant="secondary"
+                  className="gap-1 rounded-full text-[10px] uppercase tracking-wide text-muted-foreground"
+                >
                   <Lock className="size-2.5" /> Read-only
-                </span>
+                </Badge>
               )}
             </div>
           </div>
@@ -349,29 +355,32 @@ function KanbanBoard() {
                         ? "Eat Healthy"
                         : cat[0].toUpperCase() + cat.slice(1);
                     return (
-                      <button
+                      <Button
                         type="button"
                         key={cat}
+                        variant={quickCategory === cat ? "default" : "outline"}
+                        size="sm"
                         onClick={() => setQuickCategory(cat as any)}
-                        className={`rounded px-2 py-0.5 border text-xs ${quickCategory === cat ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                        className="h-auto px-2 py-0.5 text-xs"
                       >
                         {label}
-                      </button>
+                      </Button>
                     );
                   })}
                   {/* Personal vs. shared (household) destination for the new task */}
-                  <button
-                    type="button"
-                    onClick={() => setQuickShared((s) => !s)}
-                    className={`ml-1 inline-flex items-center gap-1 rounded px-2 py-0.5 border text-xs ${quickShared ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
-                    aria-pressed={quickShared}
+                  <Toggle
+                    variant="outline"
+                    size="sm"
+                    pressed={quickShared}
+                    onPressedChange={(p) => setQuickShared(p)}
+                    className="ml-1 h-auto gap-1 px-2 py-0.5 text-xs"
                     title={
                       quickShared ? "New task is shared with household" : "New task is personal"
                     }
                   >
                     {quickShared ? <Users className="size-3" /> : <Lock className="size-3" />}
                     {quickShared ? "Shared" : "Personal"}
-                  </button>
+                  </Toggle>
                 </div>
               </form>
             </CardContent>
@@ -380,35 +389,37 @@ function KanbanBoard() {
 
         {/* Reminders */}
         {reminders.length > 0 && (
-          <div className="mb-3 rounded border border-amber-200 bg-amber-50/60 dark:bg-amber-950/30 p-3 text-xs">
-            <div className="font-semibold mb-1 text-amber-700 dark:text-amber-400">
+          <Alert className="mb-3 border-amber-200 bg-amber-50/60 text-xs dark:bg-amber-950/30">
+            <AlertTitle className="text-amber-700 dark:text-amber-400">
               Reminders ({reminders.length})
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {reminders.slice(0, 6).map((r) => (
-                <span key={r.id} className="rounded bg-white/70 px-2 py-0.5 dark:bg-black/20">
-                  {r.due}: {r.text.slice(0, 35)}
-                </span>
-              ))}
-            </div>
-          </div>
+            </AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-wrap gap-2">
+                {reminders.slice(0, 6).map((r) => (
+                  <Badge key={r.id} variant="secondary" className="bg-white/70 dark:bg-black/20">
+                    {r.due}: {r.text.slice(0, 35)}
+                  </Badge>
+                ))}
+              </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Scope filter: combine mine + shared, or focus one */}
         <div className="mb-3 flex items-center gap-1 text-xs">
           {(["all", "mine", "shared"] as const).map((f) => (
-            <button
+            <Button
               type="button"
               key={f}
+              variant={scopeFilter === f ? "default" : "outline"}
+              size="sm"
               onClick={() => setScopeFilter(f)}
-              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 capitalize ${
-                scopeFilter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-              }`}
+              className="h-auto gap-1 rounded-full px-2.5 py-1 capitalize"
             >
               {f === "shared" && <Users className="size-3" />}
               {f === "mine" && <Lock className="size-3" />}
               {f}
-            </button>
+            </Button>
           ))}
         </div>
 

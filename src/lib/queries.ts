@@ -20,7 +20,7 @@ import {
   loadWeeklyReview,
   loadUserProfile,
 } from "@/server/domain";
-import { loadFinanceHub } from "@/server/finance";
+import { getSimplefinStatus, loadFinanceHub } from "@/server/finance";
 import { ensureWeeklyWorkoutPlan } from "@/server/coach";
 import type { ISODate } from "@/lib/domain";
 
@@ -30,6 +30,7 @@ export const queryKeys = {
   weeklyWorkoutPlan: (date: ISODate) => ["weeklyWorkoutPlan", date] as const,
   transactions: () => ["transactions"] as const,
   financeHub: (date: ISODate) => ["financeHub", date] as const,
+  simplefinStatus: () => ["simplefinStatus"] as const,
   nutrition: (date: ISODate) => ["nutrition", date] as const,
   weeklyReview: (week: string) => ["weeklyReview", week] as const,
   userProfile: () => ["userProfile"] as const,
@@ -63,6 +64,12 @@ export const financeHubQuery = (date: ISODate) =>
   queryOptions({
     queryKey: queryKeys.financeHub(date),
     queryFn: () => loadFinanceHub({ data: date }),
+  });
+
+export const simplefinStatusQuery = () =>
+  queryOptions({
+    queryKey: queryKeys.simplefinStatus(),
+    queryFn: () => getSimplefinStatus({ data: {} }),
   });
 
 export const nutritionQuery = (date: ISODate) =>

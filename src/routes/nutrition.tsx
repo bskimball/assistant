@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Reveal, revealDelay } from "@/components/motion";
 import { saveDailyNutrition } from "@/server/domain";
@@ -459,9 +460,12 @@ function NutritionPage() {
                               })}
                             </span>
                             {m.estimateConfidence && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] uppercase tracking-wide text-muted-foreground"
+                              >
                                 {m.estimateConfidence}
-                              </span>
+                              </Badge>
                             )}
                           </div>
                           <ul className="mt-1 space-y-0.5">

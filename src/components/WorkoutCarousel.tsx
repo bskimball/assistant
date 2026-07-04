@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dumbbell, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ExercisePhase } from "@/lib/domain";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export interface CarouselExercise {
   name: string;
@@ -113,19 +115,22 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
             const meta = PHASE_META[phase];
             const isActive = (ordered[active]?.phase ?? "main") === phase;
             return (
-              <button
+              <Button
                 key={phase}
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => scrollToIndex(phaseStart.get(phase) ?? 0)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors active:scale-[0.97] ${
+                className={cn(
+                  "h-auto gap-1.5 rounded-full px-2.5 py-1 text-xs active:scale-[0.97]",
                   isActive
                     ? "border-transparent bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
+                    : "text-muted-foreground",
+                )}
               >
-                <span className={`size-1.5 rounded-full ${meta.dot}`} />
+                <span className={cn("size-1.5 rounded-full", meta.dot)} />
                 {meta.label}
-              </button>
+              </Button>
             );
           })}
         </div>

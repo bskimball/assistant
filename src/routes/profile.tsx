@@ -17,6 +17,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Reveal } from "@/components/motion";
 import { cn } from "@/lib/utils";
 import { loadUserProfile, saveUserProfile } from "@/server/domain";
@@ -147,9 +156,6 @@ function formToProfile(f: Form): Partial<UserProfile> {
   };
 }
 
-const selectClass =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
-
 /**
  * A labelled form row. Defined at module scope (NOT inside ProfilePage) — a
  * component declared inline would get a new identity on every render, causing
@@ -261,13 +267,8 @@ function ProfilePage() {
     setSavedAt(null);
   }
 
-  function toggleWorkoutStyle(style: WorkoutStyle) {
-    setForm((f) => ({
-      ...f,
-      preferredWorkoutStyles: f.preferredWorkoutStyles.includes(style)
-        ? f.preferredWorkoutStyles.filter((s) => s !== style)
-        : [...f.preferredWorkoutStyles, style],
-    }));
+  function setWorkoutStyles(styles: WorkoutStyle[]) {
+    setForm((f) => ({ ...f, preferredWorkoutStyles: styles }));
     setSavedAt(null);
   }
 
@@ -375,16 +376,22 @@ function ProfilePage() {
                     <BirthDatePicker value={form.birthDate} onChange={(v) => set("birthDate", v)} />
                   </Field>
                   <Field label="Sex">
-                    <select
-                      className={selectClass}
-                      value={form.sex}
-                      onChange={(e) => set("sex", e.target.value)}
+                    <Select
+                      value={form.sex || "none"}
+                      onValueChange={(v) => set("sex", v === "none" ? "" : v)}
                     >
-                      <option value="">—</option>
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="other">Other</option>
-                    </select>
+                      <SelectTrigger aria-label="Sex" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">—</SelectItem>
+                          <SelectItem value="male">Male</SelectItem>
+                          <SelectItem value="female">Female</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </Field>
                   <Field label="Height (in)">
                     <Input
@@ -395,14 +402,17 @@ function ProfilePage() {
                     />
                   </Field>
                   <Field label="Units">
-                    <select
-                      className={selectClass}
-                      value={form.units}
-                      onChange={(e) => set("units", e.target.value)}
-                    >
-                      <option value="imperial">US customary (lb/in/oz)</option>
-                      <option value="metric">Metric</option>
-                    </select>
+                    <Select value={form.units} onValueChange={(v) => set("units", v)}>
+                      <SelectTrigger aria-label="Units" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="imperial">US customary (lb/in/oz)</SelectItem>
+                          <SelectItem value="metric">Metric</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </Field>
                   <Field label="Timezone" hint="e.g. America/Chicago">
                     <Input
@@ -433,18 +443,24 @@ function ProfilePage() {
                     />
                   </Field>
                   <Field label="Activity level">
-                    <select
-                      className={selectClass}
-                      value={form.activityLevel}
-                      onChange={(e) => set("activityLevel", e.target.value)}
+                    <Select
+                      value={form.activityLevel || "none"}
+                      onValueChange={(v) => set("activityLevel", v === "none" ? "" : v)}
                     >
-                      <option value="">—</option>
-                      <option value="sedentary">Sedentary</option>
-                      <option value="light">Light</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="active">Active</option>
-                      <option value="very_active">Very active</option>
-                    </select>
+                      <SelectTrigger aria-label="Activity level" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">—</SelectItem>
+                          <SelectItem value="sedentary">Sedentary</SelectItem>
+                          <SelectItem value="light">Light</SelectItem>
+                          <SelectItem value="moderate">Moderate</SelectItem>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="very_active">Very active</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </Field>
                 </CardContent>
               </Card>
@@ -490,28 +506,24 @@ function ProfilePage() {
                     label="Preferred workout styles"
                     hint="What the trainer should emphasize. None selected = balanced mix of strength, calisthenics & yoga."
                   >
-                    <div className="flex flex-wrap gap-2">
-                      {WORKOUT_STYLES.map((s) => {
-                        const active = form.preferredWorkoutStyles.includes(s.value);
-                        return (
-                          <button
-                            key={s.value}
-                            type="button"
-                            onClick={() => toggleWorkoutStyle(s.value)}
-                            aria-pressed={active}
-                            title={s.hint}
-                            className={cn(
-                              "rounded-full border px-3 py-1.5 text-xs transition-colors",
-                              active
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-input bg-background hover:bg-muted",
-                            )}
-                          >
-                            {s.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <ToggleGroup
+                      type="multiple"
+                      variant="outline"
+                      value={form.preferredWorkoutStyles}
+                      onValueChange={(v) => setWorkoutStyles(v as WorkoutStyle[])}
+                      className="flex-wrap justify-start"
+                    >
+                      {WORKOUT_STYLES.map((s) => (
+                        <ToggleGroupItem
+                          key={s.value}
+                          value={s.value}
+                          title={s.hint}
+                          className="rounded-full text-xs"
+                        >
+                          {s.label}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
                   </Field>
                 </CardContent>
               </Card>
@@ -573,16 +585,22 @@ function ProfilePage() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field label="Investing risk tolerance">
-                      <select
-                        className={selectClass}
-                        value={form.riskTolerance}
-                        onChange={(e) => set("riskTolerance", e.target.value)}
+                      <Select
+                        value={form.riskTolerance || "none"}
+                        onValueChange={(v) => set("riskTolerance", v === "none" ? "" : v)}
                       >
-                        <option value="">—</option>
-                        <option value="conservative">Conservative</option>
-                        <option value="moderate">Moderate</option>
-                        <option value="aggressive">Aggressive</option>
-                      </select>
+                        <SelectTrigger aria-label="Investing risk tolerance" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="none">—</SelectItem>
+                            <SelectItem value="conservative">Conservative</SelectItem>
+                            <SelectItem value="moderate">Moderate</SelectItem>
+                            <SelectItem value="aggressive">Aggressive</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <Field label="Monthly savings goal ($)">
                       <Input

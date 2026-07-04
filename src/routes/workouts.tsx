@@ -23,6 +23,15 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Reveal, revealDelay } from "@/components/motion";
 import { appendWorkoutSession, saveWorkoutSessions } from "@/server/domain";
 import {
@@ -205,9 +214,12 @@ function WorkoutsPage() {
             </p>
           </div>
           {weekRangeLabel && (
-            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+            <Badge
+              variant="secondary"
+              className="w-fit gap-1.5 rounded-full px-3 py-1 text-muted-foreground"
+            >
               <CalendarRange className="size-3.5" /> Week of {weekRangeLabel}
-            </span>
+            </Badge>
           )}
         </div>
 
@@ -327,9 +339,12 @@ function WorkoutsPage() {
                           </Button>
                         )}
                         {done && (
-                          <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-500">
+                          <Badge
+                            variant="secondary"
+                            className="shrink-0 rounded-full bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-500"
+                          >
                             Done
-                          </span>
+                          </Badge>
                         )}
                       </div>
 
@@ -372,22 +387,25 @@ function WorkoutsPage() {
                 className="w-full sm:w-20"
                 disabled={busy}
               />
-              <div className="flex items-center gap-1.5 rounded-md border px-2.5 text-sm">
-                <span className="text-xs text-muted-foreground">Effort</span>
-                <select
-                  value={logEffort}
-                  onChange={(e) => setLogEffort(Number(e.target.value))}
-                  className="bg-transparent py-2 text-sm outline-none"
-                  disabled={busy}
-                  aria-label="Effort rating"
-                >
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {n}/5
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                value={String(logEffort)}
+                onValueChange={(v) => setLogEffort(Number(v))}
+                disabled={busy}
+              >
+                <SelectTrigger aria-label="Effort rating" className="w-full sm:w-auto">
+                  <span className="text-xs text-muted-foreground">Effort</span>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}/5
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <Button type="submit" className="gap-1" disabled={!logTitle.trim() || busy}>
                 <Plus className="size-4" /> Log
               </Button>

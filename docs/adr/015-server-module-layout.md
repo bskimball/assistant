@@ -21,9 +21,11 @@ Use `src/server` as the single server application module.
 - Cloudflare-specific implementations live under `src/server/adapters/*`.
 - R2 key construction remains centralized in `src/server/adapters/r2.ts` per ADR-003.
 - D1/Better Auth access remains auth-only in `src/server/adapters/d1.ts` per ADR-010.
+- Cloudflare env, secret, and binding resolution is centralized in `src/server/env.ts`; adapters request bindings/vars from that seam instead of importing `cloudflare:workers` or parsing `.dev.vars` themselves.
 - `src/server/store.ts` exposes the domain store interface (`daily`, `weekly`, `ref`, `log`) so domain implementation modules do not depend on R2 key mechanics directly.
 - `src/server/domain-impl.ts` owns plain server-side domain operations; `src/server/domain.ts` remains the `createServerFn` interface layer for routes and components.
 - `src/server/adapters/ai.ts` owns Grok key lookup, transport, and JSON parsing. Coach and voice code keep deterministic fallbacks but no longer perform direct `fetch` calls.
+- Pure finance math shared by server and route code lives in `src/lib/finance-math.ts`: 50/30/20 rollups, recurring commitment reconciliation, and the deterministic finance-advice fallback. It must not import auth, store, or server-only adapters.
 - Client-safe shared types and helpers remain under `src/lib/*`.
 
 ## Consequences
@@ -44,5 +46,6 @@ Use `src/server` as the single server application module.
 ## Follow-Ups
 
 1. Split `src/server/domain-impl.ts` into deeper domain modules once behavior is covered by tests.
-2. Replace the Grok adapter implementation with TanStack AI behind the existing `completeJSON` interface.
-3. Remove any stale compatibility shims once legacy `todos.json` is fully absorbed into `ProductivityTask` daily aggregates.
+2. Continue collapsing shallow per-operation server-function relays where a generic authenticated wrapper can preserve the same route-facing API.
+3. Replace the Grok adapter implementation with TanStack AI behind the existing `completeJSON` interface.
+4. Remove any stale compatibility shims once legacy `todos.json` is fully absorbed into `ProductivityTask` daily aggregates.

@@ -10,55 +10,17 @@ export interface JSONChatRequest {
   maxTokens?: number;
 }
 
-async function getCloudflareEnv(): Promise<Record<string, unknown> | undefined> {
-  try {
-    const importCloudflareWorkers = new Function(
-      "return import('cloudflare:workers')",
-    ) as () => Promise<{ env?: Record<string, unknown> }>;
-    return (await importCloudflareWorkers()).env;
-  } catch {
-    return undefined;
-  }
-}
-
-async function getLocalDevVar(key: string): Promise<string | undefined> {
-  if (typeof process === "undefined" || process.env?.NODE_ENV === "production") return undefined;
-  try {
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    const file = await fs.readFile(path.join(process.cwd(), ".dev.vars"), "utf8");
-    for (const line of file.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const match = trimmed.match(/^([^=]+)=(.*)$/);
-      if (!match || match[1].trim() !== key) continue;
-      return match[2].trim().replace(/^(['"])(.*)\1$/, "$2");
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
+import { getServerEnvVar } from "@/server/env";
 
 export async function getGrokApiKey(): Promise<string | undefined> {
-  const cfEnv = await getCloudflareEnv();
-  const apiKey = cfEnv?.GROK_API_KEY;
-  if (typeof apiKey === "string" && apiKey.length > 0) return apiKey;
-  const globalKey = (globalThis as any).GROK_API_KEY || process?.env?.GROK_API_KEY;
-  if (typeof globalKey === "string" && globalKey.length > 0) return globalKey;
-  return getLocalDevVar("GROK_API_KEY");
+  return getServerEnvVar("GROK_API_KEY");
 }
 
 /** Resolve the Grok model used for conversational chat (tool-capable).
  *  Distinct from the cheap `grok-3-mini` used for one-shot JSON tasks.
  *  Override with `GROK_CHAT_MODEL` (Cloudflare var / env / .dev.vars). */
 export async function getGrokChatModel(): Promise<string> {
-  const cfEnv = await getCloudflareEnv();
-  const fromCf = cfEnv?.GROK_CHAT_MODEL;
-  if (typeof fromCf === "string" && fromCf.length > 0) return fromCf;
-  const fromGlobal = (globalThis as any).GROK_CHAT_MODEL || process?.env?.GROK_CHAT_MODEL;
-  if (typeof fromGlobal === "string" && fromGlobal.length > 0) return fromGlobal;
-  return (await getLocalDevVar("GROK_CHAT_MODEL")) || "grok-3";
+  return (await getServerEnvVar("GROK_CHAT_MODEL")) || "grok-3";
 }
 
 /* ============================================================

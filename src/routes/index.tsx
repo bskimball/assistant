@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { VoiceInput, speakAssistant } from "@/components/VoiceInput";
 import { WorkoutCarousel } from "@/components/WorkoutCarousel";
 import {
@@ -855,9 +857,12 @@ function UnifiedDailyDashboard() {
             {/* Read-only indicator sits under the nav; reserved height avoids layout shift */}
             <div className="flex h-5 items-center justify-end">
               {!isToday && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <Badge
+                  variant="secondary"
+                  className="gap-1 rounded-full text-[10px] uppercase tracking-wide text-muted-foreground"
+                >
                   <Lock className="size-2.5" /> Read-only
-                </span>
+                </Badge>
               )}
             </div>
           </div>
@@ -914,32 +919,35 @@ function UnifiedDailyDashboard() {
         </div>
 
         {/* Listening overlay */}
-        {isListeningOverlay && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="rounded-2xl bg-background px-8 py-7 text-center shadow-xl">
-              <div className="flex items-center justify-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
-                <Mic className="size-4 text-primary" /> Listening…
-              </div>
-              <div className="mt-3 flex items-end justify-center gap-1.5 h-10">
-                {[0, 1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="w-1.5 animate-pulse rounded bg-primary"
-                    style={{
-                      height: 12 + (i % 3) * 7,
-                      animationDelay: `${i * 110}ms`,
-                    }}
-                  />
-                ))}
-              </div>
-              {interim && <div className="mt-3 text-sm text-muted-foreground">“{interim}”</div>}
-              <button onClick={stopOverlayListening} className="mt-5 text-xs underline">
-                Cancel
-              </button>
-              {listenError && <div className="mt-2 text-xs text-destructive">{listenError}</div>}
+        <Dialog
+          open={isListeningOverlay}
+          onOpenChange={(open) => {
+            if (!open) stopOverlayListening();
+          }}
+        >
+          <DialogContent className="w-fit text-center sm:max-w-fit">
+            <DialogTitle className="flex items-center justify-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
+              <Mic className="size-4 text-primary" /> Listening…
+            </DialogTitle>
+            <div className="mt-1 flex h-10 items-end justify-center gap-1.5">
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="w-1.5 animate-pulse rounded bg-primary"
+                  style={{
+                    height: 12 + (i % 3) * 7,
+                    animationDelay: `${i * 110}ms`,
+                  }}
+                />
+              ))}
             </div>
-          </div>
-        )}
+            {interim && <div className="mt-3 text-sm text-muted-foreground">“{interim}”</div>}
+            <Button variant="link" size="sm" onClick={stopOverlayListening} className="mx-auto">
+              Cancel
+            </Button>
+            {listenError && <div className="mt-2 text-xs text-destructive">{listenError}</div>}
+          </DialogContent>
+        </Dialog>
 
         {/* Confirmation banner */}
         {pendingConfirm && (
@@ -1149,9 +1157,12 @@ function UnifiedDailyDashboard() {
                       {t.text}
                     </span>
                     {t.shared && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                      <Badge
+                        variant="secondary"
+                        className="gap-0.5 bg-primary/10 px-1 text-[10px] text-primary"
+                      >
                         <Users className="size-2.5" /> Shared
-                      </span>
+                      </Badge>
                     )}
                   </Reveal>
                 ))}

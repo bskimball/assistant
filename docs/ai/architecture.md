@@ -35,6 +35,7 @@ Keep these wrappers thin: validate input, require auth for writes, call plain im
 - `src/server/store.ts`: the domain store interface. Domain implementation code should use `getDomainStore()` instead of importing R2 directly.
 - `src/server/adapters/r2.ts`: Cloudflare R2 binding, key construction, JSON/JSONL object access, voice/AI per-object writes, and delete-index shard helpers.
 - `src/server/adapters/d1.ts`: Better Auth D1/Drizzle access only.
+- `src/server/env.ts`: Cloudflare binding/secret resolution plus local `.dev.vars` fallback for development. Adapter modules should call this seam instead of importing `cloudflare:workers` or reparsing local env files.
 
 **AI boundary**
 
@@ -42,11 +43,22 @@ Keep these wrappers thin: validate input, require auth for writes, call plain im
 - Coach and voice code should call this adapter, not `fetch("https://api.x.ai/...")` directly.
 - Keep deterministic fallback behavior in the caller so missing or failing AI does not break the app.
 
+**Finance math boundary**
+
+- `src/lib/finance-math.ts`: pure 50/30/20 month rollups, recurring commitment reconciliation, and deterministic finance-advice fallback. It is imported by both `src/server/finance.ts` and `src/routes/finance.tsx`, so keep it free of auth, store, and server-only adapter imports.
+- `src/server/finance-parse.ts`: pure CSV/statement parsing, categorization, merchant normalization, and de-dupe helpers.
+
+**Finance sync boundary**
+
+- `src/server/finance-sync.ts`: SimpleFIN connection state, sealed credential use, balance snapshot sync, loan balance links, and transaction ingestion. It is plain server logic, not a `createServerFn` module.
+- `src/server/adapters/simplefin.ts`: SimpleFIN HTTP transport plus AES-GCM sealing/opening of the Access URL. The Access URL must never leave the server.
+- `src/worker-entry.ts`: wraps the TanStack Start fetch handler and adds the Workers `scheduled()` handler for daily SimpleFIN sync.
+
 ## Request/Data Flow
 
 1. A route imports a server function from `src/server/domain.ts`, `coach.ts`, `todos.ts`, or `session.ts`.
 2. The server-function wrapper validates input and gates write paths with `requireAuthSession`.
-3. The wrapper delegates to a plain implementation function in `src/server/domain-impl.ts` or local helper functions in `coach.ts`.
+3. The wrapper delegates to a plain implementation function in `src/server/domain-impl.ts`, local helper functions in `coach.ts`, or pure shared modules such as `src/lib/finance-math.ts`.
 4. Domain implementation uses `getDomainStore()` for R2-backed daily, weekly, reference, and log access.
 5. R2 object keys are constructed only by `src/server/adapters/r2.ts`.
 6. AI calls flow through `src/server/adapters/ai.ts`; results are persisted into daily plans or AI/voice logs where appropriate.
@@ -71,6 +83,9 @@ D1 is not a domain store. Do not put nutrition, finance, productivity, coaching,
 - New server mutation/query: add plain behavior in `src/server/domain-impl.ts` or a deeper plain module, then expose it through a thin wrapper in `src/server/domain.ts`.
 - New persistent collection: add store usage through `src/server/store.ts`; add R2 key helpers in `src/server/adapters/r2.ts` only if the existing daily/weekly/ref/log methods are insufficient.
 - New AI feature: add transport/provider behavior to `src/server/adapters/ai.ts`, keep prompt/domain orchestration in the domain or coach layer, and provide a deterministic fallback.
+- New finance math, budget, or recurring reconciliation behavior: update `src/lib/finance-math.ts` and its tests first, then consume that result from server functions/routes.
+- New external finance sync behavior: keep HTTP/secrets in `src/server/adapters/simplefin.ts`, persistence/orchestration in `src/server/finance-sync.ts`, and route-facing calls in `src/server/finance.ts`.
+- New Cloudflare secret/binding lookup: add it through `src/server/env.ts`, not by adding adapter-local `cloudflare:workers` imports or `.dev.vars` parsers.
 - New auth or session behavior: use `src/lib/auth.ts`, `src/lib/auth-client.ts`, `src/server/session.ts`, and `src/server/adapters/d1.ts`.
 
 ## Pitfalls
@@ -90,7 +105,11 @@ D1 is not a domain store. Do not put nutrition, finance, productivity, coaching,
 - `src/server/todos.ts`
 - `src/server/session.ts`
 - `src/server/store.ts`
+- `src/server/env.ts`
+- `src/lib/finance-math.ts`
 - `src/server/adapters/ai.ts`
+- `src/server/adapters/simplefin.ts`
+- `src/server/finance-sync.ts`
 - `src/server/adapters/r2.ts`
 - `src/server/adapters/d1.ts`
 - `docs/adr/015-server-module-layout.md`

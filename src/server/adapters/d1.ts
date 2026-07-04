@@ -14,6 +14,7 @@
 
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "@/db/schema";
+import { getCloudflareBinding } from "@/server/env";
 
 // Re-export schema for the auth adapter / advanced use.
 export { schema };
@@ -23,8 +24,7 @@ export type D1Db = ReturnType<typeof drizzle<typeof schema>>;
 let _db: D1Db | null = null;
 
 async function getD1Binding(): Promise<D1Database | undefined> {
-  const { env } = await import("cloudflare:workers");
-  return (env as any)?.DB as D1Database | undefined;
+  return getCloudflareBinding<D1Database>("DB");
 }
 
 /**

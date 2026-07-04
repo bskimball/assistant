@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Reveal, revealDelay } from "@/components/motion";
-import { financeHubQuery, queryKeys } from "@/lib/queries";
+import { financeHubQuery, queryKeys, simplefinStatusQuery } from "@/lib/queries";
 import {
   Wallet,
   PiggyBank,
@@ -33,6 +33,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { saveDailyFinance } from "@/server/domain";
 import {
   saveBudget,
@@ -45,7 +54,12 @@ import {
   generateFinanceAdvice,
   acceptFinanceActions,
   refreshQuotes,
+  connectSimplefin,
+  disconnectSimplefin,
+  saveSimplefinMappings,
+  syncSimplefinNow,
   type FinanceHubPayload,
+  type SimplefinStatusPayload,
 } from "@/server/finance";
 import {
   todayISO,
@@ -66,6 +80,14 @@ import {
   type AccountBalance,
   type FinanceAdviceItem,
 } from "@/lib/domain";
+import {
+  recurringAdditionsForMonth,
+  recurringAdditionsFromItems,
+  recurringItemsForMonth,
+  transactionsForMonth,
+  type BudgetBucket,
+  type BudgetRecurringItem,
+} from "@/lib/finance-math";
 
 type TabKey = "overview" | "budget" | "subscriptions" | "investments" | "grow";
 
@@ -96,10 +118,6 @@ function fmtMoney(n: number): string {
 
 function moneyInputValue(n: number | undefined): string {
   return typeof n === "number" && Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "";
-}
-
-function monthKeyFromTimestamp(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 7);
 }
 
 function fmtDate(timestamp: number): string {
@@ -143,17 +161,6 @@ type ImportedAccountSummary = {
   lastSeen: number;
 };
 
-type BudgetBucket = "needs" | "wants" | "savings";
-type BudgetRecurringItem = {
-  id: string;
-  name: string;
-  kind: RecurringKind;
-  cadence: Subscription["cadence"];
-  monthlyAmount: number;
-  account?: string;
-  seenThisMonth: boolean;
-};
-
 function summarizeImportedAccounts(transactions: Transaction[]): ImportedAccountSummary[] {
   const map = new Map<string, ImportedAccountSummary>();
   for (const t of transactions) {
@@ -169,78 +176,6 @@ function summarizeImportedAccounts(transactions: Transaction[]): ImportedAccount
     }
   }
   return [...map.values()].sort((a, b) => b.lastSeen - a.lastSeen);
-}
-
-function normalizedFinanceLabel(raw?: string): string {
-  return cleanMerchantName(raw || "").toLowerCase();
-}
-
-function recurringMatchesTransaction(sub: Subscription, t: Transaction): boolean {
-  if (t.amount >= 0) return false;
-  const amount = Math.abs(t.amount);
-  const amountMatches = Math.abs(amount - sub.amount) <= Math.max(1, sub.amount * 0.05);
-  if (!amountMatches) return false;
-
-  const subName = normalizedFinanceLabel(sub.name);
-  const txnName = normalizedFinanceLabel(t.category || t.notes || "");
-  const nameMatches =
-    !!subName && !!txnName && (txnName.includes(subName) || subName.includes(txnName));
-  const accountMatches =
-    !!sub.account &&
-    !!t.account &&
-    sub.account.trim().toLowerCase() === t.account.trim().toLowerCase();
-  return nameMatches || accountMatches;
-}
-
-function recurringItemsForMonth(
-  subscriptions: Subscription[],
-  monthTxns: Transaction[],
-): Record<BudgetBucket, BudgetRecurringItem[]> {
-  const items: Record<BudgetBucket, BudgetRecurringItem[]> = { needs: [], wants: [], savings: [] };
-  for (const sub of subscriptions) {
-    if (sub.status !== "active") continue;
-    const bucket = recurringBudgetBucket(sub);
-    items[bucket].push({
-      id: sub.id,
-      name: sub.name,
-      kind: recurringKindOf(sub),
-      cadence: sub.cadence,
-      monthlyAmount: subscriptionMonthlyCost(sub),
-      account: sub.account,
-      seenThisMonth: monthTxns.some((t) => recurringMatchesTransaction(sub, t)),
-    });
-  }
-  for (const bucket of ["needs", "wants", "savings"] as const) {
-    items[bucket].sort((a, b) => b.monthlyAmount - a.monthlyAmount);
-  }
-  return items;
-}
-
-function recurringAdditionsForMonth(
-  subscriptions: Subscription[],
-  monthTxns: Transaction[],
-): Record<BudgetBucket, number> {
-  const items = recurringItemsForMonth(subscriptions, monthTxns);
-  return recurringAdditionsFromItems(items);
-}
-
-function recurringAdditionsFromItems(
-  items: Record<BudgetBucket, BudgetRecurringItem[]>,
-): Record<BudgetBucket, number> {
-  return {
-    needs: items.needs.reduce(
-      (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
-      0,
-    ),
-    wants: items.wants.reduce(
-      (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
-      0,
-    ),
-    savings: items.savings.reduce(
-      (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
-      0,
-    ),
-  };
 }
 
 function recurringAdditionsSummary(additions: Record<BudgetBucket, number>): string {
@@ -360,6 +295,8 @@ type TabProps = {
 /* ---------------- Overview ---------------- */
 
 function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string }) {
+  const queryClient = useQueryClient();
+  const simplefinQuery = useQuery(simplefinStatusQuery());
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -376,6 +313,13 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
   const balanceSourceDate =
     hub.snapshotSourceDate && hub.snapshotSourceDate !== today ? hub.snapshotSourceDate : null;
 
+  async function refreshFinanceData() {
+    await Promise.all([
+      onChange(),
+      queryClient.invalidateQueries({ queryKey: queryKeys.simplefinStatus() }),
+    ]);
+  }
+
   async function saveAccounts(next: AccountBalance[]) {
     await saveDailyFinance({
       data: {
@@ -387,7 +331,7 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
         },
       },
     });
-    await onChange();
+    await refreshFinanceData();
   }
 
   async function addAccount(e: React.FormEvent) {
@@ -468,9 +412,7 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
     }
   }
 
-  const monthTxns = hub.transactions.filter(
-    (t) => new Date(t.timestamp).toISOString().slice(0, 7) === today.slice(0, 7),
-  );
+  const monthTxns = transactionsForMonth(hub.transactions, today.slice(0, 7));
   // Imported income only captures deposits to the accounts you've imported, so a
   // second paycheck landing in another account is missed. Prefer the monthly
   // take-home you set on the Budget tab (your full after-tax pay) when available.
@@ -509,6 +451,13 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
       )}
 
       <DataQualityCard hub={hub} today={today} />
+
+      <SimplefinConnectionsCard
+        status={simplefinQuery.data}
+        loading={simplefinQuery.isLoading}
+        onChange={refreshFinanceData}
+        flash={flash}
+      />
 
       <Card>
         <CardHeader>
@@ -700,9 +649,259 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
   );
 }
 
+function SimplefinConnectionsCard({
+  status,
+  loading,
+  onChange,
+  flash,
+}: {
+  status?: SimplefinStatusPayload;
+  loading: boolean;
+  onChange: () => Promise<void>;
+  flash: (msg: string) => void;
+}) {
+  const [setupToken, setSetupToken] = useState("");
+  const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const connected = !!status?.connected;
+  const nextSyncAt = status?.manualSyncAvailableAt;
+  const manualSyncBlocked = !!nextSyncAt && nextSyncAt > Date.now();
+
+  async function connect(e: React.FormEvent) {
+    e.preventDefault();
+    if (!setupToken.trim()) return;
+    setBusy(true);
+    try {
+      await connectSimplefin({ data: { setupToken } });
+      setSetupToken("");
+      await onChange();
+      flash("SimpleFIN connected.");
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t connect SimpleFIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncNow() {
+    setBusy(true);
+    try {
+      const result = await syncSimplefinNow({ data: {} });
+      await onChange();
+      flash(result.message);
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t sync SimpleFIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await disconnectSimplefin({ data: {} });
+      await onChange();
+      flash("SimpleFIN disconnected.");
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t disconnect SimpleFIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAlias(accountId: string, fallback: string) {
+    const alias = (aliasDrafts[accountId] ?? fallback).trim();
+    setBusy(true);
+    try {
+      await saveSimplefinMappings({ data: { aliases: { [accountId]: alias } } });
+      await onChange();
+      flash("Account alias saved.");
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t save alias.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function linkLoan(accountId: string, subscriptionId: string) {
+    setBusy(true);
+    try {
+      await saveSimplefinMappings({
+        data: { loanLinks: { [accountId]: subscriptionId || null } },
+      });
+      await onChange();
+      flash(subscriptionId ? "Loan link saved." : "Loan link removed.");
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t save loan link.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span>Bank connections</span>
+          {connected && status?.lastSync && (
+            <span className="text-xs font-normal text-muted-foreground">
+              Last sync {fmtDate(status.lastSync.at)}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {status?.missingSealKey && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            SIMPLEFIN_SEAL_KEY is missing. Add a 32-byte base64 Workers secret before connecting.
+          </div>
+        )}
+
+        {!connected ? (
+          <form onSubmit={connect} className="space-y-2">
+            <Label htmlFor="simplefin-token">SimpleFIN setup token</Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="simplefin-token"
+                value={setupToken}
+                onChange={(e) => setSetupToken(e.target.value)}
+                placeholder="Paste setup token"
+                className="flex-1"
+              />
+              <Button type="submit" disabled={busy || loading || !setupToken.trim()}>
+                Connect
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              The access URL is sealed on the server and never sent back to this page.
+            </p>
+          </form>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1"
+                onClick={syncNow}
+                disabled={busy || loading || manualSyncBlocked}
+                title={
+                  manualSyncBlocked && nextSyncAt
+                    ? `Available ${fmtDate(nextSyncAt)}`
+                    : "Sync balances and transactions"
+                }
+              >
+                <RefreshCw className="size-4" />
+                Sync now
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={disconnect}
+                disabled={busy}
+              >
+                Disconnect
+              </Button>
+              {status?.lastSync?.message && (
+                <span className="text-xs text-muted-foreground">{status.lastSync.message}</span>
+              )}
+            </div>
+
+            {status?.accounts.length ? (
+              <ul className="space-y-2">
+                {status.accounts.map((account) => {
+                  const stale =
+                    account.balanceDate && Date.now() / 1000 - account.balanceDate > 48 * 60 * 60;
+                  const aliasValue =
+                    aliasDrafts[account.id] ?? status.aliases[account.id] ?? account.displayName;
+                  return (
+                    <li key={account.id} className="rounded-md border border-border/60 px-3 py-2">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {account.orgName ? `${account.orgName} · ` : ""}
+                            {account.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtMoney(account.balance)} {account.currency}
+                            {account.balanceDate
+                              ? ` · as of ${fmtDate(account.balanceDate * 1000)}`
+                              : ""}
+                            {stale ? " · stale" : ""}
+                          </div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] lg:w-[24rem]">
+                          <Input
+                            value={aliasValue}
+                            onChange={(e) =>
+                              setAliasDrafts((drafts) => ({
+                                ...drafts,
+                                [account.id]: e.target.value,
+                              }))
+                            }
+                            aria-label={`Alias for ${account.name}`}
+                            className="h-8"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => saveAlias(account.id, account.displayName)}
+                            disabled={busy}
+                          >
+                            Save alias
+                          </Button>
+                        </div>
+                      </div>
+                      {status.loanOptions.length > 0 && (
+                        <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center">
+                          <Label className="text-xs text-muted-foreground">Loan link</Label>
+                          <Select
+                            value={status.loanLinks[account.id] || "none"}
+                            onValueChange={(v) => linkLoan(account.id, v === "none" ? "" : v)}
+                            disabled={busy}
+                          >
+                            <SelectTrigger aria-label="Loan link" className="h-8 w-full sm:w-auto">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value="none">Not linked</SelectItem>
+                                {status.loanOptions.map((loan) => (
+                                  <SelectItem key={loan.id} value={loan.id}>
+                                    {loan.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Connected. Run a sync to list accounts and write today’s finance snapshot.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
   const month = today.slice(0, 7);
-  const monthTxns = hub.transactions.filter((t) => monthKeyFromTimestamp(t.timestamp) === month);
+  const monthTxns = transactionsForMonth(hub.transactions, month);
   const importedAccountCount = summarizeImportedAccounts(hub.transactions).length;
   const lastTxn = hub.transactions.reduce<Transaction | null>(
     (latest, t) => (!latest || t.timestamp > latest.timestamp ? t : latest),
@@ -788,9 +987,7 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const th = Number(takeHome) || hub.budget?.monthlyTakeHome || 0;
 
-  const monthTxns = hub.transactions.filter(
-    (t) => new Date(t.timestamp).toISOString().slice(0, 7) === selectedMonth,
-  );
+  const monthTxns = transactionsForMonth(hub.transactions, selectedMonth);
   // Per-bucket totals + the transactions behind each bar. One-time charges the
   // user has marked (excludeFromBudget) are kept in the lists but greyed out and
   // left out of the totals, so a single big legal/medical bill doesn't blow the
@@ -1027,18 +1224,20 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
                 bank login or credentials are ever stored.
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={institution}
-                  onChange={(e) => setInstitution(e.target.value)}
-                  className="h-9 rounded-md border bg-background px-2 text-sm"
-                  disabled={busy}
-                >
-                  {INSTITUTIONS.map((i) => (
-                    <option key={i} value={i}>
-                      {i}
-                    </option>
-                  ))}
-                </select>
+                <Select value={institution} onValueChange={setInstitution} disabled={busy}>
+                  <SelectTrigger aria-label="Institution" className="w-auto">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {INSTITUTIONS.map((i) => (
+                        <SelectItem key={i} value={i}>
+                          {i}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
                 <input
                   ref={fileRef}
                   type="file"
@@ -1295,14 +1494,16 @@ function ExpenseCard({
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <GroupPicker value={bucket} onChange={(g) => onMove(t.id, g)} />
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onToggleExclude(t.id, !excluded)}
-          className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+          className="h-auto shrink-0 px-1.5 py-0.5 text-[10px] text-muted-foreground"
           title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
         >
           {excluded ? "Include" : "One-time"}
-        </button>
+        </Button>
       </div>
     </li>
   );
@@ -1338,17 +1539,23 @@ function RecentTransactions({
                   {new Date(t.timestamp).toLocaleDateString()}
                 </div>
               </div>
-              <select
+              <Select
                 value={t.categoryGroup ?? "wants"}
-                onChange={(e) => recategorize(t.id, e.target.value as CategoryGroup)}
-                className="h-7 rounded border bg-background px-1 text-xs"
+                onValueChange={(v) => recategorize(t.id, v as CategoryGroup)}
               >
-                {(Object.keys(GROUP_LABELS) as CategoryGroup[]).map((g) => (
-                  <option key={g} value={g}>
-                    {GROUP_LABELS[g]}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger aria-label="Category group" className="h-7 w-auto text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {(Object.keys(GROUP_LABELS) as CategoryGroup[]).map((g) => (
+                      <SelectItem key={g} value={g}>
+                        {GROUP_LABELS[g]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <span
                 className={`w-20 shrink-0 text-right tabular-nums ${
                   t.amount < 0 ? "text-foreground" : "text-green-600 dark:text-green-500"
@@ -1649,16 +1856,21 @@ function RecurringRow({
             aria-label="Amount"
             className="h-8 w-24"
           />
-          <select
+          <Select
             value={editCadence}
-            onChange={(e) => setEditCadence(e.target.value as Subscription["cadence"])}
-            className="h-8 rounded-md border bg-background px-2 text-sm"
-            aria-label="Cadence"
+            onValueChange={(v) => setEditCadence(v as Subscription["cadence"])}
           >
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="annual">Annual</option>
-          </select>
+            <SelectTrigger aria-label="Cadence" className="h-8 w-auto">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="weekly">Weekly</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="annual">Annual</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
         {kind === "loan" && (
           <div className="flex flex-wrap items-center gap-2">
@@ -2112,16 +2324,21 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                 aria-label={amountLabel}
                 className="w-28"
               />
-              <select
+              <Select
                 value={cadence}
-                onChange={(e) => setCadence(e.target.value as Subscription["cadence"])}
-                className="h-9 rounded-md border bg-background px-2 text-sm"
-                aria-label="Cadence"
+                onValueChange={(v) => setCadence(v as Subscription["cadence"])}
               >
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="annual">Annual</option>
-              </select>
+                <SelectTrigger aria-label="Cadence" className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="annual">Annual</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               {kind === "bill" && (
                 <NeedWantPicker value={group === "wants" ? "wants" : "needs"} onChange={setGroup} />
               )}
@@ -2308,10 +2525,13 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
                       <span className="flex items-center gap-1.5 font-medium">
                         {p.symbol}
                         {isLive && (
-                          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                          <Badge
+                            variant="secondary"
+                            className="gap-1 bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+                          >
                             <span className="size-1.5 rounded-full bg-emerald-500" />
                             Live
-                          </span>
+                          </Badge>
                         )}
                       </span>
                       <span className="tabular-nums text-muted-foreground">
@@ -2486,7 +2706,7 @@ function GrowTab({
 
 function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
   const month = today.slice(0, 7);
-  const monthTxns = hub.transactions.filter((t) => monthKeyFromTimestamp(t.timestamp) === month);
+  const monthTxns = transactionsForMonth(hub.transactions, month);
   const takeHome =
     hub.budget?.monthlyTakeHome ??
     monthTxns
@@ -2733,18 +2953,16 @@ function BudgetBar({
                 >
                   {fmtMoney(Math.abs(t.amount))}
                 </span>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => onToggleExclude?.(t.id, !excluded)}
-                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${
-                    excluded
-                      ? "border-border text-muted-foreground hover:bg-muted"
-                      : "border-border/60 text-muted-foreground hover:bg-muted"
-                  }`}
+                  className="h-auto shrink-0 px-1.5 py-0.5 text-[10px] text-muted-foreground"
                   title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
                 >
                   {excluded ? "Include" : "One-time"}
-                </button>
+                </Button>
               </li>
             );
           })}

@@ -36,6 +36,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { newId, todayISO } from "@/lib/domain";
@@ -527,9 +528,12 @@ function ChatPage() {
                 <History className="size-4 text-muted-foreground" /> History
               </div>
               {chat.summaries.length > 0 && (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground [font-variant-numeric:tabular-nums]">
+                <Badge
+                  variant="secondary"
+                  className="rounded-full text-xs text-muted-foreground [font-variant-numeric:tabular-nums]"
+                >
                   {chat.summaries.length}
-                </span>
+                </Badge>
               )}
             </div>
             <HistoryList
@@ -563,14 +567,16 @@ function ChatPage() {
                   </p>
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
                     {SUGGESTIONS.map((s) => (
-                      <button
+                      <Button
                         key={s}
                         type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={() => send(s)}
-                        className="rounded-full border bg-background px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        className="rounded-full text-muted-foreground hover:text-foreground"
                       >
                         {s}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 </div>

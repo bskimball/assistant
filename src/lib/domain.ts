@@ -329,7 +329,7 @@ export interface Transaction extends BaseEntity {
   /** Stable hash (date+amount+description+account) used to de-dupe re-imports. */
   dedupeKey?: string;
   /** Where this transaction came from. */
-  source?: "manual" | "import";
+  source?: "manual" | "import" | "sync";
   /**
    * One-off charges (legal fees, a single big purchase) the user has marked so
    * they don't count against the recurring 50/30/20 monthly plan. Still shown
