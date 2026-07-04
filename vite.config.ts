@@ -13,6 +13,16 @@ export default defineConfig(({ mode }) => {
   const cloudflareWorkersTestStub = fileURLToPath(
     new URL("./src/server/testing/cloudflare-workers.ts", import.meta.url),
   );
+  const cloudflareWorkersClientStub = {
+    name: "cloudflare-workers-client-stub",
+    enforce: "pre" as const,
+    resolveId(id: string, _importer: string | undefined, options: { ssr?: boolean }) {
+      if (id === "cloudflare:workers" && (isVitest || !options.ssr)) {
+        return cloudflareWorkersTestStub;
+      }
+      return null;
+    },
+  };
 
   const __config = {
     // Dedupe React so the client environment always resolves a single instance.
@@ -22,7 +32,6 @@ export default defineConfig(({ mode }) => {
     resolve: {
       tsconfigPaths: true,
       dedupe: ["react", "react-dom"],
-      ...(isVitest ? { alias: { "cloudflare:workers": cloudflareWorkersTestStub } } : {}),
     },
     optimizeDeps: {
       exclude: [
@@ -32,6 +41,7 @@ export default defineConfig(({ mode }) => {
       ],
     },
     plugins: [
+      cloudflareWorkersClientStub,
       devtools(),
       tailwindcss(),
       // Cloudflare plugin enables Workers environment + bindings (incl. R2) during dev and build
