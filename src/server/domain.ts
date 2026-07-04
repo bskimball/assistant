@@ -1,15 +1,10 @@
 /**
- * Server-side persistence helpers for the Core Domain Model (ADR-002).
+ * Route-facing server-function interface for core domain operations.
  *
- * All reads/writes go through R2 using the key conventions from consolidated ADR-003:
- * - Daily aggregates via getDailyKey(domain, date)
- * - Append-only via getLogKey
- * - Refs via getRefKey
- * - Soft-delete index via recordSoftDelete (meta/deleted/{date}.json shards)
- *
- * Supports soft-delete (deletedAt) uniformly + 7-day hard-delete maintenance.
- *
- * IMPORTANT: Dynamic import of r2 inside handlers to keep server-only.
+ * The real domain behavior lives in `domain-impl.ts`; this module owns the
+ * TanStack Start server-function boundary and one auth gate for route/client
+ * callers. Keep new exports as thin wrappers through `withDomainAuth` so auth
+ * behavior stays consistent without open-coding it per operation.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -35,92 +30,69 @@ import { requireAuthSession } from "@/lib/auth";
 import * as impl from "@/server/domain-impl";
 import type { VoiceProcessResult } from "@/server/domain-impl";
 
-/* =========================================
-   USER PROFILE (personalization, ADR-013)
-   Long-lived reference: assistant/brian/user-profile.json
-   ========================================= */
-
-export const loadUserProfile = createServerFn({ method: "GET" }).handler(async () => {
+async function withDomainAuth<TResult>(handler: () => Promise<TResult>): Promise<TResult> {
   await requireAuthSession();
-  return impl.loadUserProfileImpl();
-});
+  return handler();
+}
+
+async function withDomainAuthData<TData, TResult>(
+  data: TData,
+  handler: (data: TData) => Promise<TResult>,
+): Promise<TResult> {
+  await requireAuthSession();
+  return handler(data);
+}
+
+export type {
+  WorkoutPlansStore,
+  WorkoutSessionsStore,
+  DailyNutritionPayload,
+  DailyFinancePayload,
+  TransactionsStore,
+  ProductivityTasksPayload,
+  DailyPlanPayload,
+  DailyActivity,
+  DailyDashboardPayload,
+  VoiceProcessResult,
+} from "@/server/domain-impl";
+
+export type { VoiceIntent } from "@/lib/domain";
+
+export const loadUserProfile = createServerFn({ method: "GET" }).handler(() =>
+  withDomainAuth(impl.loadUserProfileImpl),
+);
 
 export const saveUserProfile = createServerFn({ method: "POST" })
   .validator((profile: Partial<UserProfile>) => profile)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveUserProfileImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveUserProfileImpl));
 
-/* =========================================
-   WORKOUT PLAN (single active invariant)
-   ========================================= */
-
-/** Stored as reference for simplicity in v1: assistant/brian/workout-plans.json */
-export type WorkoutPlansStore = {
-  plans: WorkoutPlan[];
-  updatedAt: number;
-};
-
-export const loadWorkoutPlans = createServerFn({ method: "GET" }).handler(async () => {
-  await requireAuthSession();
-  return impl.loadWorkoutPlansImpl();
-});
+export const loadWorkoutPlans = createServerFn({ method: "GET" }).handler(() =>
+  withDomainAuth(impl.loadWorkoutPlansImpl),
+);
 
 export const saveWorkoutPlans = createServerFn({ method: "POST" })
   .validator((data: { plans: WorkoutPlan[] }) => data)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveWorkoutPlansImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveWorkoutPlansImpl));
 
-/* Active plan helper (enforces the invariant at read time too) */
 export async function getActiveWorkoutPlan(): Promise<WorkoutPlan | null> {
   return impl.getActiveWorkoutPlanImpl();
 }
 
-/* =========================================
-   WORKOUT SESSIONS (append or daily list)
-   ========================================= */
-
-/** v1: store all sessions under a flat reference (small personal data) */
-export type WorkoutSessionsStore = {
-  sessions: WorkoutSession[];
-  updatedAt: number;
-};
-
-export const loadWorkoutSessions = createServerFn({ method: "GET" }).handler(async () => {
-  await requireAuthSession();
-  return impl.loadWorkoutSessionsImpl();
-});
+export const loadWorkoutSessions = createServerFn({ method: "GET" }).handler(() =>
+  withDomainAuth(impl.loadWorkoutSessionsImpl),
+);
 
 export const saveWorkoutSessions = createServerFn({ method: "POST" })
   .validator((data: { sessions: WorkoutSession[] }) => data)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveWorkoutSessionsImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveWorkoutSessionsImpl));
 
-/** Append a single completed workout session (quick-log from the dashboard). */
 export const appendWorkoutSession = createServerFn({ method: "POST" })
   .validator((session: Omit<WorkoutSession, "id" | "createdAt">) => session)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.appendWorkoutSessionImpl(data);
-  });
-
-/* =========================================
-   DAILY NUTRITION
-   ========================================= */
-
-export type DailyNutritionPayload = DailyNutrition & { updatedAt: number };
+  .handler(({ data }) => withDomainAuthData(data, impl.appendWorkoutSessionImpl));
 
 export const loadDailyNutrition = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data: date }) => {
-    await requireAuthSession();
-    return impl.loadDailyNutritionImpl(date);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.loadDailyNutritionImpl));
 
 export const saveDailyNutrition = createServerFn({ method: "POST" })
   .validator(
@@ -129,23 +101,11 @@ export const saveDailyNutrition = createServerFn({ method: "POST" })
       nutrition: Omit<DailyNutrition, "id" | "createdAt" | "updatedAt" | "deletedAt" | "date">;
     }) => payload,
   )
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveDailyNutritionImpl(data);
-  });
-
-/* =========================================
-   DAILY FINANCE SNAPSHOT
-   ========================================= */
-
-export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number };
+  .handler(({ data }) => withDomainAuthData(data, impl.saveDailyNutritionImpl));
 
 export const loadDailyFinance = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data }): Promise<DailyFinancePayload> => {
-    await requireAuthSession();
-    return impl.loadDailyFinanceImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.loadDailyFinanceImpl));
 
 export const saveDailyFinance = createServerFn({ method: "POST" })
   .validator(
@@ -159,191 +119,80 @@ export const saveDailyFinance = createServerFn({ method: "POST" })
       };
     }) => payload,
   )
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveDailyFinanceImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveDailyFinanceImpl));
 
-export type TransactionsStore = {
-  transactions: Transaction[];
-  updatedAt: number;
-};
-
-export const loadTransactions = createServerFn({ method: "GET" }).handler(async () => {
-  await requireAuthSession();
-  return impl.loadTransactionsImpl();
-});
+export const loadTransactions = createServerFn({ method: "GET" }).handler(() =>
+  withDomainAuth(impl.loadTransactionsImpl),
+);
 
 export const appendTransaction = createServerFn({ method: "POST" })
   .validator((transaction: Omit<Transaction, "id" | "createdAt">) => transaction)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.appendTransactionImpl(data);
-  });
-
-/* =========================================
-   PRODUCTIVITY TASKS (unified)
-   ========================================= */
-
-/** Daily productivity file: assistant/brian/productivity-tasks/{date}.json */
-export type ProductivityTasksPayload = {
-  tasks: ProductivityTask[];
-  updatedAt: number;
-};
+  .handler(({ data }) => withDomainAuthData(data, impl.appendTransactionImpl));
 
 export const loadProductivityTasksForDay = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data: date }) => {
-    await requireAuthSession();
-    return impl.loadProductivityTasksForDayImpl(date);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.loadProductivityTasksForDayImpl));
 
 export const saveProductivityTasksForDay = createServerFn({ method: "POST" })
   .validator((data: { date: ISODate; tasks: ProductivityTask[] }) => data)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveProductivityTasksForDayImpl(data);
-  });
-
-/* =========================================
-   DAILY PLAN + FOCUS + WEEKLY REVIEW
-   ========================================= */
-
-export type DailyPlanPayload = DailyPlan & { updatedAt: number };
+  .handler(({ data }) => withDomainAuthData(data, impl.saveProductivityTasksForDayImpl));
 
 export const loadDailyPlan = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data: date }) => {
-    await requireAuthSession();
-    return impl.loadDailyPlanImpl(date);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.loadDailyPlanImpl));
 
 export const saveDailyPlan = createServerFn({ method: "POST" })
   .validator((plan: DailyPlan) => plan)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveDailyPlanImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveDailyPlanImpl));
 
 export const loadDailyFocusScore = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data: date }) => {
-    await requireAuthSession();
-    return impl.loadDailyFocusScoreImpl(date);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.loadDailyFocusScoreImpl));
 
 export const saveDailyFocusScore = createServerFn({ method: "POST" })
   .validator((score: DailyFocusScore) => score)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveDailyFocusScoreImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveDailyFocusScoreImpl));
 
 export const loadWeeklyReview = createServerFn({ method: "GET" })
   .validator((week: ISOWeek) => week)
-  .handler(async ({ data: week }) => {
-    await requireAuthSession();
-    return impl.loadWeeklyReviewImpl(week);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.loadWeeklyReviewImpl));
 
 export const saveWeeklyReview = createServerFn({ method: "POST" })
   .validator((review: WeeklyReview) => review)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveWeeklyReviewImpl(data);
-  });
-
-/* =========================================
-   DAILY DASHBOARD LOADER (ADR-005)
-   Unified snapshot + events (jsonl) for current day
-   ========================================= */
-
-export interface DailyActivity {
-  interactions: AIInteraction[];
-  transcripts: VoiceTranscript[];
-}
-
-export type DailyDashboardPayload = {
-  date: ISODate;
-  nutrition: DailyNutritionPayload | null;
-  finance: DailyFinancePayload | null;
-  productivity: ProductivityTasksPayload;
-  plan: DailyPlanPayload | null;
-  focus: (DailyFocusScore & { updatedAt: number }) | null;
-  recent: DailyActivity;
-};
+  .handler(({ data }) => withDomainAuthData(data, impl.saveWeeklyReviewImpl));
 
 export const loadDailyDashboard = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
-  .handler(async ({ data: date }): Promise<DailyDashboardPayload> => {
-    await requireAuthSession();
-    return impl.loadDailyDashboardImpl(date);
-  });
-
-/* =========================================
-   AI + VOICE LOGS (append-only)
-   ========================================= */
+  .handler(({ data }) => withDomainAuthData(data, impl.loadDailyDashboardImpl));
 
 export const appendAIInteraction = createServerFn({ method: "POST" })
   .validator(
     (interaction: Omit<AIInteraction, "id" | "createdAt" | "updatedAt" | "deletedAt">) =>
       interaction,
   )
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.appendAIInteractionImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.appendAIInteractionImpl));
 
 export const appendVoiceTranscript = createServerFn({ method: "POST" })
   .validator(
     (transcript: Omit<VoiceTranscript, "id" | "createdAt" | "updatedAt" | "deletedAt">) =>
       transcript,
   )
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.appendVoiceTranscriptImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.appendVoiceTranscriptImpl));
 
-/* =========================================
-   ADR-004: Voice Interaction Pipeline (STT -> Intent -> Action)
-   ========================================= */
-
-/** Lightweight intent used for confirmation + execution. */
-export type { VoiceIntent } from "@/lib/domain";
-export type { VoiceProcessResult } from "@/server/domain-impl";
-
-/** Main entry for the voice pipeline. Persists transcript + interaction + executes. */
 export const processVoiceInput = createServerFn({ method: "POST" })
   .validator((data: { transcriptText: string; language?: string; forceExecute?: boolean }) => data)
-  .handler(async ({ data }): Promise<VoiceProcessResult> => {
-    await requireAuthSession();
-    return impl.processVoiceInputImpl(data);
-  });
+  .handler(
+    ({ data }): Promise<VoiceProcessResult> => withDomainAuthData(data, impl.processVoiceInputImpl),
+  );
 
-/* =========================================
-   EXERCISE LIBRARY (long-lived ref)
-   ========================================= */
-
-export const loadExerciseLibrary = createServerFn({ method: "GET" }).handler(async () => {
-  await requireAuthSession();
-  return impl.loadExerciseLibraryImpl();
-});
+export const loadExerciseLibrary = createServerFn({ method: "GET" }).handler(() =>
+  withDomainAuth(impl.loadExerciseLibraryImpl),
+);
 
 export const saveExerciseLibrary = createServerFn({ method: "POST" })
   .validator((lib: ExerciseLibrary) => lib)
-  .handler(async ({ data }) => {
-    await requireAuthSession();
-    return impl.saveExerciseLibraryImpl(data);
-  });
+  .handler(({ data }) => withDomainAuthData(data, impl.saveExerciseLibraryImpl));
 
-/* =========================================
-   SOFT DELETE + HARD-DELETE SUPPORT (ADR-003)
-   ========================================= */
-
-/**
- * Record that a top-level R2 object (daily aggregate file or ref store) was soft-deleted
- * or contains soft-deleted content. Used to feed the sharded delete index.
- */
 export async function recordSoftDeletedKey(
   key: string,
   deletedAt: number = Date.now(),
@@ -352,9 +201,6 @@ export async function recordSoftDeletedKey(
   return impl.recordSoftDeletedKeyImpl(key, deletedAt, domain);
 }
 
-/** Mark entity deleted (by id) inside a collection store. Writes back.
- *  Also records the container key in the day's soft-delete index shard (best-effort).
- */
 export async function softDeleteInStore<T extends BaseEntity>(
   _storeName: string,
   id: string,
@@ -366,15 +212,6 @@ export async function softDeleteInStore<T extends BaseEntity>(
   return impl.softDeleteInStoreImpl(id, loadFn, saveFn, containerKey, domainHint);
 }
 
-/**
- * Hard-delete maintenance (ADR-003).
- * Scans the most recent `days` delete index shards and permanently deletes
- * any objects whose deletedAt is older than 7 days.
- * After processing a shard older than the retention window, the shard itself is removed.
- *
- * Safe to call periodically (e.g. from a scheduled Worker or manually).
- * Returns a summary of actions taken.
- */
 export async function runHardDeleteMaintenance(daysBack = 8): Promise<{
   shardsScanned: string[];
   objectsDeleted: string[];
