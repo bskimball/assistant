@@ -1,4 +1,5 @@
 let localDevVars: Map<string, string> | null | undefined;
+let localPlatformEnv: Record<string, unknown> | null | undefined;
 
 export async function getCloudflareEnv(): Promise<Record<string, unknown> | undefined> {
   try {
@@ -54,5 +55,36 @@ export async function getServerEnvVar(key: string): Promise<string | undefined> 
 
 export async function getCloudflareBinding<T>(key: string): Promise<T | undefined> {
   const cfEnv = await getCloudflareEnv();
-  return cfEnv?.[key] as T | undefined;
+  const fromCf = cfEnv?.[key];
+  if (fromCf) return fromCf as T;
+  const localEnv = await getLocalPlatformEnv();
+  return localEnv?.[key] as T | undefined;
+}
+
+async function getLocalPlatformEnv(): Promise<Record<string, unknown> | undefined> {
+  if (localPlatformEnv !== undefined) return localPlatformEnv ?? undefined;
+  localPlatformEnv = null;
+  if (typeof process === "undefined" || process.env?.NODE_ENV === "production") {
+    return undefined;
+  }
+
+  try {
+    const wrangler = (await import("wrangler")) as {
+      getPlatformProxy?: (options?: {
+        configPath?: string;
+        persist?: boolean;
+        remoteBindings?: boolean;
+      }) => Promise<{ env?: Record<string, unknown> }>;
+    };
+    const proxy = await wrangler.getPlatformProxy?.({
+      configPath: "wrangler.jsonc",
+      persist: true,
+      remoteBindings: false,
+    });
+    localPlatformEnv = proxy?.env ?? null;
+  } catch {
+    localPlatformEnv = null;
+  }
+
+  return localPlatformEnv ?? undefined;
 }

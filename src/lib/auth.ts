@@ -17,6 +17,7 @@ import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { passkey } from "@better-auth/passkey";
 import { getDb } from "@/server/adapters/d1";
+import { getCloudflareEnv, getServerEnvVar } from "@/server/env";
 
 let _auth: ReturnType<typeof buildAuth> | null = null;
 
@@ -34,6 +35,10 @@ function getEnvValue(env: EnvLike, key: string): string | undefined {
   if (typeof process !== "undefined" && process.env?.[key]) return process.env[key];
   const g = (globalThis as Record<string, unknown>)[key];
   return typeof g === "string" && g ? g : undefined;
+}
+
+async function getAuthEnvValue(key: string): Promise<string | undefined> {
+  return getServerEnvVar(key);
 }
 
 function normalizeEmail(email: string | null | undefined): string {
@@ -71,20 +76,11 @@ export function isLocalDevRequest(request?: Request): boolean {
 }
 
 export async function isAuthConfigured(): Promise<boolean> {
-  try {
-    const { env } = await import("cloudflare:workers");
-    return !!(
-      getEnvValue(env, "GOOGLE_CLIENT_ID") &&
-      getEnvValue(env, "GOOGLE_CLIENT_SECRET") &&
-      getEnvValue(env, "BETTER_AUTH_SECRET")
-    );
-  } catch {
-    return !!(
-      getEnvValue(undefined, "GOOGLE_CLIENT_ID") &&
-      getEnvValue(undefined, "GOOGLE_CLIENT_SECRET") &&
-      getEnvValue(undefined, "BETTER_AUTH_SECRET")
-    );
-  }
+  return !!(
+    (await getAuthEnvValue("GOOGLE_CLIENT_ID")) &&
+    (await getAuthEnvValue("GOOGLE_CLIENT_SECRET")) &&
+    (await getAuthEnvValue("BETTER_AUTH_SECRET"))
+  );
 }
 
 export async function requireAuthSession(request?: Request): Promise<Session | null> {
@@ -123,7 +119,7 @@ export async function requireAuthSession(request?: Request): Promise<Session | n
 export async function getAuth() {
   if (_auth) return _auth;
 
-  const { env } = await import("cloudflare:workers");
+  const env = await getCloudflareEnv();
 
   // Reuse the shared drizzle instance (now includes domain + auth tables from schema)
   const db = await getDb();
