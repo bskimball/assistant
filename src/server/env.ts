@@ -1,13 +1,24 @@
-import { env as cloudflareEnv } from "cloudflare:workers";
-
 type CloudflareEnvRecord = Partial<CloudflareEnv> & Record<string, unknown>;
+type CloudflareWorkersModule = { env?: CloudflareEnvRecord };
 
-export function getCloudflareEnv(): CloudflareEnvRecord {
-  return cloudflareEnv as CloudflareEnvRecord;
+const cloudflareWorkersModuleName = "cloudflare:workers";
+
+let cloudflareEnvPromise: Promise<CloudflareEnvRecord> | null = null;
+
+export async function getCloudflareEnv(): Promise<CloudflareEnvRecord> {
+  if (typeof window !== "undefined") {
+    return {};
+  }
+
+  cloudflareEnvPromise ??= import(cloudflareWorkersModuleName)
+    .then((mod) => ((mod as CloudflareWorkersModule).env ?? {}) as CloudflareEnvRecord)
+    .catch(() => ({}));
+
+  return cloudflareEnvPromise;
 }
 
 export async function getServerEnvVar(key: string): Promise<string | undefined> {
-  const cfEnv = getCloudflareEnv();
+  const cfEnv = await getCloudflareEnv();
   const fromCf = cfEnv[key];
   if (typeof fromCf === "string" && fromCf.length > 0) return fromCf;
 
@@ -22,5 +33,5 @@ export async function getServerEnvVar(key: string): Promise<string | undefined> 
 }
 
 export async function getCloudflareBinding<T>(key: string): Promise<T | undefined> {
-  return getCloudflareEnv()[key] as T | undefined;
+  return (await getCloudflareEnv())[key] as T | undefined;
 }
