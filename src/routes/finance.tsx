@@ -54,6 +54,8 @@ import {
   generateFinanceAdvice,
   acceptFinanceActions,
   refreshQuotes,
+  backfillSimplefinHistory,
+  undoSimplefinHistory,
   connectSimplefin,
   disconnectSimplefin,
   saveSimplefinMappings,
@@ -727,6 +729,34 @@ function SimplefinConnectionsCard({
     }
   }
 
+  async function backfillHistory(accountId: string) {
+    setBusy(true);
+    try {
+      const result = await backfillSimplefinHistory({ data: { accountId } });
+      await onChange();
+      flash(result.message);
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t import account history.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoHistory(accountId: string) {
+    setBusy(true);
+    try {
+      const result = await undoSimplefinHistory({ data: { accountId } });
+      await onChange();
+      flash(result.message);
+    } catch (err: any) {
+      console.error(err);
+      flash(err?.message || "Couldn’t undo the history import.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function linkLoan(accountId: string, subscriptionId: string) {
     setBusy(true);
     try {
@@ -858,6 +888,41 @@ function SimplefinConnectionsCard({
                             Save alias
                           </Button>
                         </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {status.accountCutovers[account.id] ? (
+                          <>
+                            <span className="text-[11px] text-muted-foreground">
+                              History imported since {status.accountCutovers[account.id]}
+                            </span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-[11px]"
+                              onClick={() => undoHistory(account.id)}
+                              disabled={busy}
+                            >
+                              Undo
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => backfillHistory(account.id)}
+                              disabled={busy}
+                            >
+                              Import 90-day history
+                            </Button>
+                            <span className="text-[11px] text-muted-foreground">
+                              Feeds recurring-charge detection. Skip if you already CSV-imported
+                              this account — it could double-count.
+                            </span>
+                          </>
+                        )}
                       </div>
                       {status.loanOptions.length > 0 && (
                         <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center">
@@ -2550,8 +2615,9 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
             </ul>
           ) : (
             <div className="text-sm text-muted-foreground">
-              No holdings yet. Add Robinhood positions and your ADP 401k balance (enter it as a
-              holding, e.g. symbol “401K”).
+              No holdings yet. Brokerage positions (Robinhood) arrive automatically with each
+              SimpleFIN sync; add anything else manually (e.g. your ADP 401k balance as symbol
+              “401K”).
             </div>
           )}
           <form onSubmit={addPosition} className="mt-4 flex flex-wrap items-center gap-2">

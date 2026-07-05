@@ -6,7 +6,7 @@
  * ADR-017 before `getDomainStore({ shared: true })` can be used.
  */
 
-import type { AccountBalance, ISODate, Subscription, Transaction } from "@/lib/domain";
+import type { AccountBalance, ISODate, Position, Subscription, Transaction } from "@/lib/domain";
 import { addDaysISO, newId, todayISO } from "@/lib/domain";
 import {
   claimSetupToken,
@@ -20,7 +20,7 @@ import {
 import { categorize } from "@/server/finance-parse";
 import {
   loadCategoryRulesImpl,
-  loadDailyFinanceImpl,
+  loadLatestDailyFinanceImpl,
   loadSubscriptionsImpl,
   saveDailyFinanceImpl,
   saveSubscriptionsImpl,
@@ -30,6 +30,8 @@ import { getDomainStore } from "@/server/store";
 
 const SIMPLEFIN_REF = "simplefin.json";
 const MANUAL_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+/** SimpleFIN Bridge caps transaction history at 90 days per request. */
+const BACKFILL_DAYS = 90;
 
 export interface SimplefinAccountSyncStatus {
   ok: boolean;
@@ -60,8 +62,12 @@ export interface SimplefinSeenAccount {
 export interface SimplefinState {
   sealedAccessUrl?: string;
   cutoverDate?: ISODate;
+  /** Per-account cutover overrides (set by history backfill); earlier than cutoverDate. */
+  accountCutovers?: Record<string, ISODate>;
   aliases: Record<string, string>;
   loanLinks: Record<string, string>;
+  /** Symbols written by the last holdings sync, so sold positions get removed. */
+  lastSyncedSymbols?: string[];
   lastSync?: SimplefinLastSync;
   lastAccounts?: SimplefinSeenAccount[];
   updatedAt?: number;
@@ -70,6 +76,7 @@ export interface SimplefinState {
 export interface SimplefinPublicStatus {
   connected: boolean;
   cutoverDate?: ISODate;
+  accountCutovers: Record<string, ISODate>;
   aliases: Record<string, string>;
   loanLinks: Record<string, string>;
   lastSync?: SimplefinLastSync;
@@ -126,6 +133,7 @@ export async function getSimplefinStatusImpl(): Promise<SimplefinPublicStatus> {
   return {
     connected: !!state.sealedAccessUrl,
     cutoverDate: state.cutoverDate,
+    accountCutovers: state.accountCutovers ?? {},
     aliases: state.aliases,
     loanLinks: state.loanLinks,
     lastSync: state.lastSync,
@@ -195,6 +203,68 @@ function displayNameFor(account: SimplefinAccount, state: SimplefinState): strin
 export function parseSimplefinMoney(value: string): number {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+/**
+ * Flatten brokerage holdings across all accounts into snapshot positions,
+ * aggregating duplicate symbols. Positions are display-only (allocation +
+ * quote refresh); net worth still comes from account balances alone (ADR-019
+ * §5), so this never double-counts.
+ */
+export function positionsFromHoldings(payload: SimplefinPayload): Position[] {
+  const bySymbol = new Map<string, Position>();
+  for (const account of payload.accounts) {
+    for (const holding of account.holdings ?? []) {
+      const symbol = holding.symbol?.trim().toUpperCase();
+      const quantity = Number(holding.shares);
+      const value = parseSimplefinMoney(holding.market_value);
+      if (!symbol || !Number.isFinite(quantity) || quantity <= 0 || value <= 0) continue;
+      const prev = bySymbol.get(symbol);
+      const totalQuantity = (prev?.quantity ?? 0) + quantity;
+      const totalValue = Math.round(((prev?.value ?? 0) + value) * 100) / 100;
+      bySymbol.set(symbol, {
+        symbol,
+        quantity: totalQuantity,
+        value: totalValue,
+        price: totalQuantity ? Math.round((totalValue / totalQuantity) * 100) / 100 : 0,
+      });
+    }
+  }
+  return [...bySymbol.values()].sort((a, b) => b.value - a.value);
+}
+
+/**
+ * Merge synced balances with the current snapshot's accounts. Manual accounts
+ * pass through, but rows written by a previous sync under a *different* alias
+ * (the account was renamed) are dropped — otherwise a rename double-counts the
+ * account. `staleNames` must only contain previous display names of accounts
+ * present in the current payload, so a partially-failed sync still keeps
+ * last-known balances for accounts the Bridge omitted (ADR-019 §6).
+ */
+export function mergeAccountBalances(
+  synced: AccountBalance[],
+  existing: AccountBalance[],
+  staleNames: string[],
+): AccountBalance[] {
+  const drop = new Set(
+    [...synced.map((a) => a.account), ...staleNames].map((n) => n.toLowerCase()),
+  );
+  return [...synced, ...existing.filter((a) => !drop.has(a.account.toLowerCase()))];
+}
+
+/**
+ * Synced holdings replace manual entries per symbol; manual positions for
+ * anything SimpleFIN doesn't cover (e.g. ADP 401k) pass through. Symbols the
+ * previous sync wrote but that no longer appear were sold — drop them.
+ */
+export function mergePositions(
+  synced: Position[],
+  existing: Position[],
+  previousSyncedSymbols: string[],
+): Position[] {
+  const owned = new Set([...synced.map((p) => p.symbol), ...previousSyncedSymbols]);
+  const manual = existing.filter((p) => !owned.has((p.symbol || "").trim().toUpperCase()));
+  return [...synced, ...manual];
 }
 
 function accountBalanceFor(account: SimplefinAccount, state: SimplefinState): AccountBalance {
@@ -292,8 +362,7 @@ async function ingestTransactions(
   state: SimplefinState,
   payload: SimplefinPayload,
 ): Promise<number> {
-  const cutoverDate = state.cutoverDate;
-  if (!cutoverDate) return 0;
+  if (!state.cutoverDate && !Object.keys(state.accountCutovers ?? {}).length) return 0;
   const rules = (await loadCategoryRulesImpl()).rules;
   const now = Date.now();
   let added = 0;
@@ -309,6 +378,8 @@ async function ingestTransactions(
     const next: Transaction[] = [...transactions];
     for (const account of payload.accounts) {
       const accountName = displayNameFor(account, state);
+      const cutoverDate = state.accountCutovers?.[account.id] ?? state.cutoverDate;
+      if (!cutoverDate) continue;
       for (const sfinTxn of account.transactions ?? []) {
         if (sfinTxn.pending || !sfinTxn.posted) continue;
         if (dayFromUnixSeconds(sfinTxn.posted) < cutoverDate) continue;
@@ -339,6 +410,19 @@ async function ingestTransactions(
   return added;
 }
 
+async function resolveAccessUrl(
+  state: SimplefinState,
+): Promise<{ accessUrl?: string; error: string }> {
+  const sealKey = await getSimplefinSealKey();
+  if (!state.sealedAccessUrl) return { error: "SimpleFIN is not connected." };
+  if (!sealKey) return { error: "SIMPLEFIN_SEAL_KEY is not configured." };
+  try {
+    return { accessUrl: await openSecret(state.sealedAccessUrl, sealKey), error: "" };
+  } catch {
+    return { error: "Stored SimpleFIN credential could not be opened." };
+  }
+}
+
 export async function runSimplefinSyncImpl(args: {
   manual: boolean;
   force?: boolean;
@@ -357,11 +441,9 @@ export async function runSimplefinSyncImpl(args: {
     }
   }
 
-  const sealKey = await getSimplefinSealKey();
-  if (!state.sealedAccessUrl || !sealKey) {
-    const message = !state.sealedAccessUrl
-      ? "SimpleFIN is not connected."
-      : "SIMPLEFIN_SEAL_KEY is not configured.";
+  const resolved = await resolveAccessUrl(state);
+  if (!resolved.accessUrl) {
+    const message = resolved.error;
     await updateSimplefinState((current) => ({
       ...current,
       lastSync: {
@@ -379,29 +461,7 @@ export async function runSimplefinSyncImpl(args: {
       transactionCount: 0,
     };
   }
-
-  let accessUrl: string;
-  try {
-    accessUrl = await openSecret(state.sealedAccessUrl, sealKey);
-  } catch {
-    const message = "Stored SimpleFIN credential could not be opened.";
-    await updateSimplefinState((current) => ({
-      ...current,
-      lastSync: {
-        at: startedAt,
-        ok: false,
-        manual: args.manual,
-        message,
-        accounts: {},
-      },
-    }));
-    return {
-      ok: false,
-      message,
-      status: await getSimplefinStatusImpl(),
-      transactionCount: 0,
-    };
-  }
+  const accessUrl = resolved.accessUrl;
 
   const effectiveCutover = state.cutoverDate ?? todayISO();
   const fetchResult = await fetchAccounts(accessUrl, {
@@ -434,20 +494,26 @@ export async function runSimplefinSyncImpl(args: {
   const transactionCount = await ingestTransactions(syncState, fetchResult.payload);
 
   const today = todayISO();
-  const currentSnapshot = await loadDailyFinanceImpl(today);
+  const { snapshot: currentSnapshot } = await loadLatestDailyFinanceImpl(today);
   const syncedBalances = fetchResult.payload.accounts.map((a) => accountBalanceFor(a, syncState));
-  const syncedNames = new Set(syncedBalances.map((a) => a.account.toLowerCase()));
-  const manualBalances = (currentSnapshot.accounts || []).filter(
-    (a) => !syncedNames.has(a.account.toLowerCase()),
-  );
-  const accounts = [...syncedBalances, ...manualBalances];
+  const syncedIds = new Set(fetchResult.payload.accounts.map((a) => a.id));
+  const staleNames = (state.lastAccounts ?? [])
+    .filter((prev) => syncedIds.has(prev.id))
+    .map((prev) => prev.displayName);
+  const accounts = mergeAccountBalances(syncedBalances, currentSnapshot.accounts || [], staleNames);
   const netWorth = accounts.reduce((sum, account) => sum + account.amount, 0);
+  const syncedPositions = positionsFromHoldings(fetchResult.payload);
+  const positions = mergePositions(
+    syncedPositions,
+    currentSnapshot.positions || [],
+    state.lastSyncedSymbols ?? [],
+  );
   await saveDailyFinanceImpl({
     date: today,
     finance: {
       date: today,
       accounts,
-      positions: currentSnapshot.positions || [],
+      positions,
       netWorth,
     },
   });
@@ -467,6 +533,7 @@ export async function runSimplefinSyncImpl(args: {
       Object.entries(current.loanLinks ?? {}).filter(([accountId]) => !deadLinks[accountId]),
     ),
     lastAccounts: fetchResult.payload!.accounts.map((a) => seenAccountFor(a, syncState)),
+    lastSyncedSymbols: syncedPositions.map((p) => p.symbol),
     lastSync: {
       at: startedAt,
       ok: bridgeErrors.length === 0,
@@ -482,6 +549,106 @@ export async function runSimplefinSyncImpl(args: {
     message,
     status: await getSimplefinStatusImpl(),
     transactionCount,
+  };
+}
+
+export interface SimplefinBackfillResult {
+  ok: boolean;
+  message: string;
+  added: number;
+}
+
+/**
+ * One-time deep pull for a single account: ingest up to 90 days of history
+ * (the Bridge's cap) so recurring-charge detection has enough repeats to work
+ * with. Explicitly per-account because the global cutover exists to protect
+ * accounts with CSV-imported history from double-counting — only backfill
+ * accounts whose statements were never imported.
+ */
+export async function backfillSimplefinHistoryImpl(
+  accountId: string,
+): Promise<SimplefinBackfillResult> {
+  const state = await loadSimplefinStateImpl();
+  const resolved = await resolveAccessUrl(state);
+  if (!resolved.accessUrl) return { ok: false, message: resolved.error, added: 0 };
+
+  const startSeconds = Math.floor(Date.now() / 1000) - BACKFILL_DAYS * 24 * 60 * 60;
+  const backfillDay = dayFromUnixSeconds(startSeconds);
+  const fetchResult = await fetchAccounts(resolved.accessUrl, { startDate: startSeconds });
+  if (!fetchResult.payload) {
+    return { ok: false, message: fetchResult.error || "SimpleFIN history fetch failed.", added: 0 };
+  }
+  const account = fetchResult.payload.accounts.find((a) => a.id === accountId);
+  if (!account) {
+    return { ok: false, message: "Account not found in the SimpleFIN payload.", added: 0 };
+  }
+
+  const backfillState: SimplefinState = {
+    ...state,
+    accountCutovers: { ...state.accountCutovers, [accountId]: backfillDay },
+  };
+  const added = await ingestTransactions(backfillState, {
+    ...fetchResult.payload,
+    accounts: [account],
+  });
+
+  // Persist the earlier cutover so daily syncs keep accepting this window and
+  // re-running the backfill stays idempotent (sfin-id dedupe absorbs re-pulls).
+  await updateSimplefinState((current) => {
+    const existing = current.accountCutovers?.[accountId];
+    if (existing && existing <= backfillDay) return current;
+    return {
+      ...current,
+      accountCutovers: { ...current.accountCutovers, [accountId]: backfillDay },
+    };
+  });
+
+  return {
+    ok: true,
+    message: `Imported ${added} transaction(s) since ${backfillDay} for ${displayNameFor(account, state)}.`,
+    added,
+  };
+}
+
+/** True for rows a history backfill added: synced, this account, before the global cutover. */
+export function isBackfilledTransaction(
+  t: Transaction,
+  accountId: string,
+  cutoverDate: ISODate | undefined,
+): boolean {
+  if (t.source !== "sync" || !t.dedupeKey?.startsWith(`sfin:${accountId}:`)) return false;
+  if (!cutoverDate) return true;
+  return (new Date(t.timestamp).toISOString().slice(0, 10) as ISODate) < cutoverDate;
+}
+
+/**
+ * Reverse a history backfill: soft-delete the pre-cutover synced rows for the
+ * account and drop its cutover override. Escape hatch for backfilling an
+ * account whose statements were already CSV-imported (double-counted rows).
+ */
+export async function undoSimplefinBackfillImpl(
+  accountId: string,
+): Promise<SimplefinBackfillResult> {
+  const state = await loadSimplefinStateImpl();
+  const now = Date.now();
+  let removed = 0;
+  await updateTransactionsImpl((transactions) => {
+    removed = 0;
+    return transactions.map((t) => {
+      if (t.deletedAt || !isBackfilledTransaction(t, accountId, state.cutoverDate)) return t;
+      removed++;
+      return { ...t, deletedAt: now, updatedAt: now };
+    });
+  });
+  await updateSimplefinState((current) => {
+    const accountCutovers = { ...current.accountCutovers };
+    delete accountCutovers[accountId];
+    return { ...current, accountCutovers };
+  });
+  return {
+    ok: true,
+    message: `Removed ${removed} backfilled transaction(s).`,
+    added: -removed,
   };
 }
 

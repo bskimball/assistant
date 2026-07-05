@@ -89,6 +89,15 @@ Consistent with every external path in this app: a failed or partial sync (Bridg
 - _Access URL leakage_ → sealed at rest (§1), server-only, rotatable in minutes via a fresh setup token.
 - _Bridge/MX drops an institution_ → CSV import path is retained as the universal fallback.
 
+## Amendment (2026-07-05): holdings sync + per-account history backfill
+
+Two post-ship corrections to the original scope:
+
+1. **Brokerage holdings sync.** "Robinhood share counts stay manual" turned out to be wrong: the Bridge's v2 payload includes a `holdings[]` array (symbol, shares, market_value) for brokerage and crypto accounts. Each sync now maps holdings into `DailyFinanceSnapshot.positions[]` — synced symbols replace manual entries, manual-only positions (e.g. ADP 401k) pass through, and symbols that disappear from holdings (sold) are dropped via a `lastSyncedSymbols` record in `simplefin.json`. §5's rule is unchanged: `netWorth` still sums account balances only; positions remain display-only, so no double-counting.
+2. **Per-account history backfill.** The single global cutover date starves recurring-charge detection for accounts linked without CSV history (a new account contributes days, not months, of transactions). `simplefin.json` gains `accountCutovers` (account id → ISO date), and a per-account **"Import 90-day history"** action in the Connections card fetches the Bridge's maximum window (90 days) and ingests that one account's transactions from an earlier cutover. Deliberately explicit, not automatic: backfill is only safe for accounts whose statements were never CSV-imported (SimpleFIN ids can't dedupe against CSV hash keys), and the UI says so.
+
+Also fixed here: the sync previously seeded today's snapshot from `loadDailyFinanceImpl(today)`, which returns an empty snapshot on a new day — wiping manually entered positions. It now reads through the same carry-forward loader as the finance hub (`loadLatestDailyFinanceImpl`).
+
 ## Alternatives Considered
 
 1. **Plaid (pay-as-you-go)** — richer (Rocket mortgage detail, Robinhood positions, real-time), but higher cost (~$23+/yr), Production-approval + OAuth-registration friction, per-call Balance billing footgun, and 5–10× the integration/upkeep code — for capabilities outside the app's daily-granularity core loop. Revisit only if mortgage-detail or share-count sync becomes a real want; Plaid can slot in **beside** SimpleFIN behind the same interfaces for a single Item (~$0.20/mo).

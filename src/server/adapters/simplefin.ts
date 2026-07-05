@@ -30,6 +30,18 @@ export interface SimplefinTransaction {
   pending?: boolean;
 }
 
+export interface SimplefinHolding {
+  id: string;
+  created?: number;
+  currency?: string;
+  cost_basis?: string;
+  description?: string;
+  market_value: string;
+  purchase_price?: string;
+  shares: string;
+  symbol?: string;
+}
+
 export interface SimplefinAccount {
   id: string;
   name: string;
@@ -40,6 +52,7 @@ export interface SimplefinAccount {
   balance: string;
   "balance-date": number;
   transactions?: SimplefinTransaction[];
+  holdings?: SimplefinHolding[];
 }
 
 export interface SimplefinPayload {

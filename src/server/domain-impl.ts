@@ -322,6 +322,39 @@ export async function loadDailyFinanceImpl(date: ISODate): Promise<DailyFinanceP
   };
 }
 
+/**
+ * Latest snapshot on or before `date` (carry-forward). Sync and the hub both
+ * read through this so a new day starts from yesterday's accounts/positions
+ * instead of an empty snapshot.
+ */
+export async function loadLatestDailyFinanceImpl(
+  date: ISODate,
+): Promise<{ snapshot: DailyFinancePayload; sourceDate: ISODate }> {
+  const store = await getDomainStore({ shared: true });
+  const exact = await store.daily.get<DailyFinancePayload>("daily-finance", date);
+  if (exact) return { snapshot: exact, sourceDate: date };
+
+  const { getUserPrefix, listKeys } = await import("@/server/adapters/r2");
+  const { HOUSEHOLD_ID } = await import("@/lib/scope");
+  const prefix = `${getUserPrefix(HOUSEHOLD_ID)}/daily-finance/`;
+  const dates = (await listKeys(prefix))
+    .map((key) => key.match(/\/daily-finance\/(\d{4}-\d{2}-\d{2})\.json$/)?.[1])
+    .filter((d): d is ISODate => !!d && d <= date)
+    .sort((a, b) => b.localeCompare(a));
+
+  for (const sourceDate of dates) {
+    const snapshot = await store.daily.get<DailyFinancePayload>("daily-finance", sourceDate);
+    if (snapshot) {
+      return {
+        snapshot: { ...snapshot, id: `finance-${date}`, date },
+        sourceDate,
+      };
+    }
+  }
+
+  return { snapshot: await loadDailyFinanceImpl(date), sourceDate: date };
+}
+
 export async function saveDailyFinanceImpl(data: {
   date: ISODate;
   finance: Omit<

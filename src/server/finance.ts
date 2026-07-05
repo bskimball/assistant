@@ -48,12 +48,15 @@ import {
   type MonthBuckets,
 } from "@/lib/finance-math";
 import {
+  backfillSimplefinHistoryImpl,
   connectSimplefinImpl,
   disconnectSimplefinImpl,
   getSimplefinStatusImpl,
   loanOptionsForStatus,
   runSimplefinSyncImpl,
   saveSimplefinMappingsImpl,
+  undoSimplefinBackfillImpl,
+  type SimplefinBackfillResult,
   type SimplefinPublicStatus,
   type SimplefinSyncResult,
 } from "@/server/finance-sync";
@@ -66,15 +69,13 @@ import {
   updateCategoryRulesImpl,
   loadTransactionsImpl,
   updateTransactionsImpl,
-  loadDailyFinanceImpl,
+  loadLatestDailyFinanceImpl,
   loadUserProfileImpl,
   loadProductivityTasksForDayImpl,
   saveProductivityTasksForDayImpl,
   type BudgetPayload,
   type DailyFinancePayload,
 } from "@/server/domain-impl";
-import { getDomainStore } from "@/server/store";
-import { HOUSEHOLD_ID } from "@/lib/scope";
 
 /* ============================================================
   IMPORT
@@ -251,6 +252,26 @@ export const syncSimplefinNow = createServerFn({ method: "POST" })
       } as SimplefinStatusPayload,
     };
   });
+
+export const backfillSimplefinHistory = createServerFn({ method: "POST" })
+  .validator((data: { accountId: string }) => data)
+  .handler(
+    async ({ data }): Promise<SimplefinBackfillResult & { status: SimplefinStatusPayload }> => {
+      await requireAuthSession();
+      const result = await backfillSimplefinHistoryImpl(data.accountId);
+      return { ...result, status: await simplefinStatusWithLoans() };
+    },
+  );
+
+export const undoSimplefinHistory = createServerFn({ method: "POST" })
+  .validator((data: { accountId: string }) => data)
+  .handler(
+    async ({ data }): Promise<SimplefinBackfillResult & { status: SimplefinStatusPayload }> => {
+      await requireAuthSession();
+      const result = await undoSimplefinBackfillImpl(data.accountId);
+      return { ...result, status: await simplefinStatusWithLoans() };
+    },
+  );
 
 /* ============================================================
    SUBSCRIPTION DETECTION
@@ -463,32 +484,7 @@ export interface FinanceHubPayload {
 async function loadFinanceSnapshotForHub(
   day: ISODate,
 ): Promise<{ snapshot: DailyFinancePayload; sourceDate: ISODate }> {
-  const store = await getDomainStore({ shared: true });
-  const exact = await store.daily.get<DailyFinancePayload>("daily-finance", day);
-  if (exact) return { snapshot: exact, sourceDate: day };
-
-  const { getUserPrefix, listKeys } = await import("@/server/adapters/r2");
-  const prefix = `${getUserPrefix(HOUSEHOLD_ID)}/daily-finance/`;
-  const dates = (await listKeys(prefix))
-    .map((key) => key.match(/\/daily-finance\/(\d{4}-\d{2}-\d{2})\.json$/)?.[1])
-    .filter((date): date is ISODate => !!date && date <= day)
-    .sort((a, b) => b.localeCompare(a));
-
-  for (const sourceDate of dates) {
-    const snapshot = await store.daily.get<DailyFinancePayload>("daily-finance", sourceDate);
-    if (snapshot) {
-      return {
-        snapshot: {
-          ...snapshot,
-          id: `finance-${day}`,
-          date: day,
-        },
-        sourceDate,
-      };
-    }
-  }
-
-  return { snapshot: await loadDailyFinanceImpl(day), sourceDate: day };
+  return loadLatestDailyFinanceImpl(day);
 }
 
 export const loadFinanceHub = createServerFn({ method: "GET" })
