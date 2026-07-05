@@ -6,6 +6,9 @@
  * blocking page loads or scheduled runs.
  */
 
+import { asArrayBuffer, base64ToBytes, bytesToBase64, decodeBase64Text } from "@/server/encoding";
+import { getServerEnvVar } from "@/server/env";
+
 export interface SimplefinError {
   code?: string;
   msg?: string;
@@ -66,28 +69,6 @@ export interface SimplefinFetchResult {
   payload: SimplefinPayload | null;
   error?: string;
   status?: number;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(base64, "base64"));
-  const binary = atob(base64);
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
-}
-
-function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-function decodeBase64Text(base64: string): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(base64.trim(), "base64").toString("utf8");
-  return new TextDecoder().decode(base64ToBytes(base64.trim()));
 }
 
 async function importAesKey(keyBase64: string): Promise<CryptoKey> {
@@ -241,4 +222,3 @@ export async function fetchAccounts(
     clearTimeout(timer);
   }
 }
-import { getServerEnvVar } from "@/server/env";

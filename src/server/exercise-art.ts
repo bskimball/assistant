@@ -13,22 +13,10 @@
 
 import { getGrokApiKey } from "@/server/adapters/ai";
 import { getObjectBytes, getRefKey, putObject } from "@/server/adapters/r2";
+import { asArrayBuffer, base64ToBytes } from "@/server/encoding";
 
 const IMAGE_MODEL = "grok-imagine-image";
 const DEFAULT_CONTENT_TYPE = "image/png";
-
-/** Stable, filesystem-safe key fragment for an exercise name. */
-export function slugifyExercise(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/['’]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 64) || "exercise"
-  );
-}
 
 function artKey(slug: string): string {
   // assistant/brian/exercise-art/{slug}.png
@@ -47,14 +35,6 @@ function buildPrompt(name: string): string {
     `Flat modern fitness-app icon style on a smooth dark charcoal-slate background. ` +
     `High contrast, no text, no labels, no logos, no equipment branding, no border.`
   );
-}
-
-function base64ToArrayBuffer(b64: string): ArrayBuffer {
-  const binary = atob(b64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
 }
 
 /** Call Grok Imagine and return image bytes + mime type, or null on failure. */
@@ -83,7 +63,7 @@ async function generate(name: string): Promise<{ data: ArrayBuffer; contentType:
     const item = data?.data?.[0];
     if (item?.b64_json) {
       return {
-        data: base64ToArrayBuffer(item.b64_json),
+        data: asArrayBuffer(base64ToBytes(item.b64_json)),
         contentType: item.mime_type || DEFAULT_CONTENT_TYPE,
       };
     }

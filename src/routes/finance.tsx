@@ -1,8 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Reveal, revealDelay } from "@/components/motion";
-import { financeHubQuery, queryKeys, simplefinStatusQuery } from "@/lib/queries";
+import {
+  financeAdviceQuery,
+  financeHubQuery,
+  queryKeys,
+  simplefinStatusQuery,
+} from "@/lib/queries";
 import {
   Wallet,
   PiggyBank,
@@ -28,6 +33,14 @@ import {
   Landmark,
   Receipt,
   Pencil,
+  Activity,
+  CreditCard,
+  Banknote,
+  LineChart,
+  Wallet2,
+  Circle,
+  CheckCircle2,
+  ListChecks,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,7 +64,6 @@ import {
   recategorizeTransaction,
   recategorizeAllTransactions,
   setTransactionExcluded,
-  generateFinanceAdvice,
   acceptFinanceActions,
   refreshQuotes,
   backfillSimplefinHistory,
@@ -83,20 +95,23 @@ import {
   type FinanceAdviceItem,
 } from "@/lib/domain";
 import {
+  buildCashFlowProjection,
+  calculateEmergencyFund,
   recurringAdditionsForMonth,
   recurringAdditionsFromItems,
   recurringItemsForMonth,
+  simulateDebtPayoff,
   transactionsForMonth,
   type BudgetBucket,
   type BudgetRecurringItem,
 } from "@/lib/finance-math";
 
-type TabKey = "overview" | "budget" | "subscriptions" | "investments" | "grow";
+type TabKey = "overview" | "budget" | "recurring" | "investments" | "grow";
 
 const TABS: { key: TabKey; label: string; Icon: typeof Wallet }[] = [
   { key: "overview", label: "Overview", Icon: Wallet },
   { key: "budget", label: "Budget", Icon: PiggyBank },
-  { key: "subscriptions", label: "Recurring", Icon: Repeat },
+  { key: "recurring", label: "Recurring", Icon: Repeat },
   { key: "investments", label: "Investments", Icon: TrendingUp },
   { key: "grow", label: "Grow", Icon: Lightbulb },
 ];
@@ -106,11 +121,18 @@ const INSTITUTIONS = ["Bank of America", "M&T Bank", "Capital One", "Robinhood",
 export const Route = createFileRoute("/finance")({
   validateSearch: (search: Record<string, unknown>): { tab?: TabKey } => {
     const raw = typeof search.tab === "string" ? search.tab : undefined;
-    const valid = TABS.some((t) => t.key === raw) ? (raw as TabKey) : undefined;
+    // Old links used ?tab=subscriptions; keep them working under the new key.
+    const normalized = raw === "subscriptions" ? "recurring" : raw;
+    const valid = TABS.some((t) => t.key === normalized) ? (normalized as TabKey) : undefined;
     return { tab: valid };
   },
-  loader: ({ context: { queryClient } }) =>
-    queryClient.ensureQueryData(financeHubQuery(todayISO())),
+  loader: async ({ context: { queryClient } }) => {
+    const date = todayISO();
+    await Promise.all([
+      queryClient.ensureQueryData(financeHubQuery(date)),
+      queryClient.ensureQueryData(financeAdviceQuery(date)),
+    ]);
+  },
   component: FinancePage,
 });
 
@@ -197,8 +219,10 @@ function FinancePage() {
   // Primed by the route loader; revisits are served from cache (no refetch
   // flash) with a background refresh.
   const { data: hub = null, isPending: loading } = useQuery(financeHubQuery(today));
+  const { data: advice = null } = useQuery(financeAdviceQuery(today));
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<string | null>(null);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tabs call this after a mutation: invalidate → refetch the hub so every view
   // bound to it updates.
@@ -208,9 +232,20 @@ function FinancePage() {
   );
 
   function flash(msg: string, ms = 3500) {
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     setStatus(msg);
-    setTimeout(() => setStatus(null), ms);
+    statusTimerRef.current = setTimeout(() => {
+      setStatus(null);
+      statusTimerRef.current = null;
+    }, ms);
   }
+
+  useEffect(
+    () => () => {
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    },
+    [],
+  );
 
   const netWorth = hub?.snapshot.netWorth ?? 0;
 
@@ -221,8 +256,8 @@ function FinancePage() {
         <div className="mb-5">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Money</div>
           <div className="flex items-end justify-between gap-3">
-            <div className="text-3xl font-semibold tracking-tighter">Finance Hub</div>
-            <div className="text-right">
+            <div className="text-balance text-3xl font-semibold tracking-tighter">Finance Hub</div>
+            <div className="rounded-xl bg-card px-3 py-2 text-right ring-1 ring-foreground/10">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 Net worth
               </div>
@@ -232,7 +267,7 @@ function FinancePage() {
         </div>
 
         {/* Tab bar */}
-        <div className="mb-6 flex gap-1 overflow-x-auto rounded-lg border bg-muted/40 p-1">
+        <div className="mb-6 flex gap-1 overflow-x-auto rounded-lg bg-muted/50 p-1 ring-1 ring-foreground/10">
           {TABS.map(({ key, label, Icon }) => {
             const active = tab === key;
             return (
@@ -244,7 +279,7 @@ function FinancePage() {
                     search: { tab: key === "overview" ? undefined : key },
                   })
                 }
-                className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-3 text-sm font-medium transition-[background-color,color,box-shadow,scale] duration-150 ease-out active:scale-[0.96] ${
                   active
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -257,7 +292,7 @@ function FinancePage() {
         </div>
 
         {status && (
-          <div className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          <div className="mb-4 rounded-lg bg-card px-3 py-2 text-sm text-muted-foreground ring-1 ring-foreground/10">
             {status}
           </div>
         )}
@@ -271,12 +306,18 @@ function FinancePage() {
         ) : (
           <Reveal key={tab}>
             {tab === "overview" && (
-              <OverviewTab hub={hub} today={today} onChange={reload} flash={flash} />
+              <OverviewTab
+                hub={hub}
+                today={today}
+                adviceItems={advice?.items ?? []}
+                onChange={reload}
+                flash={flash}
+              />
             )}
             {tab === "budget" && (
               <BudgetTab hub={hub} month={month} onChange={reload} flash={flash} />
             )}
-            {tab === "subscriptions" && <RecurringTab hub={hub} onChange={reload} flash={flash} />}
+            {tab === "recurring" && <RecurringTab hub={hub} onChange={reload} flash={flash} />}
             {tab === "investments" && (
               <InvestmentsTab hub={hub} today={today} onChange={reload} flash={flash} />
             )}
@@ -296,7 +337,13 @@ type TabProps = {
 
 /* ---------------- Overview ---------------- */
 
-function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string }) {
+function OverviewTab({
+  hub,
+  today,
+  adviceItems,
+  onChange,
+  flash,
+}: TabProps & { today: string; adviceItems: FinanceAdviceItem[] }) {
   const queryClient = useQueryClient();
   const simplefinQuery = useQuery(simplefinStatusQuery());
   const [name, setName] = useState("");
@@ -427,6 +474,158 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
     recurringAdditions.needs + recurringAdditions.wants + recurringAdditions.savings;
   const knownOutflow = spend + plannedRecurring;
   const cashFlow = income - knownOutflow;
+  const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
+  const monthlyNeedsFromStatements = monthTxns
+    .filter((t) => spendBucketOf(t.categoryGroup) === "needs" && !t.excludeFromBudget)
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const monthlyEssentialExpenses = Math.max(
+    monthlyNeedsFromStatements + recurringAdditions.needs,
+    takeHome > 0 ? takeHome * targets.needs : 0,
+  );
+  const cashOnHand = cashLikeBalance(accounts);
+  const recurringSavingsMonthly = hub.subscriptions
+    .filter((s) => s.status === "active" && recurringBudgetBucket(s) === "savings")
+    .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
+  const emergencyContribution = Math.max(0, cashFlow, recurringSavingsMonthly);
+  const emergencyFund = calculateEmergencyFund({
+    monthlyEssentialExpenses,
+    currentSavings: cashOnHand,
+    monthlyContribution: emergencyContribution,
+  });
+
+  // An account is "synced" when its saved name matches a SimpleFIN display name
+  // or a saved alias. Status may be loading/absent — then everything reads manual.
+  const syncedNames = new Set<string>();
+  if (simplefinQuery.data) {
+    for (const acct of simplefinQuery.data.accounts) {
+      if (acct.displayName) syncedNames.add(acct.displayName.toLowerCase());
+      if (acct.name) syncedNames.add(acct.name.toLowerCase());
+    }
+    for (const alias of Object.values(simplefinQuery.data.aliases)) {
+      if (alias) syncedNames.add(alias.toLowerCase());
+    }
+  }
+  const isSyncedAccount = (accountName: string) =>
+    syncedNames.has(accountName.trim().toLowerCase());
+
+  // Group saved balances by inferred type for the single-source-of-truth card.
+  const accountGroups = ACCOUNT_GROUP_META.map((meta) => {
+    const rows = accounts.filter((a) => inferAccountType(a.account) === meta.type);
+    return { ...meta, rows, subtotal: rows.reduce((s, a) => s + a.amount, 0) };
+  }).filter((g) => g.rows.length > 0);
+  const accountsTotal = accounts.reduce((s, a) => s + a.amount, 0);
+
+  // One row of the Accounts card. Kept as a closure so grouped sections can reuse
+  // the inline edit state without prop-drilling it through a child component.
+  const renderAccountRow = (a: AccountBalance) => {
+    const isEditing = editingAccount === a.account;
+    const synced = isSyncedAccount(a.account);
+    return (
+      <li
+        key={a.account}
+        className="rounded-lg px-2 py-2 transition-[background-color] hover:bg-muted/30 sm:flex sm:items-center sm:justify-between"
+      >
+        {isEditing ? (
+          <>
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5rem]">
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                aria-label="Account name"
+                className="h-10 sm:h-8"
+              />
+              <Input
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+                inputMode="decimal"
+                aria-label="Account balance"
+                className="h-10 sm:h-8"
+              />
+              <Input
+                value={editCurrency}
+                onChange={(e) => setEditCurrency(e.target.value)}
+                aria-label="Currency"
+                className="h-10 uppercase sm:h-8"
+                maxLength={3}
+              />
+            </div>
+            <div className="mt-2 flex shrink-0 items-center gap-1 sm:mt-0 sm:pl-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => saveAccountEdit(a.account)}
+                disabled={busy || !editName.trim() || !editAmount}
+                aria-label={`Save ${a.account}`}
+                title="Save account"
+                className="size-10 text-emerald-600 transition-[scale,background-color,color] active:scale-[0.96] dark:text-emerald-400"
+              >
+                <Check className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setEditingAccount(null)}
+                disabled={busy}
+                aria-label={`Cancel editing ${a.account}`}
+                title="Cancel"
+                className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96]"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="truncate">{a.account}</span>
+              <span
+                className="inline-flex shrink-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+                title={synced ? "Synced from your bank connection" : "Entered manually"}
+              >
+                <span
+                  className={`size-1.5 rounded-full ${synced ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                />
+                {synced ? "Synced" : "Manual"}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <span
+                className={`tabular-nums ${a.amount < 0 ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {fmtMoney(a.amount)}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => startEditAccount(a)}
+                disabled={busy}
+                aria-label={`Edit ${a.account}`}
+                title="Edit account"
+                className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96]"
+              >
+                <Pencil className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => removeAccount(a.account)}
+                disabled={busy}
+                aria-label={`Remove ${a.account}`}
+                title="Remove account"
+                className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96] hover:text-destructive"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          </>
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -445,6 +644,8 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
         <Stat label="Known outflow (mo)" value={fmtMoney(knownOutflow)} />
       </div>
 
+      <OverviewAISuggestionsCard items={adviceItems} today={today} flash={flash} />
+
       {plannedRecurring > 0 && (
         <p className="-mt-1 text-xs text-muted-foreground">
           Includes {fmtMoney(plannedRecurring)} of active recurring commitments not seen in imported
@@ -453,13 +654,6 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
       )}
 
       <DataQualityCard hub={hub} today={today} />
-
-      <SimplefinConnectionsCard
-        status={simplefinQuery.data}
-        loading={simplefinQuery.isLoading}
-        onChange={refreshFinanceData}
-        flash={flash}
-      />
 
       <Card>
         <CardHeader>
@@ -475,105 +669,37 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
         <CardContent>
           {accounts.length ? (
             <>
-              <ul className="mb-3 space-y-1 text-sm">
-                {accounts.map((a) => {
-                  const isEditing = editingAccount === a.account;
-                  return (
-                    <li
-                      key={a.account}
-                      className={
-                        "flex flex-col gap-2 border-b border-border/40 py-1.5 last:border-0 sm:flex-row sm:items-center sm:justify-between"
-                      }
-                    >
-                      {isEditing ? (
-                        <>
-                          <div
-                            className={
-                              "grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_5rem]"
-                            }
-                          >
-                            <Input
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                              aria-label="Account name"
-                              className="h-8"
-                            />
-                            <Input
-                              value={editAmount}
-                              onChange={(e) => setEditAmount(e.target.value)}
-                              inputMode="decimal"
-                              aria-label="Account balance"
-                              className="h-8"
-                            />
-                            <Input
-                              value={editCurrency}
-                              onChange={(e) => setEditCurrency(e.target.value)}
-                              aria-label="Currency"
-                              className="h-8 uppercase"
-                              maxLength={3}
-                            />
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => saveAccountEdit(a.account)}
-                              disabled={busy || !editName.trim() || !editAmount}
-                              aria-label={`Save ${a.account}`}
-                              title="Save account"
-                            >
-                              <Check className="size-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => setEditingAccount(null)}
-                              disabled={busy}
-                              aria-label={`Cancel editing ${a.account}`}
-                              title="Cancel"
-                            >
-                              <X className="size-3.5" />
-                            </Button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <span className="min-w-0 flex-1 truncate">{a.account}</span>
-                          <span className="shrink-0 tabular-nums text-muted-foreground">
-                            {fmtMoney(a.amount)}
-                          </span>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => startEditAccount(a)}
-                              disabled={busy}
-                              aria-label={`Edit ${a.account}`}
-                              title="Edit account"
-                            >
-                              <Pencil className="size-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => removeAccount(a.account)}
-                              disabled={busy}
-                              aria-label={`Remove ${a.account}`}
-                              title="Remove account"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="mb-3 space-y-3 text-sm">
+                {accountGroups.map(({ type, label, Icon, rows, subtotal }) => (
+                  <section key={type}>
+                    <div className="mb-0.5 flex items-center justify-between gap-2 border-b border-border/60 pb-1">
+                      <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <Icon className="size-3.5" />
+                        {label}
+                      </h3>
+                      <span
+                        className={`text-xs tabular-nums ${subtotal < 0 ? "text-destructive" : "text-muted-foreground"}`}
+                      >
+                        {fmtMoney(subtotal)}
+                      </span>
+                    </div>
+                    <ul className="space-y-1">{rows.map(renderAccountRow)}</ul>
+                  </section>
+                ))}
+                <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm font-medium">
+                  <span>Accounts total</span>
+                  <span className={`tabular-nums ${accountsTotal < 0 ? "text-destructive" : ""}`}>
+                    {fmtMoney(accountsTotal)}
+                  </span>
+                </div>
+                {Math.round(hub.snapshot.netWorth) !== Math.round(accountsTotal) && (
+                  <p className="!mt-1 text-[11px] text-muted-foreground">
+                    Net worth {fmtMoney(hub.snapshot.netWorth)} also counts{" "}
+                    {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of holdings tracked on the
+                    Investments tab.
+                  </p>
+                )}
+              </div>
               {importedWithoutBalance.length > 0 && (
                 <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
                   <div className="text-xs font-medium text-foreground">
@@ -647,7 +773,380 @@ function OverviewTab({ hub, today, onChange, flash }: TabProps & { today: string
           </p>
         </CardContent>
       </Card>
+
+      <EmergencyFundProgressCard fund={emergencyFund} monthlyContribution={emergencyContribution} />
+
+      <TransactionsCard transactions={hub.transactions} />
+
+      <SimplefinConnectionsCard
+        status={simplefinQuery.data}
+        loading={simplefinQuery.isLoading}
+        onChange={refreshFinanceData}
+        flash={flash}
+      />
     </div>
+  );
+}
+
+function OverviewAISuggestionsCard({
+  items,
+  today,
+  flash,
+}: {
+  items: FinanceAdviceItem[];
+  today: string;
+  flash: (msg: string) => void;
+}) {
+  const topItems = items.slice(0, 2);
+  const [busyIndex, setBusyIndex] = useState<number | null>(null);
+  const [acceptedItems, setAcceptedItems] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    setAcceptedItems(new Set());
+    setBusyIndex(null);
+  }, [items]);
+
+  if (!topItems.length) return null;
+
+  async function acceptOne(item: FinanceAdviceItem, index: number) {
+    setBusyIndex(index);
+    try {
+      await acceptFinanceActions({ data: { date: today, items: [item] } });
+      setAcceptedItems((prev) => new Set(prev).add(index));
+      flash("Added to today’s tasks.");
+    } catch (err) {
+      console.error(err);
+      flash("Couldn’t add that suggestion.");
+    } finally {
+      setBusyIndex(null);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Sparkles className="size-4" />
+            </span>
+            AI suggestions
+          </span>
+          <Badge
+            variant="secondary"
+            className="bg-primary/10 text-[10px] uppercase tracking-wide text-primary"
+          >
+            Top moves
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 md:grid-cols-2">
+          {topItems.map((item, index) => {
+            const meta = ADVICE_META[item.category];
+            const accepted = acceptedItems.has(index);
+            return (
+              <div
+                key={`${item.category}-${index}`}
+                className="rounded-lg bg-background/70 p-3 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                  <div className="flex min-w-0 flex-1 gap-3">
+                    <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                      <meta.Icon className="size-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {meta.label}
+                      </div>
+                      <p className="mt-1 text-pretty text-sm leading-6">
+                        {renderHighlightedAdvice(item.text)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={accepted ? "secondary" : "outline"}
+                    onClick={() => acceptOne(item, index)}
+                    disabled={busyIndex !== null || accepted}
+                    className="h-9 shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+                  >
+                    <Check className="size-3.5" />
+                    {accepted ? "Added" : "Add to tasks"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmergencyFundProgressCard({
+  fund,
+  monthlyContribution,
+}: {
+  fund: ReturnType<typeof calculateEmergencyFund>;
+  monthlyContribution: number;
+}) {
+  const progress = fund.target > 0 ? Math.min(100, (fund.currentSavings / fund.target) * 100) : 0;
+  const minimumProgress =
+    fund.target > 0 ? Math.min(100, (fund.minimumTarget / fund.target) * 100) : 0;
+  const statusLabel: Record<typeof fund.status, string> = {
+    "not-started": "Build first month",
+    building: "Core buffer funded",
+    funded: "Fully funded",
+    surplus: "Surplus cash",
+  };
+  const statusClass =
+    fund.status === "funded" || fund.status === "surplus"
+      ? "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300"
+      : fund.status === "building"
+        ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
+        : "bg-muted/40 text-muted-foreground ring-foreground/10";
+
+  return (
+    <Card className="overflow-hidden border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.06] to-card">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <PiggyBank className="size-4 text-emerald-600 dark:text-emerald-400" />
+            Emergency fund
+          </span>
+          <span
+            className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ring-1 ${statusClass}`}
+          >
+            {statusLabel[fund.status]}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">
+              {fund.monthsCovered.toFixed(1)} months covered
+            </span>
+            <span className="tabular-nums text-muted-foreground">
+              {fmtMoney(fund.currentSavings)} / {fmtMoney(fund.target)}
+            </span>
+          </div>
+          <div className="relative h-3 overflow-hidden rounded-full bg-muted">
+            <span
+              className="absolute inset-y-0 left-0 w-px bg-foreground/35"
+              style={{ left: `${minimumProgress}%` }}
+              aria-hidden
+            />
+            <span
+              className="absolute inset-y-0 left-0 rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
+              style={{ width: `${progress}%` }}
+              aria-hidden
+            />
+          </div>
+          <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+            <span>3-month floor {fmtMoney(fund.minimumTarget)}</span>
+            <span>6-month target</span>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MiniStat label="Monthly essentials" value={fmtMoney(fund.monthlyEssentialExpenses)} />
+          <MiniStat
+            label={fund.shortfall > 0 ? "Shortfall" : "Surplus"}
+            value={fmtMoney(fund.shortfall > 0 ? fund.shortfall : fund.surplus)}
+          />
+          <MiniStat
+            label="Time to target"
+            value={
+              fund.monthsToTarget === null
+                ? "Set transfer"
+                : fund.monthsToTarget === 0
+                  ? "Ready"
+                  : `${fund.monthsToTarget} mo`
+            }
+          />
+        </div>
+        <p className="text-pretty text-xs text-muted-foreground">
+          Cash-like balances are compared with essential monthly expenses.{" "}
+          {monthlyContribution > 0
+            ? `${fmtMoney(monthlyContribution)}/mo of surplus or recurring savings is available to close the gap.`
+            : "Add a recurring savings transfer or create monthly surplus to estimate the finish date."}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// One transaction row shared by the Overview transactions list. When an account
+// filter is active the row's account text is redundant, so it can be dropped.
+function TxnRow({ t, hideAccount }: { t: Transaction; hideAccount?: boolean }) {
+  return (
+    <li className="flex items-center justify-between gap-3 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate">{t.category ? cleanMerchantName(t.category) : "—"}</span>
+          {t.categoryGroup && <GroupChip group={t.categoryGroup} />}
+        </div>
+        <TxnSubline t={t} className="text-xs" hideAccount={hideAccount} />
+      </div>
+      <span
+        className={`shrink-0 tabular-nums ${
+          t.amount < 0 ? "text-foreground" : "text-green-600 dark:text-green-500"
+        }`}
+      >
+        {t.amount < 0 ? "-" : "+"}
+        {fmtMoney(Math.abs(t.amount))}
+      </span>
+    </li>
+  );
+}
+
+const TXN_PAGE_INITIAL = 15;
+const TXN_PAGE_STEP = 25;
+
+// Full transactions view: account filter chips, per-account verification summary,
+// and a paginated newest-first list — so the owner can confirm exactly what was
+// pulled per account.
+function TransactionsCard({ transactions }: { transactions: Transaction[] }) {
+  const [account, setAccount] = useState<string | null>(null);
+  const [visible, setVisible] = useState(TXN_PAGE_INITIAL);
+
+  // Distinct accounts (case-insensitive) with counts, most-recent activity first.
+  // hub.transactions can be 600+ rows, so memoize the sweep.
+  const accountChips = useMemo(() => summarizeImportedAccounts(transactions), [transactions]);
+
+  // Newest first, filtered to the selected account (case-insensitive) when set.
+  const filtered = useMemo(() => {
+    const key = account?.toLowerCase();
+    return [...transactions]
+      .filter((t) => (key ? t.account?.trim().toLowerCase() === key : true))
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }, [transactions, account]);
+
+  // Verification summary for a selected account: how many pulled and the span.
+  const selectedSummary = useMemo(() => {
+    if (!account || filtered.length === 0) return null;
+    const last = filtered[0].timestamp;
+    const first = filtered[filtered.length - 1].timestamp;
+    return { count: filtered.length, first, last };
+  }, [account, filtered]);
+
+  function selectAccount(next: string | null) {
+    setAccount(next);
+    setVisible(TXN_PAGE_INITIAL);
+  }
+
+  const shown = filtered.slice(0, visible);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="size-4 text-muted-foreground" />
+          Transactions
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {transactions.length ? (
+          <>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              <FilterChip
+                label="All"
+                count={transactions.length}
+                active={account === null}
+                onClick={() => selectAccount(null)}
+              />
+              {accountChips.map((a) => (
+                <FilterChip
+                  key={a.account}
+                  label={a.account}
+                  count={a.count}
+                  active={account?.toLowerCase() === a.account.toLowerCase()}
+                  onClick={() => selectAccount(a.account)}
+                />
+              ))}
+            </div>
+
+            {selectedSummary && (
+              <p className="mb-2 text-xs text-muted-foreground">
+                <span className="tabular-nums">{selectedSummary.count}</span> transaction
+                {selectedSummary.count === 1 ? "" : "s"} · first{" "}
+                <span className="tabular-nums">{fmtDate(selectedSummary.first)}</span> · last{" "}
+                <span className="tabular-nums">{fmtDate(selectedSummary.last)}</span>
+              </p>
+            )}
+
+            <ul className="divide-y divide-border">
+              {shown.map((t) => (
+                <TxnRow key={t.id} t={t} hideAccount={account !== null} />
+              ))}
+            </ul>
+
+            {visible < filtered.length && (
+              <div className="mt-3 flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setVisible((v) => v + TXN_PAGE_STEP)}
+                >
+                  Show more
+                  <span className="ml-1 text-muted-foreground tabular-nums">
+                    ({filtered.length - visible} left)
+                  </span>
+                </Button>
+              </div>
+            )}
+
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Pulled automatically from your bank sync and statement imports. Categorize and manage
+              every transaction on the Budget tab.
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No transactions yet. Connect your bank below or import a CSV statement on the Budget
+            tab.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Rounded filter pill with a trailing count, used for the account filter row.
+function FilterChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <span aria-hidden className={active ? "text-primary-foreground/60" : "text-border"}>
+        ·
+      </span>
+      <span
+        className={`tabular-nums ${active ? "text-primary-foreground/80" : "text-muted-foreground/70"}`}
+      >
+        {count.toLocaleString()}
+      </span>
+    </button>
   );
 }
 
@@ -665,6 +1164,9 @@ function SimplefinConnectionsCard({
   const [setupToken, setSetupToken] = useState("");
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // Management rows (aliases, loan links, history imports, disconnect) live
+  // behind a disclosure — the summary row + Sync now cover the daily need.
+  const [expanded, setExpanded] = useState(false);
   const connected = !!status?.connected;
   const nextSyncAt = status?.manualSyncAvailableAt;
   const manualSyncBlocked = !!nextSyncAt && nextSyncAt > Date.now();
@@ -814,6 +1316,16 @@ function SimplefinConnectionsCard({
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <span className="size-1.5 rounded-full bg-emerald-500" />
+                Connected
+              </span>
+              {status?.accounts.length ? (
+                <span className="text-xs text-muted-foreground">
+                  {status.accounts.length} account{status.accounts.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
+              <span className="min-w-2 flex-1" />
               <Button
                 type="button"
                 size="sm"
@@ -829,21 +1341,24 @@ function SimplefinConnectionsCard({
                 <RefreshCw className="size-4" />
                 Sync now
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={disconnect}
-                disabled={busy}
-              >
-                Disconnect
-              </Button>
-              {status?.lastSync?.message && (
-                <span className="text-xs text-muted-foreground">{status.lastSync.message}</span>
-              )}
             </div>
+            {status?.lastSync?.message && (
+              <p className="text-xs text-muted-foreground">{status.lastSync.message}</p>
+            )}
 
-            {status?.accounts.length ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="flex w-full items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+              aria-expanded={expanded}
+            >
+              <span>Manage accounts &amp; connection</span>
+              <ChevronDown
+                className={`size-4 transition-transform ${expanded ? "" : "-rotate-90"}`}
+              />
+            </button>
+
+            {expanded && status?.accounts.length ? (
               <ul className="space-y-2">
                 {status.accounts.map((account) => {
                   const stale =
@@ -952,10 +1467,22 @@ function SimplefinConnectionsCard({
                   );
                 })}
               </ul>
-            ) : (
+            ) : expanded ? (
               <p className="text-sm text-muted-foreground">
                 Connected. Run a sync to list accounts and write today’s finance snapshot.
               </p>
+            ) : null}
+
+            {expanded && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={disconnect}
+                disabled={busy}
+              >
+                Disconnect
+              </Button>
             )}
           </>
         )}
@@ -1074,6 +1601,7 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   for (const b of ["needs", "wants", "savings"] as const) {
     bucketTxns[b].sort((a, c) => Math.abs(c.amount) - Math.abs(a.amount));
   }
+  const statementBuckets = { ...buckets };
 
   async function toggleExclude(id: string, excluded: boolean) {
     await setTransactionExcluded({ data: { id, excluded } });
@@ -1115,6 +1643,22 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   }
   const plannedRecurring =
     recurringAdditions.needs + recurringAdditions.wants + recurringAdditions.savings;
+  const statementActivity =
+    statementBuckets.needs + statementBuckets.wants + statementBuckets.savings;
+  const plannedActivity = statementActivity + plannedRecurring;
+  const needsDelta = buckets.needs - th * targets.needs;
+  const wantsDelta = buckets.wants - th * targets.wants;
+  const savingsDelta = th * targets.savings - buckets.savings;
+  const budgetAction =
+    th <= 0
+      ? null
+      : needsDelta > 0
+        ? `Needs are ${fmtMoney(needsDelta)} over plan. Open Needs first and verify bills, loan payments, and anything that should be marked one-time.`
+        : wantsDelta > 0
+          ? `Wants are ${fmtMoney(wantsDelta)} over plan. Open Wants and move miscategorized essentials or mark true one-time charges.`
+          : savingsDelta > 0
+            ? `Savings is ${fmtMoney(savingsDelta)} short of the monthly target. Add or verify an automatic transfer on the Recurring tab.`
+            : "This month is on plan so far. Use the Recurring tab to verify every expected payment landed.";
 
   async function saveTakeHome() {
     const v = Number(takeHome);
@@ -1182,52 +1726,81 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Monthly take-home (50/30/20)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <Label htmlFor="th" className="text-xs text-muted-foreground">
-                After-tax pay per month (your ADP paycheck)
-              </Label>
-              <Input
-                id="th"
-                type="number"
-                step="0.01"
-                value={takeHome}
-                onChange={(e) => setTakeHome(e.target.value)}
-                placeholder="e.g. 6000"
-                className="mt-1"
-                disabled={busy}
+          <CardTitle className="flex flex-col gap-3 text-base sm:flex-row sm:items-start sm:justify-between">
+            <span className="min-w-0">
+              <span className="block text-balance">
+                {isCurrentMonth ? "This month vs plan" : "Month vs plan"}
+              </span>
+              <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                of{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {th > 0 ? fmtMoney(th) : "unset"}
+                </span>{" "}
+                take-home
+              </span>
+            </span>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <MonthNav
+                month={selectedMonth}
+                onPrev={() => setSelectedMonth((m) => shiftMonth(m, -1))}
+                onNext={() => setSelectedMonth((m) => shiftMonth(m, 1))}
+                canGoNext={!isCurrentMonth}
               />
+              <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10">
+                <Label htmlFor="th" className="sr-only">
+                  After-tax pay per month
+                </Label>
+                <Input
+                  id="th"
+                  type="number"
+                  step="0.01"
+                  value={takeHome}
+                  onChange={(e) => setTakeHome(e.target.value)}
+                  placeholder="Take-home"
+                  className="h-8 w-32 border-0 bg-background text-sm tabular-nums shadow-sm"
+                  disabled={busy}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={saveTakeHome}
+                  disabled={busy || !takeHome}
+                  className="gap-1 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+                >
+                  <Check className="size-3.5" /> Save
+                </Button>
+              </div>
             </div>
-            <Button onClick={saveTakeHome} disabled={busy || !takeHome} className="gap-1">
-              <Check className="size-4" /> Save
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between gap-2 text-base">
-            <span>{isCurrentMonth ? "This month vs plan" : "Month vs plan"}</span>
-            <MonthNav
-              month={selectedMonth}
-              onPrev={() => setSelectedMonth((m) => shiftMonth(m, -1))}
-              onNext={() => setSelectedMonth((m) => shiftMonth(m, 1))}
-              canGoNext={!isCurrentMonth}
-            />
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="-mt-1 text-xs text-muted-foreground">
+            Spending here comes from your imported and synced transactions for{" "}
+            {formatMonthLabel(selectedMonth)}, plus active recurring commitments from the Recurring
+            tab that haven’t shown up in statements yet. Targets are 50/30/20 of the take-home
+            baseline in this header.
+          </p>
           {th > 0 ? (
             <>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <MiniStat label="Statement activity" value={fmtMoney(statementActivity)} />
+                <MiniStat label="Planned recurring left" value={fmtMoney(plannedRecurring)} />
+                <MiniStat
+                  label="Plan total"
+                  value={`${fmtMoney(plannedActivity)} / ${fmtMoney(th)}`}
+                />
+              </div>
+              {budgetAction && (
+                <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  {budgetAction}
+                </div>
+              )}
               {(["needs", "wants", "savings"] as const).map((b) => (
                 <BudgetBar
                   key={b}
                   label={b}
                   actual={buckets[b]}
+                  recurringPlanned={recurringAdditions[b]}
                   target={th * targets[b]}
                   targetPct={Math.round(targets[b] * 100)}
                   goal={b === "savings" ? "save" : "spend"}
@@ -1365,10 +1938,11 @@ function MonthNav({
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         onClick={onPrev}
         aria-label="Previous month"
         title="Previous month"
+        className="size-10 transition-[scale,background-color,color] active:scale-[0.96]"
       >
         <ChevronLeft className="size-4" />
       </Button>
@@ -1376,11 +1950,12 @@ function MonthNav({
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         onClick={onNext}
         disabled={!canGoNext}
         aria-label="Next month"
         title={canGoNext ? "Next month" : "Already at the current month"}
+        className="size-10 transition-[scale,background-color,color] active:scale-[0.96]"
       >
         <ChevronRight className="size-4" />
       </Button>
@@ -1547,9 +2122,7 @@ function ExpenseCard({
           <div className={`truncate ${excluded ? "line-through" : ""}`}>
             {t.category ? cleanMerchantName(t.category) : "—"}
           </div>
-          <div className="tabular-nums text-muted-foreground">
-            {new Date(t.timestamp).toLocaleDateString()}
-          </div>
+          <TxnSubline t={t} />
         </div>
         <span
           className={`shrink-0 tabular-nums ${excluded ? "text-muted-foreground line-through" : ""}`}
@@ -1600,9 +2173,7 @@ function RecentTransactions({
             <li key={t.id} className="flex items-center justify-between gap-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="truncate">{t.category ? cleanMerchantName(t.category) : "—"}</div>
-                <div className="text-xs text-muted-foreground tabular-nums">
-                  {new Date(t.timestamp).toLocaleDateString()}
-                </div>
+                <TxnSubline t={t} className="text-xs" />
               </div>
               <Select
                 value={t.categoryGroup ?? "wants"}
@@ -1690,7 +2261,7 @@ function GroupPicker({
     <div
       role="group"
       aria-label="Spending category"
-      className="inline-flex shrink-0 rounded-md border bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10"
     >
       {GROUP_OPTIONS.map((o) => {
         const active = value === o.key;
@@ -1701,7 +2272,7 @@ function GroupPicker({
             disabled={disabled}
             aria-pressed={active}
             onClick={() => onChange(o.key)}
-            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+            className={`h-10 rounded px-2.5 text-xs font-medium transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-50 ${
               active ? o.activeClass : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -1747,7 +2318,7 @@ function KindPicker({
     <div
       role="group"
       aria-label="Obligation type"
-      className="inline-flex shrink-0 rounded-md border bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10"
     >
       {KIND_OPTIONS.map((o) => {
         const active = value === o.key;
@@ -1758,7 +2329,7 @@ function KindPicker({
             disabled={disabled}
             aria-pressed={active}
             onClick={() => onChange(o.key)}
-            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+            className={`h-10 rounded px-2.5 text-xs font-medium transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-50 ${
               active ? o.activeClass : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -1783,7 +2354,7 @@ function NeedWantPicker({
     <div
       role="group"
       aria-label="Need or want"
-      className="inline-flex shrink-0 rounded-md border bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10"
     >
       {(["needs", "wants"] as const).map((g) => {
         const active = value === g;
@@ -1794,7 +2365,7 @@ function NeedWantPicker({
             disabled={disabled}
             aria-pressed={active}
             onClick={() => onChange(g)}
-            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+            className={`h-10 rounded px-2.5 text-xs font-medium transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-50 ${
               active
                 ? g === "needs"
                   ? "bg-background text-sky-600 shadow-sm dark:text-sky-400"
@@ -1824,7 +2395,7 @@ function SaveWantPicker({
     <div
       role="group"
       aria-label="Wants or savings"
-      className="inline-flex shrink-0 rounded-md border bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10"
     >
       {(["wants", "savings"] as const).map((g) => {
         const active = value === g;
@@ -1835,7 +2406,7 @@ function SaveWantPicker({
             disabled={disabled}
             aria-pressed={active}
             onClick={() => onChange(g)}
-            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+            className={`h-10 rounded px-2.5 text-xs font-medium transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-50 ${
               active
                 ? g === "savings"
                   ? "bg-background text-emerald-600 shadow-sm dark:text-emerald-400"
@@ -1859,12 +2430,14 @@ function formatPayoff(months: number): string {
 
 function RecurringRow({
   s,
+  chargeStatus,
   onChangeKind,
   onChangeGroup,
   onToggleCancel,
   onSaveEdit,
 }: {
   s: Subscription;
+  chargeStatus?: string;
   onChangeKind: (s: Subscription, k: RecurringKind) => void;
   onChangeGroup: (s: Subscription, g: SpendGroup) => void;
   onToggleCancel: (s: Subscription) => void;
@@ -1992,59 +2565,69 @@ function RecurringRow({
   const subGroup = groupOf(s) === "savings" ? "savings" : "wants";
   const billGroup = groupOf(s) === "wants" ? "wants" : "needs";
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-      <div className="min-w-0 flex-1">
-        <div className={`truncate ${canceled ? "line-through opacity-60" : ""}`}>
-          {cleanMerchantName(s.name)}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {fmtMoney(s.amount)}/{CADENCE_ABBR[s.cadence]}
-          {s.source === "detected" ? " · detected" : ""}
-        </div>
-        {loanMeta.length > 0 && (
-          <div className="text-[11px] tabular-nums text-muted-foreground">
-            {loanMeta.join(" · ")}
+    <li className="py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="min-w-0 flex-1 basis-52">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className={`truncate ${canceled ? "line-through opacity-60" : ""}`}>
+              {cleanMerchantName(s.name)}
+            </span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {fmtMoney(monthly)}/mo
+            </span>
           </div>
-        )}
-      </div>
-      {!canceled && (
-        <div className="flex items-center gap-1.5">
-          <KindPicker value={kind} onChange={(k) => onChangeKind(s, k)} />
-          {kind === "bill" && (
-            <NeedWantPicker value={billGroup} onChange={(g) => onChangeGroup(s, g)} />
-          )}
-          {kind === "subscription" && (
-            <SaveWantPicker value={subGroup} onChange={(g) => onChangeGroup(s, g)} />
+          <div className="text-xs text-muted-foreground">
+            {s.cadence !== "monthly" ? `${fmtMoney(s.amount)}/${CADENCE_ABBR[s.cadence]} · ` : ""}
+            {s.source === "detected" ? "Detected from statements" : "Added manually"}
+            {chargeStatus && !canceled && (
+              <span className="text-emerald-600 dark:text-emerald-400"> · {chargeStatus}</span>
+            )}
+          </div>
+          {loanMeta.length > 0 && (
+            <div className="text-[11px] tabular-nums text-muted-foreground">
+              {loanMeta.join(" · ")}
+            </div>
           )}
         </div>
-      )}
-      {!canceled && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 text-xs text-muted-foreground"
-          onClick={startEdit}
-          aria-label={`Edit ${cleanMerchantName(s.name)}`}
-        >
-          <Pencil className="size-3.5" /> Edit
-        </Button>
-      )}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 gap-1 text-xs text-muted-foreground"
-        onClick={() => onToggleCancel(s)}
-      >
-        {canceled ? (
-          <>
-            <Check className="size-3.5" /> Reactivate
-          </>
-        ) : (
-          <>
-            <X className="size-3.5" /> Cancel
-          </>
-        )}
-      </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {!canceled && (
+            <>
+              <KindPicker value={kind} onChange={(k) => onChangeKind(s, k)} />
+              {kind === "bill" && (
+                <NeedWantPicker value={billGroup} onChange={(g) => onChangeGroup(s, g)} />
+              )}
+              {kind === "subscription" && (
+                <SaveWantPicker value={subGroup} onChange={(g) => onChangeGroup(s, g)} />
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs text-muted-foreground"
+                onClick={startEdit}
+                aria-label={`Edit ${cleanMerchantName(s.name)}`}
+              >
+                <Pencil className="size-3.5" /> Edit
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs text-muted-foreground"
+            onClick={() => onToggleCancel(s)}
+          >
+            {canceled ? (
+              <>
+                <Check className="size-3.5" /> Reactivate
+              </>
+            ) : (
+              <>
+                <X className="size-3.5" /> Cancel
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </li>
   );
 }
@@ -2059,6 +2642,403 @@ const SECTION_META: {
   { kind: "bill", label: "Bills", hint: "Needs/Wants", Icon: Receipt },
   { kind: "subscription", label: "Subscriptions & savings", hint: "Wants/Savings", Icon: Repeat },
 ];
+
+// One verification row: matched charge (green check + paid detail) or an
+// unmatched item (muted circle + why it may be missing).
+function PaymentCheckRow({ item }: { item: BudgetRecurringItem }) {
+  const isAnnual = item.cadence === "annual";
+  const seenCount =
+    item.expectedThisMonth > 0
+      ? Math.min(item.matchedCount, item.expectedThisMonth)
+      : item.matchedCount;
+  return (
+    <li className="flex items-center justify-between gap-3 py-2 text-sm">
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        {item.seenThisMonth ? (
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+        ) : (
+          <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/50" />
+        )}
+        <div className="min-w-0">
+          <div className="truncate">{cleanMerchantName(item.name)}</div>
+          {item.seenThisMonth && item.matchedTxn ? (
+            <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+              <span>
+                {item.expectedThisMonth > 1
+                  ? `${seenCount} of ${item.expectedThisMonth} seen; latest`
+                  : "Paid"}
+              </span>
+              <span className="tabular-nums">{fmtDate(item.matchedTxn.timestamp)}</span>
+              <span aria-hidden>·</span>
+              <span className="tabular-nums">{fmtMoney(Math.abs(item.matchedTxn.amount))}</span>
+              {item.matchedTxn.account ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="truncate">{item.matchedTxn.account}</span>
+                </>
+              ) : null}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              {isAnnual
+                ? "Annual - excluded from monthly check"
+                : item.expectedThisMonth > 1
+                  ? `0 of ${item.expectedThisMonth} weekly charges seen this month`
+                  : "Not seen in statements this month"}
+            </div>
+          )}
+        </div>
+      </div>
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        ~{fmtMoney(item.monthlyAmount)}/mo
+      </span>
+    </li>
+  );
+}
+
+// Reconciles active recurring commitments against a month's statements so the
+// owner can confirm every expected payment actually landed. Annual items are
+// listed but never counted as missing. Defaults to the current month; the
+// month nav steps back to completed months, where verification is meaningful.
+function MonthlyPaymentCheckCard({
+  subscriptions,
+  transactions,
+}: {
+  subscriptions: Subscription[];
+  transactions: Transaction[];
+}) {
+  const currentMonth = todayISO().slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const isCurrentMonth = selectedMonth === currentMonth;
+  const monthLabel = formatMonthLabel(selectedMonth);
+  const monthTxns = transactionsForMonth(transactions, selectedMonth);
+  const hasMonthTxns = monthTxns.length > 0;
+  const monthItems = recurringItemsForMonth(subscriptions, monthTxns);
+  const items = (["needs", "wants", "savings"] as const).flatMap((bucket) => monthItems[bucket]);
+  const verifiableItems = items.filter((i) => i.bucket !== "savings");
+  const savingsItems = items.filter((i) => i.bucket === "savings");
+
+  // Expected = cash outflow charges due monthly-or-more-often; annual items and
+  // recurring savings transfers don't count as missing bill payments.
+  const expected = verifiableItems.filter((i) => i.expectedThisMonth > 0);
+  const total = expected.reduce((sum, i) => sum + i.expectedThisMonth, 0);
+  const seen = expected.reduce((sum, i) => sum + Math.min(i.matchedCount, i.expectedThisMonth), 0);
+  const allClear = total > 0 && expected.every((i) => i.matchedCount >= i.expectedThisMonth);
+  const pct = total > 0 ? Math.round((seen / total) * 100) : 0;
+  const pendingAmount = expected.reduce((sum, item) => {
+    const missing = Math.max(0, item.expectedThisMonth - item.matchedCount);
+    const perPayment = item.expectedThisMonth > 0 ? item.monthlyAmount / item.expectedThisMonth : 0;
+    return sum + missing * perPayment;
+  }, 0);
+  // Early in the current month most payments simply haven't posted yet, so an
+  // incomplete checklist isn't a red flag — nudge toward a completed month.
+  const earlyInMonth = isCurrentMonth && Number(todayISO().slice(8, 10)) <= 10;
+
+  // Unmatched first (they need attention), then matched; biggest monthly first.
+  const ordered = [...verifiableItems].sort((a, b) => {
+    const aComplete = a.expectedThisMonth > 0 && a.matchedCount >= a.expectedThisMonth;
+    const bComplete = b.expectedThisMonth > 0 && b.matchedCount >= b.expectedThisMonth;
+    if (aComplete !== bComplete) return aComplete ? 1 : -1;
+    return b.monthlyAmount - a.monthlyAmount;
+  });
+
+  // All-clear collapses the (all-matched) list; otherwise the checklist is
+  // open. A manual toggle only overrides until the month changes.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? !allClear;
+  const pendingItems = ordered.filter(
+    (item) => item.expectedThisMonth > 0 && item.matchedCount < item.expectedThisMonth,
+  );
+  const matchedItems = ordered.filter(
+    (item) => !(item.expectedThisMonth > 0 && item.matchedCount < item.expectedThisMonth),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <ListChecks className="size-4 text-muted-foreground" />
+            Monthly payment check
+          </span>
+          <MonthNav
+            month={selectedMonth}
+            onPrev={() => {
+              setSelectedMonth((m) => shiftMonth(m, -1));
+              setUserOpen(null);
+            }}
+            onNext={() => {
+              setSelectedMonth((m) => shiftMonth(m, 1));
+              setUserOpen(null);
+            }}
+            canGoNext={!isCurrentMonth}
+          />
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {total === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No monthly or weekly bill payments to verify yet. Add loans, bills, or subscriptions
+            below; recurring savings stays in Budget but does not count as a missing payment.
+          </p>
+        ) : (
+          <>
+            <div className="mb-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span
+                  className={
+                    allClear
+                      ? "flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400"
+                      : "font-medium"
+                  }
+                >
+                  {allClear && <CheckCircle2 className="size-4" />}
+                  {allClear
+                    ? `All ${total} monthly payment${total === 1 ? "" : "s"} accounted for`
+                    : `${seen} of ${total} payments seen in ${monthLabel} statements`}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {seen}/{total}
+                  {!allClear && pendingAmount > 0
+                    ? ` · ~${fmtMoney(pendingAmount)} still to post`
+                    : ""}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              {earlyInMonth && !allClear && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  It’s early in {monthLabel} — most payments haven’t posted yet. Step back a month
+                  to verify a completed month.
+                </p>
+              )}
+            </div>
+
+            {allClear && (
+              <button
+                type="button"
+                onClick={() => setUserOpen(!open)}
+                className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                aria-expanded={open}
+              >
+                <ChevronDown
+                  className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+                />
+                {open ? "Hide" : "Show"} matched payments
+              </button>
+            )}
+
+            {open && (
+              <div className="mt-2 space-y-3">
+                {pendingItems.length > 0 && (
+                  <section>
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Still expected
+                    </div>
+                    <ul className="divide-y divide-border rounded-lg bg-muted/20 px-2 ring-1 ring-foreground/10">
+                      {pendingItems.map((item) => (
+                        <PaymentCheckRow key={item.id} item={item} />
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {matchedItems.length > 0 && (
+                  <section>
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Matched
+                    </div>
+                    <ul className="divide-y divide-border/60 rounded-lg px-2 ring-1 ring-foreground/10">
+                      {matchedItems.map((item) => (
+                        <PaymentCheckRow key={item.id} item={item} />
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {savingsItems.length > 0 && (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Recurring savings and investing transfers are tracked in the Budget savings bucket, but
+            they are excluded from this bill-payment count.
+          </p>
+        )}
+
+        {!hasMonthTxns ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            No transactions imported for {monthLabel} yet — verification needs statement data. Sync
+            your bank on the Overview tab or import a statement on the Budget tab.
+          </p>
+        ) : (
+          seen < total && (
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Matching compares each item’s name and approximate amount to statement lines. If a
+              payment was made but shows unmatched, edit the item so its name matches how it appears
+              on your statement (e.g. “Delmarva Power”, not “Electric”) or update its amount.
+            </p>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DebtPayoffComparisonCard({ loans }: { loans: Subscription[] }) {
+  const [extraPayment, setExtraPayment] = useState("0");
+  const extra = Math.max(0, Number(extraPayment) || 0);
+  const debts = loans
+    .map((loan) => ({
+      id: loan.id,
+      name: cleanMerchantName(loan.name),
+      balance: loan.balance ?? 0,
+      apr: loan.apr,
+      minimumPayment: subscriptionMonthlyCost(loan),
+    }))
+    .filter((loan) => loan.balance > 0 && loan.minimumPayment > 0);
+  const missingCount = loans.length - debts.length;
+  const snowball = debts.length
+    ? simulateDebtPayoff({
+        debts,
+        extraMonthlyPayment: extra,
+        strategy: "snowball",
+      })
+    : null;
+  const avalanche = debts.length
+    ? simulateDebtPayoff({
+        debts,
+        extraMonthlyPayment: extra,
+        strategy: "avalanche",
+      })
+    : null;
+  const interestDelta =
+    snowball?.feasible && avalanche?.feasible
+      ? snowball.totalInterest - avalanche.totalInterest
+      : 0;
+  const monthDelta =
+    snowball && avalanche && snowball.months !== null && avalanche.months !== null
+      ? snowball.months - avalanche.months
+      : 0;
+
+  return (
+    <Card className="border-amber-500/20 bg-gradient-to-br from-amber-500/[0.06] to-card">
+      <CardHeader>
+        <CardTitle className="flex flex-col gap-3 text-base sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-2">
+            <Landmark className="size-4 text-amber-600 dark:text-amber-400" />
+            Debt payoff comparison
+          </span>
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor="extra-debt-payment"
+              className="text-xs font-normal text-muted-foreground"
+            >
+              Extra monthly
+            </Label>
+            <Input
+              id="extra-debt-payment"
+              type="number"
+              min="0"
+              step="25"
+              value={extraPayment}
+              onChange={(e) => setExtraPayment(e.target.value)}
+              className="h-9 w-28 text-right tabular-nums"
+            />
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {debts.length ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {snowball && <DebtStrategySummary label="Snowball" simulation={snowball} />}
+              {avalanche && <DebtStrategySummary label="Avalanche" simulation={avalanche} />}
+            </div>
+            <div className="rounded-lg bg-muted/25 px-3 py-2 text-xs text-muted-foreground ring-1 ring-foreground/10">
+              {snowball?.feasible && avalanche?.feasible ? (
+                <>
+                  Avalanche saves{" "}
+                  <span className="font-medium tabular-nums text-foreground">
+                    {fmtMoney(Math.max(0, interestDelta))}
+                  </span>{" "}
+                  in interest
+                  {monthDelta !== 0 ? (
+                    <>
+                      {" "}
+                      and finishes{" "}
+                      <span className="font-medium tabular-nums text-foreground">
+                        {Math.abs(monthDelta)} mo {monthDelta > 0 ? "sooner" : "later"}
+                      </span>
+                    </>
+                  ) : null}
+                  . Snowball prioritizes the smallest balance first for faster visible wins.
+                </>
+              ) : (
+                "At least one payoff plan is not feasible with the current minimum payments. Add extra payment or check APR/payment values."
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Add balances and payment amounts to active loans to compare snowball and avalanche
+            payoff plans.
+          </p>
+        )}
+        {missingCount > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            {missingCount} active loan{missingCount === 1 ? "" : "s"} missing balance or payment
+            data were left out of the simulation.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DebtStrategySummary({
+  label,
+  simulation,
+}: {
+  label: string;
+  simulation: ReturnType<typeof simulateDebtPayoff>;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/25 p-3 ring-1 ring-foreground/10">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-medium">{label}</div>
+        <Badge variant={simulation.feasible ? "secondary" : "outline"} className="text-[10px]">
+          {simulation.feasible ? "Feasible" : "Check payments"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MiniStat label="Payoff" value={formatPayoffMonths(simulation.months)} />
+        <MiniStat label="Interest" value={fmtMoney(simulation.totalInterest)} />
+      </div>
+      <div className="mt-3 text-[11px] text-muted-foreground">
+        First target:{" "}
+        <span className="font-medium text-foreground">
+          {simulation.payoffOrder[0]
+            ? simulation.debts.find((debt) => debt.id === simulation.payoffOrder[0])?.name
+            : "Highest priority loan"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function formatPayoffMonths(months: number | null): string {
+  if (months === null) return "Not feasible";
+  if (months <= 0) return "Ready";
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  if (!years) return `${rest} mo`;
+  return rest ? `${years}y ${rest}mo` : `${years}y`;
+}
 
 function RecurringTab({ hub, onChange, flash }: TabProps) {
   const [busy, setBusy] = useState(false);
@@ -2079,6 +3059,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   });
   const byKind = (k: RecurringKind) => subs.filter((s) => recurringKindOf(s) === k);
   const active = subs.filter((s) => s.status === "active");
+  const activeLoans = active.filter((s) => recurringKindOf(s) === "loan");
   const monthlyOf = (k: RecurringKind) =>
     active
       .filter((s) => recurringKindOf(s) === k)
@@ -2092,6 +3073,24 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   const recurringSavingsMonthly = active
     .filter((s) => recurringBudgetBucket(s) === "savings")
     .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
+
+  // Which items already matched a charge in this month's transactions, so rows
+  // can say "charged this month" (same reconciliation the Budget tab uses).
+  const currentMonthTxns = transactionsForMonth(hub.transactions, todayISO().slice(0, 7));
+  const monthItems = recurringItemsForMonth(hub.subscriptions, currentMonthTxns);
+  const chargeStatusById = new Map(
+    (["needs", "wants", "savings"] as const)
+      .flatMap((bucket) => monthItems[bucket])
+      .filter((item) => item.seenThisMonth)
+      .map((item) => [
+        item.id,
+        item.expectedThisMonth > 1
+          ? `${Math.min(item.matchedCount, item.expectedThisMonth)} of ${
+              item.expectedThisMonth
+            } charges seen this month`
+          : "charged this month",
+      ]),
+  );
 
   async function detect() {
     setBusy(true);
@@ -2247,15 +3246,22 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="Obligations (mo)" value={fmtMoney(obligationsMonthly)} />
-        <Stat label="Cuttable subs" value={fmtMoney(cuttableSubscriptionsMonthly)} tone="down" />
-        <Stat label="Recurring save" value={fmtMoney(recurringSavingsMonthly)} tone="up" />
+        <Stat label="Loans & bills (mo)" value={fmtMoney(obligationsMonthly)} />
+        <Stat label="Subscriptions (mo)" value={fmtMoney(cuttableSubscriptionsMonthly)} />
+        <Stat
+          label="Recurring savings (mo)"
+          value={fmtMoney(recurringSavingsMonthly)}
+          tone={recurringSavingsMonthly > 0 ? undefined : "warn"}
+        />
       </div>
       <p className="-mt-1 text-xs text-muted-foreground">
-        Loans &amp; bills ({fmtMoney(obligationsMonthly)}/mo) are fixed Needs that flow into your
-        Budget. Cuttable subscriptions are Wants; recurring savings/investing contributions are
-        Savings, not spend.
+        Loans &amp; bills are fixed Needs that flow into your Budget; subscriptions are cuttable
+        Wants; recurring savings is money kept, not spend.
       </p>
+
+      <MonthlyPaymentCheckCard subscriptions={hub.subscriptions} transactions={hub.transactions} />
+
+      {activeLoans.length > 0 && <DebtPayoffComparisonCard loans={activeLoans} />}
 
       <Card>
         <CardHeader>
@@ -2302,6 +3308,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                           <RecurringRow
                             key={s.id}
                             s={s}
+                            chargeStatus={chargeStatusById.get(s.id)}
                             onChangeKind={changeKind}
                             onChangeGroup={changeGroup}
                             onToggleCancel={toggleCancel}
@@ -2467,6 +3474,10 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
 
   const positions = hub.snapshot.positions || [];
   const total = positions.reduce((s, p) => s + (p.value || 0), 0);
+  const sortedPositions = [...positions].sort((a, b) => (b.value || 0) - (a.value || 0));
+  const topHolding = sortedPositions[0];
+  const allocationPct = (p: Position) =>
+    total > 0 ? Math.round(((p.value || 0) / total) * 100) : 0;
 
   async function refreshPrices() {
     if (!positions.length) return;
@@ -2552,10 +3563,17 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
 
   return (
     <div className="space-y-4">
-      <Stat label="Holdings value" value={fmtMoney(total)} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Stat label="Holdings value" value={fmtMoney(total)} hero />
+        <Stat label="Positions" value={String(positions.length)} />
+        <Stat
+          label="Top holding"
+          value={topHolding ? `${topHolding.symbol} · ${allocationPct(topHolding)}%` : "—"}
+        />
+      </div>
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div>
             <CardTitle className="text-base">Holdings</CardTitle>
             {asOf && (
@@ -2568,7 +3586,7 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
             type="button"
             size="sm"
             variant="outline"
-            className="gap-1"
+            className="shrink-0 gap-1 whitespace-nowrap transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
             disabled={refreshing || !positions.length}
             onClick={refreshPrices}
           >
@@ -2578,41 +3596,64 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
         </CardHeader>
         <CardContent>
           {positions.length ? (
-            <ul className="space-y-2">
-              {positions.map((p, i) => {
-                const pct = total > 0 ? Math.round(((p.value || 0) / total) * 100) : 0;
-                // A single holding is always 100% — the bar and percent are noise.
-                const showAllocation = positions.length > 1;
-                const isLive = liveSymbols.has(p.symbol.toUpperCase());
-                return (
-                  <li key={i} className="text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        {p.symbol}
-                        {isLive && (
-                          <Badge
-                            variant="secondary"
-                            className="gap-1 bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
-                          >
-                            <span className="size-1.5 rounded-full bg-emerald-500" />
-                            Live
-                          </Badge>
-                        )}
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {p.quantity} × {fmtMoney(p.price)} = {fmtMoney(p.value || 0)}
-                        {showAllocation ? ` (${pct}%)` : ""}
-                      </span>
-                    </div>
-                    {showAllocation && (
-                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-muted">
-                        <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[30rem] text-sm">
+                <thead>
+                  <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="py-1.5 pr-2 text-left font-medium">Symbol</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Qty</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Price</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Value</th>
+                    <th className="w-48 py-1.5 pl-2 text-right font-medium">Allocation</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {sortedPositions.map((p) => {
+                    const pct = allocationPct(p);
+                    const isLive = liveSymbols.has(p.symbol.toUpperCase());
+                    return (
+                      <tr key={p.symbol}>
+                        <td className="py-2 pr-2">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            {p.symbol}
+                            {isLive && (
+                              <Badge
+                                variant="secondary"
+                                className="gap-1 bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+                              >
+                                <span className="size-1.5 rounded-full bg-emerald-500" />
+                                Live
+                              </Badge>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                          {p.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                          {fmtMoney(p.price)}
+                        </td>
+                        <td className="px-2 py-2 text-right tabular-nums">
+                          {fmtMoney(p.value || 0)}
+                        </td>
+                        <td className="py-2 pl-2">
+                          <div className="relative ml-auto h-8 w-full min-w-36 overflow-hidden rounded-lg bg-muted/60">
+                            <span
+                              className="absolute inset-y-0 left-0 rounded-lg bg-primary/25 transition-[width] duration-300 ease-out"
+                              style={{ width: `${pct}%` }}
+                              aria-hidden
+                            />
+                            <span className="relative flex h-full items-center justify-end px-2 text-xs font-medium tabular-nums text-foreground">
+                              {pct}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="text-sm text-muted-foreground">
               No holdings yet. Brokerage positions (Robinhood) arrive automatically with each
@@ -2670,6 +3711,25 @@ const ADVICE_META: Record<
   earn: { label: "Earn more", Icon: CircleDollarSign },
 };
 
+const FINANCE_HIGHLIGHT_RE = /(\$[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%?\b)/;
+
+type FinanceAdviceResult = {
+  items: FinanceAdviceItem[];
+  generatedBy: "ai" | "fallback";
+};
+
+function renderHighlightedAdvice(text: string) {
+  return text.split(FINANCE_HIGHLIGHT_RE).map((part, index) =>
+    FINANCE_HIGHLIGHT_RE.test(part) ? (
+      <strong key={`${part}-${index}`} className="font-semibold text-foreground">
+        {part}
+      </strong>
+    ) : (
+      part
+    ),
+  );
+}
+
 function GrowTab({
   hub,
   today,
@@ -2679,18 +3739,36 @@ function GrowTab({
   today: string;
   flash: (m: string) => void;
 }) {
-  const [items, setItems] = useState<FinanceAdviceItem[] | null>(null);
-  const [generatedBy, setGeneratedBy] = useState<"ai" | "fallback" | null>(null);
+  const queryClient = useQueryClient();
+  const cachedAdvice = queryClient.getQueryData<FinanceAdviceResult>(
+    queryKeys.financeAdvice(today),
+  );
+  const adviceQuery = useQuery(financeAdviceQuery(today));
+  const [items, setItems] = useState<FinanceAdviceItem[] | null>(
+    () => cachedAdvice?.items ?? adviceQuery.data?.items ?? null,
+  );
+  const [generatedBy, setGeneratedBy] = useState<"ai" | "fallback" | null>(
+    () => cachedAdvice?.generatedBy ?? adviceQuery.data?.generatedBy ?? null,
+  );
   const [busy, setBusy] = useState(false);
-  const [accepted, setAccepted] = useState(false);
+  const [acceptedItems, setAcceptedItems] = useState<Set<number>>(new Set());
+  const allAccepted = !!items?.length && acceptedItems.size >= items.length;
+
+  useEffect(() => {
+    if (!items && adviceQuery.data) {
+      setItems(adviceQuery.data.items);
+      setGeneratedBy(adviceQuery.data.generatedBy);
+    }
+  }, [adviceQuery.data, items]);
 
   async function generate() {
     setBusy(true);
-    setAccepted(false);
+    setAcceptedItems(new Set());
     try {
-      const res = await generateFinanceAdvice({ data: { date: today } });
-      setItems(res.items);
-      setGeneratedBy(res.generatedBy);
+      const res = await adviceQuery.refetch();
+      if (!res.data) throw res.error ?? new Error("No finance advice returned.");
+      setItems(res.data.items);
+      setGeneratedBy(res.data.generatedBy);
     } catch (e) {
       console.error(e);
       flash("Couldn’t generate advice.");
@@ -2704,7 +3782,18 @@ function GrowTab({
     setBusy(true);
     try {
       await acceptFinanceActions({ data: { date: today, items } });
-      setAccepted(true);
+      setAcceptedItems(new Set(items.map((_, index) => index)));
+      flash("Added to today’s tasks.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptOne(item: FinanceAdviceItem, index: number) {
+    setBusy(true);
+    try {
+      await acceptFinanceActions({ data: { date: today, items: [item] } });
+      setAcceptedItems((prev) => new Set(prev).add(index));
       flash("Added to today’s tasks.");
     } finally {
       setBusy(false);
@@ -2714,13 +3803,18 @@ function GrowTab({
   return (
     <div className="space-y-4">
       <RevenueGrowthCard hub={hub} today={today} />
+      <CashFlowProjectionCard hub={hub} today={today} />
 
-      <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col gap-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-pretty text-sm text-muted-foreground">
           Personalized budget fixes, a subscription audit, and investing moves — grounded in your
           real numbers.
         </p>
-        <Button onClick={generate} disabled={busy} className="shrink-0 gap-1.5">
+        <Button
+          onClick={generate}
+          disabled={busy}
+          className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+        >
           {busy ? <RefreshCw className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           {items ? "Regenerate advice" : "Generate advice"}
         </Button>
@@ -2728,33 +3822,59 @@ function GrowTab({
 
       {items && (
         <>
-          {items.map((it, i) => {
-            const meta = ADVICE_META[it.category];
-            return (
-              <Reveal as="div" key={i} delay={revealDelay(i)}>
-                <Card>
-                  <CardContent className="flex gap-3 pt-5">
-                    <meta.Icon className="mt-0.5 size-5 shrink-0 text-primary" />
-                    <div>
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {meta.label}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="size-4 text-primary" /> Recommended moves
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="divide-y divide-border/60">
+                {items.map((it, i) => {
+                  const meta = ADVICE_META[it.category];
+                  const accepted = acceptedItems.has(i);
+                  return (
+                    <Reveal as="div" key={`${it.category}-${i}`} delay={revealDelay(i)}>
+                      <div className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 gap-3">
+                          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <meta.Icon className="size-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {meta.label}
+                            </div>
+                            <div className="text-pretty text-sm leading-6">
+                              {renderHighlightedAdvice(it.text)}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={accepted ? "secondary" : "outline"}
+                          onClick={() => acceptOne(it, i)}
+                          disabled={busy || accepted}
+                          className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+                        >
+                          <Check className="size-3.5" />
+                          {accepted ? "Added" : "Add to tasks"}
+                        </Button>
                       </div>
-                      <div className="text-sm">{it.text}</div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Reveal>
-            );
-          })}
-          <div className="flex items-center gap-3">
+                    </Reveal>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={acceptAll}
-              disabled={busy || accepted}
+              disabled={busy || allAccepted}
               variant="outline"
-              className="gap-1.5"
+              className="gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
             >
-              <Check className="size-4" />{" "}
-              {accepted ? "Added to tasks" : "Add all to today’s tasks"}
+              <Check className="size-4" /> {allAccepted ? "Added to tasks" : "Add all to tasks"}
             </Button>
             {generatedBy === "fallback" && (
               <span className="text-xs text-muted-foreground">
@@ -2770,7 +3890,124 @@ function GrowTab({
   );
 }
 
+function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
+  const startMonth = today.slice(0, 7);
+  const accounts = hub.snapshot.accounts || [];
+  const cashOnHand = cashLikeBalance(accounts);
+  const monthTxns = transactionsForMonth(hub.transactions, startMonth);
+  const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
+  const takeHome =
+    hub.budget?.monthlyTakeHome ??
+    monthTxns
+      .filter((t) => t.amount > 0 && t.categoryGroup === "income")
+      .reduce((sum, t) => sum + t.amount, 0);
+  const buckets: Record<BudgetBucket, number> = { needs: 0, wants: 0, savings: 0 };
+  for (const t of monthTxns) {
+    if (t.excludeFromBudget) continue;
+    const bucket = spendBucketOf(t.categoryGroup);
+    if (bucket) buckets[bucket] += Math.abs(t.amount);
+  }
+  const recurring = recurringAdditionsForMonth(hub.subscriptions, monthTxns);
+  const monthlyBuckets =
+    takeHome > 0
+      ? {
+          needs: Math.max(buckets.needs + recurring.needs, takeHome * targets.needs),
+          wants: Math.max(buckets.wants + recurring.wants, takeHome * targets.wants),
+          savings: Math.max(buckets.savings + recurring.savings, takeHome * targets.savings),
+        }
+      : {
+          needs: buckets.needs + recurring.needs,
+          wants: buckets.wants + recurring.wants,
+          savings: buckets.savings + recurring.savings,
+        };
+  const projection = buildCashFlowProjection({
+    startMonth,
+    months: 12,
+    transactions: hub.transactions,
+    subscriptions: hub.subscriptions,
+    startingCash: cashOnHand,
+    monthlyIncome: takeHome,
+    monthlyBuckets,
+    includeRecurringCommitments: false,
+  });
+  const averageNet = projection.months.length
+    ? projection.totalNetCashFlow / projection.months.length
+    : 0;
+  const lowPoint = projection.months.reduce(
+    (lowest, month) => Math.min(lowest, month.endingCash),
+    cashOnHand,
+  );
+  const nextMonths = projection.months.slice(0, 4);
+  const netTone =
+    projection.totalNetCashFlow > 0
+      ? "text-emerald-600 dark:text-emerald-400"
+      : projection.totalNetCashFlow < 0
+        ? "text-destructive"
+        : "text-muted-foreground";
+
+  return (
+    <Card className="border-sky-500/20 bg-gradient-to-br from-sky-500/[0.06] to-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <LineChart className="size-4 text-sky-600 dark:text-sky-400" />
+          12-month cash-flow projection
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MiniStat label="Starting cash" value={fmtMoney(cashOnHand)} />
+          <MiniStat
+            label="Projected net"
+            value={`${projection.totalNetCashFlow < 0 ? "-" : "+"}${fmtMoney(Math.abs(projection.totalNetCashFlow))}`}
+          />
+          <MiniStat label="Ending cash" value={fmtMoney(projection.endingCash)} />
+        </div>
+        <div className="rounded-lg bg-muted/25 px-3 py-2 ring-1 ring-foreground/10">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>
+              Average monthly net{" "}
+              <span className={`font-medium tabular-nums ${netTone}`}>
+                {averageNet < 0 ? "-" : "+"}
+                {fmtMoney(Math.abs(averageNet))}
+              </span>
+            </span>
+            <span className="tabular-nums">Lowest projected cash {fmtMoney(lowPoint)}</span>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-4">
+            {nextMonths.map((month) => (
+              <div key={month.month} className="rounded-md bg-background/50 px-2 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {formatMonthLabel(month.month).slice(0, 3)}
+                </div>
+                <div
+                  className={`mt-1 text-sm font-semibold tabular-nums ${
+                    month.netCashFlow >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-destructive"
+                  }`}
+                >
+                  {month.netCashFlow < 0 ? "-" : "+"}
+                  {fmtMoney(Math.abs(month.netCashFlow))}
+                </div>
+                <div className="text-[11px] tabular-nums text-muted-foreground">
+                  End {fmtMoney(month.endingCash)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="text-pretty text-xs text-muted-foreground">
+          Projection uses the current take-home baseline when set, the higher of budget targets or
+          current run-rate buckets, and active recurring commitments already folded into those
+          buckets.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
+  const [completedLevers, setCompletedLevers] = useState<Set<string>>(new Set());
   const month = today.slice(0, 7);
   const monthTxns = transactionsForMonth(hub.transactions, month);
   const takeHome =
@@ -2807,6 +4044,15 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
     },
   ];
 
+  function toggleLever(label: string) {
+    setCompletedLevers((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -2822,13 +4068,27 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
         </div>
         <div className="grid gap-2">
           {levers.map(({ label, text, Icon }) => (
-            <div key={label} className="flex gap-3 rounded-md border border-border/60 p-3">
-              <Icon className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div>
-                <div className="text-sm font-medium">{label}</div>
-                <div className="text-xs text-muted-foreground">{text}</div>
-              </div>
-            </div>
+            <button
+              key={label}
+              type="button"
+              onClick={() => toggleLever(label)}
+              aria-pressed={completedLevers.has(label)}
+              className={`flex min-h-10 gap-3 rounded-lg px-3 py-2 text-left ring-1 ring-foreground/10 transition-[scale,background-color,color,box-shadow] active:scale-[0.96] ${
+                completedLevers.has(label) ? "bg-emerald-500/10" : "bg-muted/20 hover:bg-muted/40"
+              }`}
+            >
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center">
+                {completedLevers.has(label) ? (
+                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <Icon className="size-4 text-primary" />
+                )}
+              </span>
+              <span>
+                <span className="block text-sm font-medium">{label}</span>
+                <span className="block text-pretty text-xs text-muted-foreground">{text}</span>
+              </span>
+            </button>
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
@@ -2851,6 +4111,106 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 /* ---------------- Shared bits ---------------- */
 
+type AccountType = "cash" | "credit" | "investments" | "other";
+
+const ACCOUNT_GROUP_META: { type: AccountType; label: string; Icon: typeof Wallet2 }[] = [
+  { type: "cash", label: "Cash", Icon: Wallet2 },
+  { type: "credit", label: "Credit", Icon: CreditCard },
+  { type: "investments", label: "Investments", Icon: LineChart },
+  { type: "other", label: "Other", Icon: Banknote },
+];
+
+// Bucket an account by a case-insensitive keyword match on its name/alias.
+function inferAccountType(name: string): AccountType {
+  const s = name.toLowerCase();
+  if (/(checking|savings|bank)/.test(s)) return "cash";
+  if (/(credit|card|platinum)/.test(s)) return "credit";
+  if (/(robinhood|stock|crypto|bitcoin|401k|brokerage|ira)/.test(s)) return "investments";
+  return "other";
+}
+
+function cashLikeBalance(accounts: AccountBalance[]): number {
+  return accounts
+    .filter((account) => inferAccountType(account.account) === "cash" && account.amount > 0)
+    .reduce((sum, account) => sum + account.amount, 0);
+}
+
+const SOURCE_BADGE_META: Record<
+  NonNullable<Transaction["source"]>,
+  { label: string; className: string }
+> = {
+  sync: {
+    label: "Synced",
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  },
+  import: {
+    label: "CSV",
+    className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  },
+  manual: {
+    label: "Manual",
+    className: "border-border bg-muted/40 text-muted-foreground",
+  },
+};
+
+// Tiny provenance chip: where a transaction came from (bank sync, CSV, manual).
+function SourceBadge({ source }: { source?: Transaction["source"] }) {
+  const meta = SOURCE_BADGE_META[source ?? "manual"];
+  return (
+    <span
+      className={`inline-flex h-4 items-center rounded border px-1 text-[9px] font-medium uppercase leading-none tracking-wide ${meta.className}`}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+const GROUP_CHIP_CLASS: Record<CategoryGroup, string> = {
+  needs: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  wants: "border-border bg-muted/50 text-muted-foreground",
+  savings: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  income: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  transfer: "border-border bg-muted/50 text-muted-foreground",
+};
+
+// 50/30/20 bucket chip shown on activity rows when a group is assigned.
+function GroupChip({ group }: { group: CategoryGroup }) {
+  return (
+    <span
+      className={`inline-flex h-4 items-center rounded border px-1 text-[9px] font-medium uppercase leading-none tracking-wide ${GROUP_CHIP_CLASS[group]}`}
+    >
+      {GROUP_LABELS[group]}
+    </span>
+  );
+}
+
+// Shared "date · account · source" sub-line so every transaction row identifies
+// where it came from.
+function TxnSubline({
+  t,
+  className,
+  hideAccount,
+}: {
+  t: Transaction;
+  className?: string;
+  hideAccount?: boolean;
+}) {
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-muted-foreground ${className ?? ""}`}
+    >
+      <span className="tabular-nums">{fmtDate(t.timestamp)}</span>
+      {t.account && !hideAccount ? (
+        <>
+          <span aria-hidden>·</span>
+          <span className="truncate">{t.account}</span>
+        </>
+      ) : null}
+      <SourceBadge source={t.source} />
+    </div>
+  );
+}
+
 function Stat({
   label,
   value,
@@ -2859,7 +4219,7 @@ function Stat({
 }: {
   label: string;
   value: string;
-  tone?: "up" | "down";
+  tone?: "up" | "down" | "warn";
   hero?: boolean;
 }) {
   return (
@@ -2872,7 +4232,9 @@ function Stat({
               ? "text-green-600 dark:text-green-500"
               : tone === "down"
                 ? "text-destructive"
-                : "text-foreground"
+                : tone === "warn"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-foreground"
           }`}
         >
           {value}
@@ -2885,6 +4247,7 @@ function Stat({
 function BudgetBar({
   label,
   actual,
+  recurringPlanned = 0,
   target,
   targetPct,
   goal = "spend",
@@ -2894,6 +4257,8 @@ function BudgetBar({
 }: {
   label: string;
   actual: number;
+  /** Portion of `actual` that is planned recurring not yet seen in statements. */
+  recurringPlanned?: number;
   target: number;
   targetPct: number;
   goal?: "spend" | "save";
@@ -2902,8 +4267,11 @@ function BudgetBar({
   onToggleExclude?: (id: string, excluded: boolean) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const statementActual = Math.max(0, actual - recurringPlanned);
   const ratio = target > 0 ? actual / target : 0;
   const pct = Math.min(100, Math.round(ratio * 100));
+  const statementPct = target > 0 ? Math.min(100, Math.round((statementActual / target) * 100)) : 0;
+  const plannedPct = Math.max(0, pct - statementPct);
   const remaining = target - actual;
 
   // Three-state color tuned to the goal direction. For spend buckets (needs/
@@ -2912,9 +4280,7 @@ function BudgetBar({
     goal === "save"
       ? ratio >= 1
         ? "good"
-        : ratio >= 0.8
-          ? "warn"
-          : "bad"
+        : "warn"
       : ratio > 1.02
         ? "bad"
         : ratio >= 0.9
@@ -2922,6 +4288,13 @@ function BudgetBar({
           : "good";
   const barColor =
     state === "bad" ? "bg-destructive" : state === "warn" ? "bg-amber-500" : "bg-emerald-500";
+  const plannedBarColor =
+    state === "bad"
+      ? "bg-destructive/35"
+      : state === "warn"
+        ? "bg-amber-500/35"
+        : "bg-emerald-500/35";
+  const emptyTrack = goal === "save" && actual <= 0;
 
   // Plain-language status so the eye lands on the number that matters.
   const note =
@@ -2934,7 +4307,7 @@ function BudgetBar({
         : `${fmtMoney(-remaining)} over`;
   const noteColor = state === "bad" ? "text-destructive" : "text-muted-foreground";
   const recurringEstimate = recurringItems.reduce(
-    (sum, item) => sum + (item.seenThisMonth ? 0 : item.monthlyAmount),
+    (sum, item) => sum + item.remainingMonthlyAmount,
     0,
   );
   const expandable = (txns.length > 0 && !!onToggleExclude) || recurringItems.length > 0;
@@ -2962,10 +4335,32 @@ function BudgetBar({
             {fmtMoney(actual)} / {fmtMoney(target)}
           </span>
         </div>
-        <div className="h-2 w-full overflow-hidden rounded bg-muted">
-          <div className={`h-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+        <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
+          {emptyTrack && (
+            <span
+              className="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-[length:8px_8px] opacity-25"
+              aria-hidden
+            />
+          )}
+          <div
+            className={`absolute inset-y-0 left-0 transition-[width] duration-300 ease-out ${barColor}`}
+            style={{ width: `${statementPct}%` }}
+          />
+          {plannedPct > 0 && (
+            <div
+              className={`absolute inset-y-0 transition-[left,width] duration-300 ease-out ${plannedBarColor} bg-[linear-gradient(135deg,rgba(255,255,255,.28)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.28)_50%,rgba(255,255,255,.28)_75%,transparent_75%,transparent)] bg-[length:8px_8px]`}
+              style={{ left: `${statementPct}%`, width: `${plannedPct}%` }}
+            />
+          )}
+          <span className="absolute inset-y-0 right-0 w-px bg-foreground/40" aria-hidden />
         </div>
-        <div className={`mt-1 text-right text-xs tabular-nums ${noteColor}`}>{note}</div>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs tabular-nums">
+          <span className="text-muted-foreground">
+            {fmtMoney(statementActual)} from statements
+            {recurringPlanned > 0 ? ` + ${fmtMoney(recurringPlanned)} planned recurring` : ""}
+          </span>
+          <span className={noteColor}>{note}</span>
+        </div>
       </button>
       {open && expandable && (
         <ul className="mt-2 divide-y divide-border rounded-md border border-border/60 bg-muted/20">
@@ -2991,7 +4386,9 @@ function BudgetBar({
                 <div className="truncate text-muted-foreground">
                   {recurringKindLabel(item.kind)} · {CADENCE_ABBR[item.cadence]}
                   {item.account ? ` · ${item.account}` : ""}
-                  {item.seenThisMonth ? " · seen in statements" : " · from Recurring tab"}
+                  {item.remainingMonthlyAmount > 0
+                    ? ` · ${fmtMoney(item.remainingMonthlyAmount)} planned`
+                    : " · covered by statements"}
                 </div>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -3010,9 +4407,7 @@ function BudgetBar({
                   <div className={`truncate ${excluded ? "line-through" : ""}`}>
                     {t.category ? cleanMerchantName(t.category) : "—"}
                   </div>
-                  <div className="tabular-nums text-muted-foreground">
-                    {new Date(t.timestamp).toLocaleDateString()}
-                  </div>
+                  <TxnSubline t={t} />
                 </div>
                 <span
                   className={`shrink-0 tabular-nums ${excluded ? "text-muted-foreground line-through" : ""}`}

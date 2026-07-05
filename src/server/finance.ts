@@ -23,6 +23,8 @@ import {
   subscriptionMonthlyCost,
   isCuttableSubscription,
   cleanMerchantName,
+  recurringKindOf,
+  recurringBudgetBucket,
   todayISO,
   DEFAULT_BUDGET_TARGETS,
 } from "@/lib/domain";
@@ -576,10 +578,76 @@ function profileSummary(p: UserProfile): string {
   const lines: string[] = [];
   if (p.displayName) lines.push(`- Name: ${p.displayName}`);
   if (p.goals?.length) lines.push(`- Goals: ${p.goals.join("; ")}`);
+  if (p.skills?.length) lines.push(`- Sellable skills: ${p.skills.join("; ")}`);
   if (p.riskTolerance) lines.push(`- Risk tolerance: ${p.riskTolerance}`);
   if (p.monthlySavingsGoal) lines.push(`- Monthly savings goal: $${p.monthlySavingsGoal}`);
   if (p.financeNotes) lines.push(`- Notes: ${p.financeNotes}`);
   return lines.length ? lines.join("\n") : "- (no finance profile set)";
+}
+
+/** Does this deposit look like a regular payroll deposit (vs side income)? */
+function isPaycheckLike(t: Transaction): boolean {
+  const text = `${t.category || ""} ${t.notes || ""}`.toLowerCase();
+  return ["payroll", "adp", "direct dep", "salary", "paycheck"].some((k) => text.includes(k));
+}
+
+const USD = (n: number) => "$" + Math.round(n).toLocaleString();
+
+/** Previous calendar month key ("2026-07" -> "2026-06"). */
+function previousMonthKey(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+/**
+ * Split account balances into cash-like, invested, and credit (debt) buckets by
+ * name heuristics + sign, so the advisor can reason about idle cash vs an
+ * emergency fund without a formal account-type field.
+ */
+function classifyAccountBalances(accounts: { account: string; amount: number }[]): {
+  cash: number;
+  invested: number;
+  creditOwed: number;
+} {
+  let cash = 0;
+  let invested = 0;
+  let creditOwed = 0;
+  const investedRe =
+    /401|403b|ira|roth|brokerage|invest|vanguard|fidelity|schwab|etrade|robinhood|crypto|coinbase|hsa|529/i;
+  const creditRe = /credit|card|visa|amex|mastercard|discover|loan|mortgage|line of credit|heloc/i;
+  for (const a of accounts) {
+    const name = a.account || "";
+    if (a.amount < 0 || creditRe.test(name)) {
+      creditOwed += Math.abs(a.amount);
+    } else if (investedRe.test(name)) {
+      invested += a.amount;
+    } else {
+      cash += a.amount;
+    }
+  }
+  return { cash, invested, creditOwed };
+}
+
+/** Top merchants this month by total spend, with their 50/30/20 bucket. */
+function topMerchantsThisMonth(
+  monthTxns: Transaction[],
+  limit: number,
+): { name: string; total: number; bucket: string }[] {
+  const map = new Map<string, { total: number; bucket: string }>();
+  for (const t of monthTxns) {
+    if (t.deletedAt || t.amount >= 0) continue;
+    if (t.categoryGroup === "transfer" || t.categoryGroup === "income") continue;
+    const name = cleanMerchantName(t.category || "") || "Unknown";
+    const bucket = t.categoryGroup ?? "other";
+    const cur = map.get(name) ?? { total: 0, bucket };
+    cur.total += Math.abs(t.amount);
+    map.set(name, cur);
+  }
+  return [...map.entries()]
+    .map(([name, v]) => ({ name, total: v.total, bucket: v.bucket }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
 }
 
 export const generateFinanceAdvice = createServerFn({ method: "POST" })
@@ -616,23 +684,55 @@ export const generateFinanceAdvice = createServerFn({ method: "POST" })
       addUnseenRecurringToBuckets(buckets, activeRecurring, monthTxns);
       const netWorth = snapshot.netWorth ?? 0;
 
-      const fb = fallbackFinanceAdvice({
-        budget,
-        buckets,
-        subscriptions,
-        netWorth,
-        profile,
-      });
-      const apiKey = await getGrokApiKey();
-      if (!apiKey)
-        return {
-          items: fb,
-          generatedBy: "fallback",
-          disclaimer: ADVISOR_DISCLAIMER,
-        };
-
+      /* ---- Income detail ---- */
       const takeHome = budget?.monthlyTakeHome ?? buckets.income;
-      const targetSavings = takeHome * (budget?.targets?.savings ?? DEFAULT_BUDGET_TARGETS.savings);
+      const targets = budget?.targets ?? DEFAULT_BUDGET_TARGETS;
+      const sideIncomeMTD = monthTxns
+        .filter((t) => t.amount > 0 && t.categoryGroup === "income" && !isPaycheckLike(t))
+        .reduce((s, t) => s + t.amount, 0);
+
+      /* ---- Money usage: 50/30/20 deltas, merchants, trend, one-offs ---- */
+      const bucketRows = (["needs", "wants", "savings"] as const).map((b) => {
+        const actual = buckets[b];
+        const target = takeHome * targets[b];
+        return { bucket: b, actual, target, delta: actual - target };
+      });
+      const topMerchants = topMerchantsThisMonth(monthTxns, 6);
+      const prevMonth = previousMonthKey(month);
+      const prevBuckets = rollupMonth(transactions, prevMonth);
+      const oneTimeThisMonth = monthTxns
+        .filter((t) => t.excludeFromBudget && t.amount < 0)
+        .reduce((s, t) => s + Math.abs(t.amount), 0);
+
+      /* ---- Recurring: loans, bills, cuttable subs, recurring savings ---- */
+      const loans = activeRecurring.filter((s) => recurringKindOf(s) === "loan");
+      const billsMonthly = activeRecurring
+        .filter((s) => recurringKindOf(s) === "bill")
+        .reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+      const recurringSavingsMonthly = activeRecurring
+        .filter((s) => recurringBudgetBucket(s) === "savings")
+        .reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+      const monthlySubTotal = subscriptions.reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
+
+      /* ---- Investments: positions + account cash split ---- */
+      const positions = (snapshot.positions ?? []).filter((p) => (p.value ?? 0) > 0);
+      const holdingsTotal = positions.reduce((s, p) => s + (p.value ?? 0), 0);
+      const topPositions = [...positions]
+        .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+        .slice(0, 8);
+      const topPositionPct =
+        holdingsTotal > 0 && topPositions[0] ? (topPositions[0].value / holdingsTotal) * 100 : 0;
+      const { cash, invested, creditOwed } = classifyAccountBalances(snapshot.accounts ?? []);
+      // buckets.needs is month-to-date; floor with the 50/30/20 needs target so
+      // early-month advice doesn't overstate how many months the cash covers.
+      const monthlyNeedsEstimate = Math.max(
+        buckets.needs,
+        takeHome > 0 ? takeHome * targets.needs : 0,
+      );
+      const monthsOfNeedsInCash = monthlyNeedsEstimate > 0 ? cash / monthlyNeedsEstimate : 0;
+
+      /* ---- Targets for savings gap / revenue experiment ---- */
+      const targetSavings = takeHome * targets.savings;
       const savingsGap = Math.max(0, targetSavings - buckets.savings);
       const profileGoalGap = profile.monthlySavingsGoal
         ? Math.max(0, profile.monthlySavingsGoal - buckets.savings)
@@ -643,37 +743,127 @@ export const generateFinanceAdvice = createServerFn({ method: "POST" })
         takeHome > 0 ? takeHome * 0.05 : 250,
         250,
       );
-      const monthlySubTotal = subscriptions
-        .filter((s) => s.status === "active")
-        .reduce((s, x) => s + subscriptionMonthlyCost(x), 0);
-      const prompt = `You are ${profile.displayName || "Brian"}'s personal financial advisor. Give specific, actionable money guidance grounded in his real numbers. Cover budget, subscriptions, investing, and earning more.
+
+      const fb = fallbackFinanceAdvice({
+        budget,
+        buckets,
+        subscriptions,
+        netWorth,
+        profile,
+        loans,
+        cashOnHand: cash,
+      });
+      const apiKey = await getGrokApiKey();
+      if (!apiKey)
+        return {
+          items: fb,
+          generatedBy: "fallback",
+          disclaimer: ADVISOR_DISCLAIMER,
+        };
+
+      const fmtDelta = (d: number) => (d >= 0 ? `+${USD(d)} over` : `${USD(-d)} under`);
+      const loanLines = loans.length
+        ? loans
+            .map(
+              (l) =>
+                `  - ${l.name}: ${USD(subscriptionMonthlyCost(l))}/mo${
+                  l.balance ? `, ${USD(l.balance)} balance` : ""
+                }${l.apr ? `, ${l.apr}% APR${l.apr >= 7 ? " (HIGH — payoff/refi candidate)" : ""}` : ""}`,
+            )
+            .join("\n")
+        : "  - (none tracked)";
+      const subLines = subscriptions.length
+        ? subscriptions
+            .slice(0, 12)
+            .map((s) => `  - ${s.name}: ${USD(subscriptionMonthlyCost(s))}/mo`)
+            .join("\n")
+        : "  - (none tracked)";
+      const merchantLines = topMerchants.length
+        ? topMerchants.map((m) => `  - ${m.name}: ${USD(m.total)} (${m.bucket})`).join("\n")
+        : "  - (no spending imported this month)";
+      const positionLines = topPositions.length
+        ? topPositions
+            .map(
+              (p) =>
+                `  - ${p.symbol}: ${USD(p.value)}${
+                  holdingsTotal > 0 ? ` (${Math.round((p.value / holdingsTotal) * 100)}%)` : ""
+                }`,
+            )
+            .join("\n")
+        : "  - (no holdings tracked)";
+
+      const prompt = `You are ${profile.displayName || "Brian"}'s personal financial advisor. Give specific, actionable money guidance grounded in his real numbers below. Cover budget, subscriptions, investing, and earning more. Never repeat a figure without turning it into a decision.
 
 Profile:
 ${profileSummary(profile)}
 
-This month (${buckets.month}):
-- Take-home pay: ${takeHome ? "$" + Math.round(takeHome).toLocaleString() : "unknown"}
-- Needs spend: $${Math.round(buckets.needs).toLocaleString()}
-- Wants spend: $${Math.round(buckets.wants).toLocaleString()}
-- Savings/investing: $${Math.round(buckets.savings).toLocaleString()}
-- Savings target gap: $${Math.round(Math.max(savingsGap, profileGoalGap)).toLocaleString()}
-- Net worth: $${netWorth.toLocaleString()}
-- Active cuttable subscriptions: ${subscriptions.filter((s) => s.status === "active").length} (~$${Math.round(monthlySubTotal).toLocaleString()}/mo)
-- Revenue experiment target: $${Math.round(revenueTarget).toLocaleString()}/mo
+INCOME (this month, ${buckets.month}):
+- Take-home pay: ${takeHome ? USD(takeHome) : "unknown"}/mo
+- Side income so far this month (non-payroll): ${USD(sideIncomeMTD)}
+
+MONEY USAGE (this month vs 50/30/20 targets):
+${bucketRows
+  .map(
+    (r) =>
+      `- ${r.bucket[0].toUpperCase() + r.bucket.slice(1)}: ${USD(r.actual)} spent vs ${USD(
+        r.target,
+      )} target (${Math.round(targets[r.bucket] * 100)}%) — ${fmtDelta(r.delta)}`,
+  )
+  .join("\n")}
+- Previous month (${prevMonth}) for trend: needs ${USD(prevBuckets.needs)}, wants ${USD(
+        prevBuckets.wants,
+      )}, savings ${USD(prevBuckets.savings)}
+- One-time / excluded spend this month (ignore for recurring plan): ${USD(oneTimeThisMonth)}
+- Top merchants by spend this month:
+${merchantLines}
+
+RECURRING COMMITMENTS:
+- Loans (individually):
+${loanLines}
+- Fixed bills total: ${USD(billsMonthly)}/mo
+- Cuttable subscriptions: ${subscriptions.length} totaling ${USD(monthlySubTotal)}/mo (${USD(
+        monthlySubTotal * 12,
+      )}/yr):
+${subLines}
+- Recurring savings/investing contributions: ${USD(recurringSavingsMonthly)}/mo
+
+INVESTMENTS:
+- Net worth: ${USD(netWorth)}
+- Total holdings value: ${USD(holdingsTotal)}
+- Top positions (symbol, value, allocation):
+${positionLines}
+- Concentration: largest position is ${Math.round(topPositionPct)}% of holdings${
+        topPositionPct >= 25 ? " (concentrated — flag diversification)" : ""
+      }
+- Cash/liquidity: ${USD(cash)} cash-like${
+        monthlyNeedsEstimate > 0
+          ? ` (~${monthsOfNeedsInCash.toFixed(1)} months of needs spend)`
+          : ""
+      }, ${USD(invested)} in named investment accounts, ${USD(creditOwed)} owed on credit/debt accounts
+
+TARGETS:
+- Savings target gap: ${USD(Math.max(savingsGap, profileGoalGap))}/mo
+- Revenue experiment target: ${USD(revenueTarget)}/mo
 
 Reply with ONLY one compact JSON object (no markdown):
-{ "items": [ { "category": "budget|subscriptions|investing|earn", "text": "one specific actionable sentence referencing his numbers", "action": "short imperative label" } ] }
+{ "items": [ { "category": "budget|subscriptions|investing|earn", "text": "one specific actionable sentence citing his real dollar figures and the expected monthly impact", "action": "short imperative label" } ] }
 
 Rules:
-- 4 to 6 items, covering each category at least once where data allows.
-- Reference his actual dollar figures and the 50/30/20 framework.
-- Investing guidance is educational (allocation/contribution), never specific trade execution; respect his risk tolerance.
-- Earn-more guidance must name one measurable revenue experiment with a dollar target, not a vague side-hustle idea.
-- Be concrete and encouraging. No disclaimers in the items.`;
+- Return 5 to 8 items. Include at least one item in EACH category (budget, subscriptions, investing, earn) when the data supports it.
+- EVERY item must cite specific dollar figures from the data above AND state the expected monthly-dollar impact of acting.
+- Budget: reference the 50/30/20 deltas, named top merchants, or a high-APR loan.
+- Subscriptions: name the specific subscription(s) to cut and the monthly/annual saving.
+- Investing is educational only — allocation, contribution rate, concentration, idle cash vs a 3-6 month emergency fund. Never name a trade to execute. Respect his risk tolerance${
+        profile.riskTolerance ? ` (${profile.riskTolerance})` : ""
+      }.
+- Earn: build on his actual sellable skills${
+        profile.skills?.length ? ` (${profile.skills.join(", ")})` : ""
+      } and his side-income history; name ONE measurable experiment with a dollar target.
+- No generic advice that could apply to anyone. No disclaimers inside the items. Be concrete and encouraging.`;
 
       try {
         const parsed = await completeJSON<any>(apiKey, {
-          model: "grok-3-mini",
+          model: "grok-4.3",
           messages: [
             {
               role: "system",
@@ -682,11 +872,11 @@ Rules:
             { role: "user", content: prompt },
           ],
           temperature: 0.5,
-          maxTokens: 700,
+          maxTokens: 1200,
         });
         const items: FinanceAdviceItem[] = Array.isArray(parsed.items)
           ? parsed.items
-              .slice(0, 6)
+              .slice(0, 8)
               .map((s: any) => ({
                 category: ["budget", "subscriptions", "investing", "earn"].includes(s.category)
                   ? s.category
@@ -724,7 +914,7 @@ export const acceptFinanceActions = createServerFn({ method: "POST" })
     const existing = await loadProductivityTasksForDayImpl(date);
     const tasks = items
       .filter((i) => i.text)
-      .slice(0, 6)
+      .slice(0, 8)
       .map((i) =>
         createProductivityTask({
           text: `Finance: ${i.action || i.text}`,

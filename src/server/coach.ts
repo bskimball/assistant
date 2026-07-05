@@ -886,7 +886,7 @@ async function aiCoaching(
   plannedWorkout: WorkoutSuggestion,
 ): Promise<CoachingResult> {
   const parsed = await completeJSON<any>(apiKey, {
-    model: "grok-3-mini",
+    model: "grok-4.3",
     messages: [
       { role: "system", content: "Return strictly valid minified JSON only. No prose." },
       { role: "user", content: buildCoachPrompt(signals, profile, trend, plannedWorkout) },
@@ -1167,7 +1167,7 @@ Each array has 2-4 specific, actionable items referencing the numbers. Use US cu
 
     try {
       const parsed = await completeJSON<any>(apiKey, {
-        model: "grok-3-mini",
+        model: "grok-4.3",
         messages: [
           { role: "system", content: "Return strictly valid minified JSON only. No prose." },
           { role: "user", content: prompt },
@@ -1261,7 +1261,7 @@ Rules:
 
     try {
       const parsed = await completeJSON<any>(apiKey, {
-        model: "grok-3-mini",
+        model: "grok-4.3",
         messages: [
           { role: "system", content: "Return strictly valid minified JSON only. No prose." },
           { role: "user", content: prompt },

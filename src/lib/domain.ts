@@ -98,6 +98,13 @@ export interface UserProfile extends BaseEntity {
   riskTolerance?: RiskTolerance;
   monthlySavingsGoal?: number;
   financeNotes?: string;
+  /**
+   * Professional skills the owner could monetize to earn more, e.g.
+   * "IT infrastructure", "automation consulting", "Excel modeling". The growth
+   * advisor uses these to ground its earn-more suggestions in what he can
+   * actually sell rather than generic side-hustle ideas.
+   */
+  skills?: string[];
 }
 
 /** Compute current age in whole years from a birth date, or undefined. */

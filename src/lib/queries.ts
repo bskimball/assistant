@@ -20,7 +20,7 @@ import {
   loadWeeklyReview,
   loadUserProfile,
 } from "@/server/domain";
-import { getSimplefinStatus, loadFinanceHub } from "@/server/finance";
+import { getSimplefinStatus, loadFinanceHub, generateFinanceAdvice } from "@/server/finance";
 import { ensureWeeklyWorkoutPlan } from "@/server/coach";
 import type { ISODate } from "@/lib/domain";
 
@@ -31,6 +31,7 @@ export const queryKeys = {
   transactions: () => ["transactions"] as const,
   financeHub: (date: ISODate) => ["financeHub", date] as const,
   simplefinStatus: () => ["simplefinStatus"] as const,
+  financeAdvice: (date: ISODate) => ["financeAdvice", date] as const,
   nutrition: (date: ISODate) => ["nutrition", date] as const,
   weeklyReview: (week: string) => ["weeklyReview", week] as const,
   userProfile: () => ["userProfile"] as const,
@@ -88,4 +89,10 @@ export const userProfileQuery = () =>
   queryOptions({
     queryKey: queryKeys.userProfile(),
     queryFn: () => loadUserProfile(),
+  });
+
+export const financeAdviceQuery = (date: ISODate) =>
+  queryOptions({
+    queryKey: queryKeys.financeAdvice(date),
+    queryFn: () => generateFinanceAdvice({ data: { date } }),
   });

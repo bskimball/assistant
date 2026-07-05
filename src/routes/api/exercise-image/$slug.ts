@@ -15,7 +15,8 @@ export const Route = createFileRoute("/api/exercise-image/$slug")({
     handlers: {
       GET: async ({ request, params }) => {
         const { requireAuthSession } = await import("@/lib/auth");
-        const { getOrCreateExerciseImage, slugifyExercise } = await import("@/server/exercise-art");
+        const { getOrCreateExerciseImage } = await import("@/server/exercise-art");
+        const { slugifyExercise } = await import("@/lib/workout-phases");
         await requireAuthSession(request);
 
         const url = new URL(request.url);

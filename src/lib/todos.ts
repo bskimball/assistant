@@ -1,4 +1,5 @@
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db";
+import { toISODate, todayISO } from "@/lib/domain";
 
 /**
  * Todo domain model and client-side reactive collection.
@@ -28,15 +29,11 @@ export type Todo = {
 export const STORAGE_KEY = "aerolist.todos"; // legacy migration marker only
 
 export function todayKey(): string {
-  return toDayKey(Date.now());
+  return todayISO();
 }
 
 export function toDayKey(ts: number): string {
-  const d = new Date(ts);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toISODate(ts);
 }
 
 export const SEED_TODOS: Todo[] = [

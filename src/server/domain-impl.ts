@@ -778,7 +778,7 @@ async function extractVoiceIntentImpl(
 
   try {
     const parsed = await completeJSON<any>(apiKey, {
-      model: "grok-3-mini",
+      model: "grok-4.3",
       messages: [
         {
           role: "system",

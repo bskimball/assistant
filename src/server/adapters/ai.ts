@@ -17,10 +17,9 @@ export async function getGrokApiKey(): Promise<string | undefined> {
 }
 
 /** Resolve the Grok model used for conversational chat (tool-capable).
- *  Distinct from the cheap `grok-3-mini` used for one-shot JSON tasks.
  *  Override with `GROK_CHAT_MODEL` (Cloudflare var / env / .dev.vars). */
 export async function getGrokChatModel(): Promise<string> {
-  return (await getServerEnvVar("GROK_CHAT_MODEL")) || "grok-3";
+  return (await getServerEnvVar("GROK_CHAT_MODEL")) || "grok-4.3";
 }
 
 /* ============================================================
@@ -84,7 +83,7 @@ export async function* streamChat(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: request.model ?? "grok-3",
+      model: request.model ?? "grok-4.3",
       messages: request.messages,
       temperature: request.temperature ?? 0.6,
       max_tokens: request.maxTokens ?? 1200,
@@ -171,7 +170,7 @@ export async function completeJSON<T>(apiKey: string, request: JSONChatRequest):
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: request.model ?? "grok-3-mini",
+      model: request.model ?? "grok-4.3",
       messages: request.messages,
       temperature: request.temperature ?? 0.1,
       max_tokens: request.maxTokens ?? 400,

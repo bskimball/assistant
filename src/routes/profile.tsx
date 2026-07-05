@@ -70,6 +70,7 @@ type Form = {
   riskTolerance: string;
   monthlySavingsGoal: string;
   financeNotes: string;
+  skills: string;
 };
 
 const EMPTY: Form = {
@@ -92,6 +93,7 @@ const EMPTY: Form = {
   riskTolerance: "",
   monthlySavingsGoal: "",
   financeNotes: "",
+  skills: "",
 };
 
 const csv = (arr?: string[]) => (arr?.length ? arr.join(", ") : "");
@@ -129,6 +131,7 @@ function profileToForm(p: UserProfile): Form {
     riskTolerance: p.riskTolerance ?? "",
     monthlySavingsGoal: p.monthlySavingsGoal?.toString() ?? "",
     financeNotes: p.financeNotes ?? "",
+    skills: csv(p.skills),
   };
 }
 
@@ -153,6 +156,7 @@ function formToProfile(f: Form): Partial<UserProfile> {
     riskTolerance: (str(f.riskTolerance) as UserProfile["riskTolerance"]) ?? undefined,
     monthlySavingsGoal: num(f.monthlySavingsGoal),
     financeNotes: str(f.financeNotes),
+    skills: fromCsv(f.skills),
   };
 }
 
@@ -611,6 +615,16 @@ function ProfilePage() {
                       />
                     </Field>
                   </div>
+                  <Field
+                    label="Sellable skills"
+                    hint="Comma-separated — what you could get paid for. The advisor grounds earn-more ideas in these."
+                  >
+                    <Input
+                      value={form.skills}
+                      onChange={(e) => set("skills", e.target.value)}
+                      placeholder="IT infrastructure, automation consulting, Excel modeling"
+                    />
+                  </Field>
                   <Field label="Finance notes" hint="Anything the advisor should keep in mind">
                     <Textarea
                       value={form.financeNotes}
