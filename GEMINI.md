@@ -12,14 +12,15 @@ Always analyze the task first, select the appropriate model according to the rou
 
 ## Model Selection & Routing Rules
 
-| Model | CLI Tool | Task Category | Effort Level | Use Case |
-| :--- | :--- | :--- | :--- | :--- |
-| **`gpt-5.5`** | `codex exec` | Most coding tasks | Medium | Backend logic, core implementation, utilities |
-| **`claude-opus-4.8`** | `claude -p` | UI & frontend tasks | High | User-facing components, Tailwind styling, UX |
-| **`gpt-5.5`** | `codex exec` | Code reviews | High | PR reviews, logic validation, security checks |
-| **`claude-fable-5`** | `claude -p` | Extremely difficult tasks | High | Advanced algorithm design, deep reasoning, refactoring |
+| Model                 | CLI Tool     | Task Category             | Effort Level | Use Case                                               |
+| :-------------------- | :----------- | :------------------------ | :----------- | :----------------------------------------------------- |
+| **`gpt-5.5`**         | `codex exec` | Most coding tasks         | Medium       | Backend logic, core implementation, utilities          |
+| **`claude-opus-4.8`** | `claude -p`  | UI & frontend tasks       | High         | User-facing components, Tailwind styling, UX           |
+| **`gpt-5.5`**         | `codex exec` | Code reviews              | High         | PR reviews, logic validation, security checks          |
+| **`claude-fable-5`**  | `claude -p`  | Extremely difficult tasks | High         | Advanced algorithm design, deep reasoning, refactoring |
 
 > [!IMPORTANT]
+>
 > - Always perform initial routing and task definition yourself as the orchestrator.
 > - Never run large coding tasks directly on Gemini. Instead, formulate clear prompts and delegate them.
 
@@ -28,30 +29,32 @@ Always analyze the task first, select the appropriate model according to the rou
 ## Mechanics & CLI Reference
 
 ### 1. Codex CLI (`gpt-5.5`)
+
 Use the Codex CLI to run coding tasks and reviews using the `gpt-5.5` model.
 To prevent the CLI from blocking on terminal stdin on Windows, always redirect stdin from `NUL` (using `cmd /c` wrapper if running under PowerShell/pwsh).
 
-*   **Most Coding Tasks (Medium Effort):**
-    ```bash
-    cmd /c "codex exec -m gpt-5.5 \"[Instructions and context]\" < NUL"
-    ```
-*   **High-Effort Code Reviews:**
-    ```bash
-    cmd /c "codex exec -m gpt-5.5 \"Review the changes in the current workspace...\" < NUL"
-    ```
+- **Most Coding Tasks (Medium Effort):**
+  ```bash
+  cmd /c "codex exec -m gpt-5.5 \"[Instructions and context]\" < NUL"
+  ```
+- **High-Effort Code Reviews:**
+  ```bash
+  cmd /c "codex exec -m gpt-5.5 \"Review the changes in the current workspace...\" < NUL"
+  ```
 
 ### 2. Claude CLI (`claude-opus-4.8` and `claude-fable-5`)
+
 Use the Claude CLI with the `-p` (or `--print`) flag for non-interactive execution of UI and extremely difficult tasks.
 Note that the Claude CLI expects the `--model` flag (do not use `-m` as it is unsupported) and the full model name (e.g., `claude-opus-4.8` or `claude-fable-5`).
 
-*   **UI & Frontend Tasks (High Effort - `claude-opus-4.8`):**
-    ```bash
-    cmd /c "claude --model claude-opus-4.8 -p \"[UI implementation details]\" < NUL"
-    ```
-*   **Extremely Difficult Tasks (High Effort Reasoning - `claude-fable-5`):**
-    ```bash
-    cmd /c "claude --model claude-fable-5 -p \"[Complex logic details]\" < NUL"
-    ```
+- **UI & Frontend Tasks (High Effort - `claude-opus-4.8`):**
+  ```bash
+  cmd /c "claude --model claude-opus-4.8 -p \"[UI implementation details]\" < NUL"
+  ```
+- **Extremely Difficult Tasks (High Effort Reasoning - `claude-fable-5`):**
+  ```bash
+  cmd /c "claude --model claude-fable-5 -p \"[Complex logic details]\" < NUL"
+  ```
 
 ---
 

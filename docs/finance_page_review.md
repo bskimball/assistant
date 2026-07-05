@@ -4,7 +4,7 @@ This report assesses the current look, layout, UX, and functional flow of the Pe
 
 ## Tab Interface Walkthrough
 
-````carousel
+```carousel
 ![Overview Tab](file:///C:/Users/bskim/.gemini/antigravity-cli/brain/e3a18cd3-b44c-4b04-9897-04a617e15dbb/screenshot_overview.png)
 <!-- slide -->
 ![Budget Tab](file:///C:/Users/bskim/.gemini/antigravity-cli/brain/e3a18cd3-b44c-4b04-9897-04a617e15dbb/screenshot_budget.png)
@@ -14,13 +14,14 @@ This report assesses the current look, layout, UX, and functional flow of the Pe
 ![Investments Tab](file:///C:/Users/bskim/.gemini/antigravity-cli/brain/e3a18cd3-b44c-4b04-9897-04a617e15dbb/screenshot_investments.png)
 <!-- slide -->
 ![Grow Tab](file:///C:/Users/bskim/.gemini/antigravity-cli/brain/e3a18cd3-b44c-4b04-9897-04a617e15dbb/screenshot_grow_advice.png)
-````
+```
 
 ---
 
 ## Detailed Tab-by-Tab Analysis
 
 ### 1. Overview Tab
+
 > [!NOTE]
 > The Overview tab acts as the user's financial dashboard, summarizing current assets, liabilities, and monthly cash flow.
 
@@ -32,6 +33,7 @@ This report assesses the current look, layout, UX, and functional flow of the Pe
   - **Account Types:** Standardize the badges or make the type indicators less noisy.
 
 ### 2. Budget Tab (50/30/20)
+
 > [!WARNING]
 > The Budget tab has several visual discrepancies where color indicators and layout configurations mismatch.
 
@@ -43,6 +45,7 @@ This report assesses the current look, layout, UX, and functional flow of the Pe
   - **Inline Take-home:** Move the monthly take-home card (which takes up a lot of space at the top) into the "Month vs plan" card header as a smaller inline editable element (e.g., `of $11,319 take-home ✎`).
 
 ### 3. Recurring Tab
+
 > [!IMPORTANT]
 > The Monthly Payment Check checklist is highly functional, but suffers from inverted status colors.
 
@@ -53,6 +56,7 @@ This report assesses the current look, layout, UX, and functional flow of the Pe
   - **Visual Grouping:** Faintly separate matching (paid) items from unmatched items in the checklist instead of showing them as one flat list.
 
 ### 4. Investments Tab
+
 - **Look & Feel:** The holdings table is clean, but the allocation bar is barely visible.
 - **Identified Improvements:**
   - **Visual Anchor:** Allocation bars are styled as `h-1 w-12` with low opacity (`finance.tsx:3193`). They should be the visual anchor of the concentration table (e.g., full-width light background bars behind the text).
@@ -60,6 +64,7 @@ This report assesses the current look, layout, UX, and functional flow of the Pe
   - **More Data Columns:** Introduce cost basis or day-change indicators if available.
 
 ### 5. Grow Tab
+
 - **Look & Feel:** The advice cards are too large and repetitive. The three static cards (Primary income, Consulting offer, Weekly pipeline) take up half the page, but the text never changes.
 - **Identified Improvements:**
   - **Advice List Card:** Group all generated AI suggestions into a single divided card instead of rendering a separate full Card for each sentence (`finance.tsx:3325`).
