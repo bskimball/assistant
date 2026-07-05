@@ -142,6 +142,13 @@
     @apply border-border outline-ring/50;
   }
 
+  html,
+  body {
+    overflow-y: auto;
+    height: auto;
+    min-height: 100%;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
