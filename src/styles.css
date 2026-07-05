@@ -165,6 +165,41 @@
   }
 }
 
+/* Indeterminate top progress bar shown while a route navigation is pending.
+   Fades in after a beat so instant (cached) navigations never flash it. */
+.route-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  animation: route-progress-appear 0.2s ease-out 0.15s forwards;
+}
+.route-progress::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 9999px;
+  background: var(--primary);
+  animation: route-progress-slide 1s ease-in-out infinite;
+}
+@keyframes route-progress-appear {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes route-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
 /* Typography hierarchy — modernized all-sans, flat surfaces */
 .display-title {
   font-family: var(--font-display);

@@ -107,6 +107,10 @@ function NotFound() {
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // True while a navigation's loaders are still running — the old page is
+  // still on screen. Drives the top progress bar + content dimming so a slow
+  // load never looks like a dead click.
+  const isNavigating = useRouterState({ select: (s) => s.status === "pending" });
   const showNav = pathname !== "/login";
 
   // Register the service worker for installability + offline fallback. Only in
@@ -131,6 +135,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
         {/* Persistent nav (hidden on the login gate) */}
         {showNav && <AppNav />}
+        {isNavigating && <div className="route-progress" aria-hidden />}
         {/* Page transitions (motion). Keyed on pathname so each navigation runs
             a subtle exit→enter; in-page search changes (same pathname) don't
             retrigger it. `mode="wait"` lets the old page leave before the new
@@ -152,7 +157,17 @@ function RootDocument({ children }: { children: React.ReactNode }) {
               }}
               transition={{ type: "spring", duration: 0.3, bounce: 0 }}
             >
-              {children}
+              {/* Inner wrapper (motion owns the outer div's inline opacity):
+                  while the next page's loaders run, fade the stale page so the
+                  user sees their tap registered. The delay keeps fast (cached)
+                  navigations from flickering. */}
+              <div
+                className={`transition-opacity delay-150 duration-300 ${
+                  isNavigating ? "opacity-40" : "opacity-100"
+                }`}
+              >
+                {children}
+              </div>
             </motion.div>
           </AnimatePresence>
         </MotionConfig>
