@@ -128,10 +128,14 @@ export const Route = createFileRoute("/finance")({
   },
   loader: async ({ context: { queryClient } }) => {
     const date = todayISO();
-    await Promise.all([
-      queryClient.ensureQueryData(financeHubQuery(date)),
-      queryClient.ensureQueryData(financeAdviceQuery(date)),
-    ]);
+    // Only block navigation on the hub data (cheap R2 reads). The AI advice
+    // is a multi-second Grok call — kick it off now but let it resolve after
+    // the page renders; the advice cards appear when it lands. Browser only:
+    // during SSR a floating query would hold the response stream open.
+    if (typeof window !== "undefined") {
+      void queryClient.prefetchQuery(financeAdviceQuery(date));
+    }
+    await queryClient.ensureQueryData(financeHubQuery(date));
   },
   component: FinancePage,
 });

@@ -95,4 +95,8 @@ export const financeAdviceQuery = (date: ISODate) =>
   queryOptions({
     queryKey: queryKeys.financeAdvice(date),
     queryFn: () => generateFinanceAdvice({ data: { date } }),
+    // Each generation is a multi-second Grok call. The key is day-scoped, so
+    // never re-generate on revisit — "Regenerate advice" refetches explicitly.
+    staleTime: Infinity,
+    gcTime: 24 * 60 * 60_000,
   });
