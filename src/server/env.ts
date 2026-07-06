@@ -10,7 +10,7 @@ export async function getCloudflareEnv(): Promise<CloudflareEnvRecord> {
     return {};
   }
 
-  cloudflareEnvPromise ??= import(cloudflareWorkersModuleName)
+  cloudflareEnvPromise ??= import(/* @vite-ignore */ cloudflareWorkersModuleName)
     .then((mod) => ((mod as CloudflareWorkersModule).env ?? {}) as CloudflareEnvRecord)
     .catch(() => ({}));
 

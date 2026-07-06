@@ -9,18 +9,29 @@ Rankings, higher = better. Cost reflects what I actually pay (OpenAI has really 
 | gpt-5.5   | 9    | 8            | 5     | 7     |
 | sonnet-5  | 5    | 5            | 7     | 3     |
 | opus-4.8  | 4    | 7            | 8     | 6     |
-| fable-5   | 2    | 9            | 9     | 5     |
+| fable-5   | 2    | 9            | 9     | 4     |
 | flash-3.5 | 7    | 4            | 7     | 9     |
 
-How to apply:
+**Default to delegating.** You are the orchestrator: your job is routing, judgment, and integration — not doing the work in-session. Before starting any subtask yourself, route it through the table below. Doing it yourself is the exception, reserved for tasks that are truly small (one file, one edit) or that require the full conversation context.
 
-- These are defaults, not limits. You have standing permission to override them: if a cheaper model's output doesn't meet the bar, rerun or redo the work with a smarter model without asking. Judge the output, not the price tag. Escalating costs less than shipping mediocre work.
+Routing table — match the task, use that model, no deliberation needed:
+
+| task looks like...                                                               | route to            | via                            |
+| -------------------------------------------------------------------------------- | ------------------- | ------------------------------ |
+| clear-spec implementation, migrations, data analysis, test writing               | gpt-5.5             | `codex exec` / codex-\* skills |
+| codebase search, reading/describing images or screenshots, git/wrangler/CLI runs | flash-3.5           | `agy -p ...`                   |
+| UI implementation, copy, API design (anything user-facing)                       | opus-4.8 or fable-5 | Agent model param              |
+| planning / architecture / implementation strategy                                | fable-5 or Opus-4.8 | Agent model param              |
+| reviews of plans/implementations                                                 | gpt-5.5             | `codex review`                 |
+
+Rules:
+
+- Opus/fable are the right pick for their rows (user-facing work, planning) — use them freely there. Just don't reach for them for mechanical or search work; that's what gpt-5.5 and flash-3.5 are for.
+- The wrapper overhead for codex/agy is not a reason to skip them — a thin wrapper agent takes seconds to spawn and gpt-5.5 is effectively free.
+- These are defaults, not limits. Standing permission to escalate: if a cheaper model's output doesn't meet the bar, redo it with a smarter model without asking. Judge the output, not the price tag.
 - Cost is a tie-breaker only; when axes conflict for anything that ships, intelligence > taste > cost.
-- Bulk/mechanical work (clear-spec implementation, data analysis, migrations): gpt-5.5 — it's effectively free.
-- Anything user-facing (UI, copy, API design) needs taste ≥ 7.
-- Reviews of plans/implementations: fable-5 or opus-4.8, optionally gpt-5.5 as an extra independent perspective.
+- Anything user-facing needs taste ≥ 7. Don't hand flash-3.5 design work or anything that ships unsupervised — low intelligence; escalate if its output misses.
 - Never use Haiku.
-- flash-3.5 (Gemini 3.5 Flash) is the speed pick: reading/describing images and screenshots, fast codebase searches, and running CLI commands like git or wrangler. Don't hand it design work or anything that ships unsupervised — low intelligence score; escalate if its output misses.
 - Mechanics: gpt-5.5 is only reachable through the Codex CLI — `codex exec` / `codex review` (my ~/.codex/config.toml defaults to gpt-5.5). Use the codex-implementation, codex-review, and codex-computer-use skills; for work they don't cover (investigation, data analysis), run `codex exec -s read-only` directly with a self-contained prompt.
 - Claude models (sonnet-5, opus-4.8, fable-5) run via the Agent/Workflow model parameter.
 

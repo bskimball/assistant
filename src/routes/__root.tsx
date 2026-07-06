@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   HeadContent,
   Scripts,
@@ -113,6 +113,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   const isNavigating = useRouterState({ select: (s) => s.status === "pending" });
   const showNav = pathname !== "/login";
 
+  // The router can be "pending" during SSR/streaming, but on the client's
+  // first render it is idle — rendering pending-only UI on the server causes
+  // a hydration mismatch. Gate it until after hydration.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const showPending = hydrated && isNavigating;
+
   // Register the service worker for installability + offline fallback. Only in
   // production builds — in dev the SW would cache HMR assets and fight Vite.
   useEffect(() => {
@@ -135,7 +142,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
         {/* Persistent nav (hidden on the login gate) */}
         {showNav && <AppNav />}
-        {isNavigating && <div className="route-progress" aria-hidden />}
+        {showPending && <div className="route-progress" aria-hidden />}
         {/* Page transitions (motion). Keyed on pathname so each navigation runs
             a subtle exit→enter; in-page search changes (same pathname) don't
             retrigger it. `mode="wait"` lets the old page leave before the new
@@ -163,7 +170,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                   navigations from flickering. */}
               <div
                 className={`transition-opacity delay-150 duration-300 ${
-                  isNavigating ? "opacity-40" : "opacity-100"
+                  showPending ? "opacity-40" : "opacity-100"
                 }`}
               >
                 {children}
