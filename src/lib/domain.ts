@@ -73,6 +73,14 @@ export interface UserProfile extends BaseEntity {
   // Coaching context
   /** Free-form top-level goals, e.g. "lose 10 lb", "save $20k", "bench 225 lb". */
   goals?: string[];
+  /** Preferred coach tone for nudges and feedback. */
+  coachingStyle?: "gentle" | "balanced" | "direct";
+  /** The deeper reason behind the member's goals. */
+  motivation?: string;
+  /** Current life constraints/context, e.g. work schedule, family, travel cadence. */
+  lifeContext?: string;
+  /** Current season of focus, e.g. "cutting until August", "money first". */
+  currentFocus?: string;
   activityLevel?: ActivityLevel;
 
   // Fitness (personal trainer)
@@ -90,6 +98,8 @@ export interface UserProfile extends BaseEntity {
   // Nutrition (dietitian)
   /** e.g. 'vegetarian', 'no dairy', 'nut allergy'. */
   dietaryRestrictions?: string[];
+  /** Foods/cuisines the member prefers and will realistically eat. */
+  foodPreferences?: string[];
   proteinTargetG?: number;
   calorieTargetKcal?: number;
   waterTargetMl?: number;
@@ -681,6 +691,25 @@ export interface VoiceIntent {
 
 /* ===================== COACH CHAT (ADR-018) ===================== */
 
+export type CoachMemoryCategory = "goal" | "preference" | "constraint" | "life_event" | "milestone";
+
+export interface CoachMemory {
+  id: string;
+  category: CoachMemoryCategory;
+  /** One durable fact in third person, e.g. "Training for a 5K in September with his daughter." */
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Conversation the fact was learned in (traceability). */
+  sourceConversationId?: string;
+  deletedAt?: number;
+}
+
+export interface CoachMemoriesStore {
+  memories: CoachMemory[];
+  updatedAt: number;
+}
+
 export type ChatRole = "user" | "assistant";
 
 /** One persisted turn of a coach conversation. */
@@ -987,6 +1016,7 @@ export type DomainEntity =
   | DailyFocusScore
   | DailyPlan
   | WeeklyReview
+  | CoachMemory
   | AIInteraction
   | VoiceTranscript
   | Attachment;

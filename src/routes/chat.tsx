@@ -33,6 +33,7 @@ import {
   Plus,
   History,
   Trash2,
+  Brain,
   MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -59,7 +60,16 @@ export const Route = createFileRoute("/chat")({ component: ChatPage });
    Types
    ============================================================ */
 
-type ActionStatus = "pending" | "applied" | "dismissed";
+// "auto" — a memory write (ADR-020) that was applied without an Apply button and
+// renders as a subtle inline chip instead of an action card.
+type ActionStatus = "pending" | "applied" | "dismissed" | "auto";
+
+/** The three memory action names auto-apply client-side (ADR-020). */
+const MEMORY_ACTION_NAMES: ReadonlySet<ChatActionName> = new Set([
+  "save_memory",
+  "update_memory",
+  "forget_memory",
+]);
 
 interface UIAction extends ProposedAction {
   status: ActionStatus;
@@ -266,13 +276,22 @@ function useChatStream(date: string) {
             if (frame.type === "delta" && frame.text) {
               patch(assistantId, (m) => ({ ...m, content: m.content + frame.text }));
             } else if (frame.type === "action" && frame.name) {
+              const isMemory = MEMORY_ACTION_NAMES.has(frame.name);
               const action: UIAction = {
                 id: frame.id || newId("act"),
                 name: frame.name,
                 args: frame.args || {},
-                status: "pending",
+                // Memory writes auto-apply (no Apply button) and render as a chip.
+                status: isMemory ? "auto" : "pending",
               };
               patch(assistantId, (m) => ({ ...m, actions: [...m.actions, action] }));
+              // Fire-and-forget the memory write; the chip already reflects it, and
+              // memory is low-stakes so we tolerate errors silently (ADR-020).
+              if (isMemory) {
+                void applyChatAction({
+                  data: { name: action.name, args: action.args },
+                }).catch((e) => console.warn("[chat] memory apply failed", e));
+              }
             } else if (frame.type === "error") {
               setError(frame.message || "Something went wrong.");
             }
@@ -411,6 +430,10 @@ const ACTION_META: Record<ChatActionName, { Icon: typeof Utensils; label: string
   log_water: { Icon: Droplet, label: "Log water" },
   add_task: { Icon: ListTodo, label: "Add task" },
   mark_task_done: { Icon: CircleCheck, label: "Complete task" },
+  // Memory actions (ADR-020) — auto-applied, shown as inline chips not cards.
+  save_memory: { Icon: Brain, label: "Remembered" },
+  update_memory: { Icon: Brain, label: "Updated" },
+  forget_memory: { Icon: Brain, label: "Forgot" },
 };
 
 function describeAction(name: ChatActionName, args: Record<string, unknown>): string {
@@ -430,6 +453,12 @@ function describeAction(name: ChatActionName, args: Record<string, unknown>): st
       return String(args.text ?? "");
     case "mark_task_done":
       return `Mark "${args.text ?? ""}" complete`;
+    case "save_memory":
+      return `Remembered: ${args.content ?? ""}`;
+    case "update_memory":
+      return `Updated: ${args.content ?? ""}`;
+    case "forget_memory":
+      return "Forgot a memory";
   }
 }
 
@@ -461,181 +490,183 @@ function ChatPage() {
   const empty = messages.length === 0;
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-3.5rem)] w-full max-w-[72rem] flex-col px-4 pb-16 pt-6 sm:px-6 sm:pb-4">
-      {/* Header — eyebrow + title, consistent with the other pages */}
-      <div className="flex items-end justify-between gap-3 pb-4">
-        <div>
-          <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Coach</div>
-          <h1 className="text-3xl font-semibold tracking-tighter">Chat</h1>
-        </div>
+    <div className="flex h-[calc(100dvh-3.5rem)] w-full flex-col px-4 pb-16 pt-6 sm:px-6 sm:pb-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-page flex-1 flex-col">
+        {/* Header — eyebrow + title, consistent with the other pages */}
+        <div className="flex items-end justify-between gap-3 pb-4">
+          <div>
+            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Coach</div>
+            <h1 className="text-3xl font-semibold tracking-tighter">Chat</h1>
+          </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={chat.newChat}
-            disabled={empty && chat.activeId === null}
-          >
-            <Plus className="size-4" /> <span className="hidden sm:inline">New chat</span>
-          </Button>
-          {/* History is a persistent sidebar on desktop; a drawer on smaller screens. */}
-          <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 lg:hidden">
-                <History className="size-4" /> <span className="hidden sm:inline">History</span>
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-sm">
-              <SheetHeader className="border-b">
-                <SheetTitle className="flex items-center gap-2">
-                  <History className="size-4" /> Chat history
-                </SheetTitle>
-              </SheetHeader>
-              <div className="p-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5"
-                  onClick={() => {
-                    chat.newChat();
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={chat.newChat}
+              disabled={empty && chat.activeId === null}
+            >
+              <Plus className="size-4" /> <span className="hidden sm:inline">New chat</span>
+            </Button>
+            {/* History is a persistent sidebar on desktop; a drawer on smaller screens. */}
+            <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 lg:hidden">
+                  <History className="size-4" /> <span className="hidden sm:inline">History</span>
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-sm">
+                <SheetHeader className="border-b">
+                  <SheetTitle className="flex items-center gap-2">
+                    <History className="size-4" /> Chat history
+                  </SheetTitle>
+                </SheetHeader>
+                <div className="p-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      chat.newChat();
+                      setHistoryOpen(false);
+                    }}
+                  >
+                    <Plus className="size-4" /> New chat
+                  </Button>
+                </div>
+                <HistoryList
+                  summaries={chat.summaries}
+                  activeId={chat.activeId}
+                  onSelect={(id) => {
+                    chat.selectConversation(id);
                     setHistoryOpen(false);
                   }}
-                >
-                  <Plus className="size-4" /> New chat
-                </Button>
+                  onDelete={chat.removeConversation}
+                />
+              </SheetContent>
+            </Sheet>
+          </div>
+        </div>
+
+        {/* Body: persistent history sidebar (desktop) + conversation */}
+        <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
+          <aside className="hidden min-h-0 lg:block">
+            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-card/40">
+              <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <History className="size-4 text-muted-foreground" /> History
+                </div>
+                {chat.summaries.length > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="rounded-full text-xs text-muted-foreground [font-variant-numeric:tabular-nums]"
+                  >
+                    {chat.summaries.length}
+                  </Badge>
+                )}
               </div>
               <HistoryList
                 summaries={chat.summaries}
                 activeId={chat.activeId}
-                onSelect={(id) => {
-                  chat.selectConversation(id);
-                  setHistoryOpen(false);
-                }}
+                onSelect={chat.selectConversation}
                 onDelete={chat.removeConversation}
               />
-            </SheetContent>
-          </Sheet>
-        </div>
-      </div>
-
-      {/* Body: persistent history sidebar (desktop) + conversation */}
-      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <aside className="hidden min-h-0 lg:block">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-card/40">
-            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <History className="size-4 text-muted-foreground" /> History
-              </div>
-              {chat.summaries.length > 0 && (
-                <Badge
-                  variant="secondary"
-                  className="rounded-full text-xs text-muted-foreground [font-variant-numeric:tabular-nums]"
-                >
-                  {chat.summaries.length}
-                </Badge>
-              )}
             </div>
-            <HistoryList
-              summaries={chat.summaries}
-              activeId={chat.activeId}
-              onSelect={chat.selectConversation}
-              onDelete={chat.removeConversation}
-            />
-          </div>
-        </aside>
+          </aside>
 
-        <section className="flex min-h-0 flex-col">
-          {/* Conversation — content anchors to the bottom so a short chat sits
+          <section className="flex min-h-0 flex-col">
+            {/* Conversation — content anchors to the bottom so a short chat sits
               just above the composer instead of leaving a tall empty gap.
               Plain overflow (not Radix ScrollArea, whose inner display:table
               wrapper defeats `min-h-full`). */}
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div
-              className={`mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 pb-4 ${
-                empty ? "justify-center" : "justify-end"
-              }`}
-            >
-              {empty ? (
-                <div className="mt-6 rounded-2xl border bg-card/50 p-6 text-center">
-                  <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <Sparkles className="size-6" />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div
+                className={`mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 pb-4 ${
+                  empty ? "justify-center" : "justify-end"
+                }`}
+              >
+                {empty ? (
+                  <div className="mt-6 rounded-2xl border bg-card/50 p-6 text-center">
+                    <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <Sparkles className="size-6" />
+                    </div>
+                    <p className="text-sm font-medium">Your data-aware coach</p>
+                    <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                      I can see today's numbers and your 7-day trend. Try one of these:
+                    </p>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      {SUGGESTIONS.map((s) => (
+                        <Button
+                          key={s}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => send(s)}
+                          className="rounded-full text-muted-foreground hover:text-foreground"
+                        >
+                          {s}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  <p className="text-sm font-medium">Your data-aware coach</p>
-                  <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-                    I can see today's numbers and your 7-day trend. Try one of these:
-                  </p>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    {SUGGESTIONS.map((s) => (
-                      <Button
-                        key={s}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => send(s)}
-                        className="rounded-full text-muted-foreground hover:text-foreground"
-                      >
-                        {s}
-                      </Button>
+                ) : (
+                  <AnimatePresence initial={false}>
+                    {messages.map((m) => (
+                      <MessageBubble
+                        key={m.id}
+                        message={m}
+                        onApply={(a) => chat.applyAction(m.id, a)}
+                        onDismiss={(id) => chat.dismissAction(m.id, id)}
+                      />
                     ))}
+                  </AnimatePresence>
+                )}
+                {error && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {error}
                   </div>
-                </div>
-              ) : (
-                <AnimatePresence initial={false}>
-                  {messages.map((m) => (
-                    <MessageBubble
-                      key={m.id}
-                      message={m}
-                      onApply={(a) => chat.applyAction(m.id, a)}
-                      onDismiss={(id) => chat.dismissAction(m.id, id)}
-                    />
-                  ))}
-                </AnimatePresence>
-              )}
-              {error && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </div>
-              )}
-              <div ref={bottomRef} />
+                )}
+                <div ref={bottomRef} />
+              </div>
             </div>
-          </div>
 
-          {/* Composer */}
-          <div className="mx-auto w-full max-w-4xl pt-3">
-            <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring">
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                rows={1}
-                placeholder="Message your coach…"
-                className="max-h-40 min-h-9 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
-              />
-              {isLoading ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="secondary"
-                  onClick={chat.stop}
-                  aria-label="Stop"
-                >
-                  <Square className="size-4" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={submit}
-                  disabled={!input.trim()}
-                  aria-label="Send"
-                >
-                  <Send className="size-4" />
-                </Button>
-              )}
+            {/* Composer */}
+            <div className="mx-auto w-full max-w-4xl pt-3">
+              <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring">
+                <Textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  rows={1}
+                  placeholder="Message your coach…"
+                  className="max-h-40 min-h-9 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
+                />
+                {isLoading ? (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    onClick={chat.stop}
+                    aria-label="Stop"
+                  >
+                    <Square className="size-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={submit}
+                    disabled={!input.trim()}
+                    aria-label="Send"
+                  >
+                    <Send className="size-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
     </div>
   );
@@ -767,6 +798,22 @@ function ActionCard({
   const meta = ACTION_META[action.name];
   const Icon = meta?.Icon ?? Sparkles;
   if (action.status === "dismissed") return null;
+
+  // Auto-applied memory writes (ADR-020) render as a subtle inline chip, not a
+  // card — the member always sees what was written, without an Apply step.
+  if (action.status === "auto") {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+        className="flex items-center gap-1.5 rounded-full border bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground"
+      >
+        <Icon className="size-3.5 shrink-0" />
+        <span className="truncate">{describeAction(action.name, action.args)}</span>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

@@ -13,11 +13,36 @@
  * scope — never the other member's.
  */
 
-import type { ISODate } from "@/lib/domain";
+import type { CoachMemory, ISODate } from "@/lib/domain";
 import { todayISO, mlToFlOz } from "@/lib/domain";
-import { loadDailyDashboardImpl, loadUserProfileImpl } from "@/server/domain-impl";
+import {
+  loadCoachMemoriesImpl,
+  loadDailyDashboardImpl,
+  loadUserProfileImpl,
+} from "@/server/domain-impl";
 import { collectTrend, profileBlock } from "@/server/coach";
 import { loadFinanceContextImpl, type FinanceContext } from "@/server/finance";
+
+const memoryCategoryRank: Record<CoachMemory["category"], number> = {
+  constraint: 0,
+  goal: 1,
+  preference: 2,
+  life_event: 2,
+  milestone: 2,
+};
+
+export function memoriesBlock(memories: CoachMemory[]): string {
+  return memories
+    .filter((m) => !m.deletedAt)
+    .sort((a, b) => {
+      const rank = memoryCategoryRank[a.category] - memoryCategoryRank[b.category];
+      if (rank !== 0) return rank;
+      return (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
+    })
+    .slice(0, 30)
+    .map((m) => `- [${m.category}] (id: ${m.id}) ${m.content}`)
+    .join("\n");
+}
 
 /**
  * Build the user-context block for the chat system prompt. Pure assembly of
@@ -25,7 +50,11 @@ import { loadFinanceContextImpl, type FinanceContext } from "@/server/finance";
  * gracefully when domains are empty (new user → "not logged yet").
  */
 export async function buildUserContextBlock(date: ISODate = todayISO()): Promise<string> {
-  const [dash, profile] = await Promise.all([loadDailyDashboardImpl(date), loadUserProfileImpl()]);
+  const [dash, profile, memoriesStore] = await Promise.all([
+    loadDailyDashboardImpl(date),
+    loadUserProfileImpl(),
+    loadCoachMemoriesImpl(),
+  ]);
 
   const tasks = (dash.productivity?.tasks || []).filter((t) => !t.deletedAt);
   const tasksDone = tasks.filter((t) => t.done).length;
@@ -51,10 +80,12 @@ export async function buildUserContextBlock(date: ISODate = todayISO()): Promise
     .join("\n");
 
   const financeLines = buildFinanceLines(fin, profile.monthlySavingsGoal);
+  const remembered = memoriesBlock(memoriesStore.memories);
 
   return [
     `Member profile:`,
     profileBlock(profile),
+    ...(remembered ? [``, `What you remember about the member:`, remembered] : []),
     ``,
     `Today (${date}):`,
     `- Tasks: ${tasksDone}/${tasks.length} complete${openTasks ? `\n  Open tasks:\n${openTasks}` : ""}`,

@@ -25,10 +25,12 @@ import type {
   ChatConversation,
   ChatConversationSummary,
   ChatMessageRecord,
+  CoachMemory,
+  CoachMemoryCategory,
   ISODate,
   VoiceIntent,
 } from "@/lib/domain";
-import { todayISO, flOzToMl } from "@/lib/domain";
+import { todayISO, flOzToMl, newId } from "@/lib/domain";
 import { deriveTitle, sortByRecent, toSummary, upsertConversation } from "@/lib/chat";
 import {
   getGrokApiKey,
@@ -41,7 +43,9 @@ import { buildUserContextBlock } from "@/server/context";
 import {
   executeVoiceIntentImpl,
   loadChatConversationsImpl,
+  loadCoachMemoriesImpl,
   updateChatConversationsImpl,
+  updateCoachMemoriesImpl,
 } from "@/server/domain-impl";
 
 /** A single conversation turn sent from the client. */
@@ -57,7 +61,9 @@ export interface ProposedAction {
   args: Record<string, unknown>;
 }
 
-export type ChatActionName = "log_meal" | "log_water" | "add_task" | "mark_task_done";
+export type MemoryActionName = "save_memory" | "update_memory" | "forget_memory";
+export type VoiceChatActionName = "log_meal" | "log_water" | "add_task" | "mark_task_done";
+export type ChatActionName = VoiceChatActionName | MemoryActionName;
 
 /** Keep the prompt bounded: only the most recent turns are sent to the model. */
 const MAX_TURNS = 24;
@@ -128,6 +134,63 @@ const ACTION_TOOLS: ChatTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "save_memory",
+      description:
+        "Remember a durable fact about the member across conversations: a goal, preference, constraint, upcoming life event, or milestone/win.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            enum: ["goal", "preference", "constraint", "life_event", "milestone"],
+          },
+          content: {
+            type: "string",
+            description: "One durable fact in third person. Do not save transient daily logs.",
+          },
+        },
+        required: ["category", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_memory",
+      description:
+        "Revise an existing remembered fact when it changed or the member corrected it. Use the memory id from the context.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The memory id to update." },
+          content: { type: "string", description: "The revised durable fact." },
+          category: {
+            type: "string",
+            enum: ["goal", "preference", "constraint", "life_event", "milestone"],
+          },
+        },
+        required: ["id", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget_memory",
+      description:
+        "Forget an existing remembered fact when the member disavows it or says it no longer applies. Use the memory id from the context.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The memory id to forget." },
+        },
+        required: ["id"],
+      },
+    },
+  },
 ];
 
 function systemPrompt(contextBlock: string, date: ISODate): string {
@@ -142,6 +205,7 @@ How to respond:
 - Use US customary units in everything user-facing: pounds, inches/feet, fluid ounces, US dollars. Never kg/cm/ml.
 - Respect any injuries and dietary restrictions in the profile without exception.
 - Be concise and actionable. No medical/financial disclaimers, no filler.
+- When the member shares something durable (a new goal, preference, constraint, upcoming life event, milestone, or win), call save_memory. When a remembered fact changed or is disavowed, call update_memory or forget_memory using the ids shown in the "What you remember about the member" section. Never save transient daily facts that belong in logs.
 - When the member clearly wants to RECORD or CHANGE something (e.g. "log 40g protein", "add a task to call the dentist", "I drank 16 oz of water", "mark the laundry done"), call the matching function instead of only describing it. Otherwise, just answer in prose. Never invent data you weren't given.`;
 }
 
@@ -211,8 +275,11 @@ export const chatStream = createServerFn({ method: "POST" })
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          let sawText = false;
+          const toolNames: ChatActionName[] = [];
           for await (const ev of streamChat(apiKey, { model, messages, tools: ACTION_TOOLS })) {
             if (ev.type === "delta") {
+              if (ev.text.trim()) sawText = true;
               controller.enqueue(sse({ type: "delta", text: ev.text }));
             } else if (ev.type === "tool_call") {
               let args: Record<string, unknown> = {};
@@ -221,7 +288,28 @@ export const chatStream = createServerFn({ method: "POST" })
               } catch {
                 args = {};
               }
+              toolNames.push(ev.name as ChatActionName);
               controller.enqueue(sse({ type: "action", id: ev.id, name: ev.name, args }));
+            }
+          }
+          // Memory writes auto-apply with no visible card (ADR-020), so a turn
+          // that ended in memory-only tool calls with no prose would leave the
+          // member unanswered. Run a follow-up completion (no tools) so the
+          // coach still responds. Pure LLM call — no store access, so the
+          // scope-binding invariant (ADR-017) holds.
+          if (!sawText && toolNames.length > 0 && toolNames.every(isMemoryAction)) {
+            for await (const ev of streamChat(apiKey, {
+              model,
+              messages: [
+                ...messages,
+                {
+                  role: "system",
+                  content:
+                    "You already saved the durable fact(s) the member shared — do not mention saving or call any tools. Now answer the member's last message in prose.",
+                },
+              ],
+            })) {
+              if (ev.type === "delta") controller.enqueue(sse({ type: "delta", text: ev.text }));
             }
           }
           controller.enqueue(sse({ type: "done" }));
@@ -245,7 +333,7 @@ export const chatStream = createServerFn({ method: "POST" })
    write path — no duplicated domain mutation logic.
    ============================================================ */
 
-function actionToIntent(name: ChatActionName, args: Record<string, any>): VoiceIntent {
+function actionToIntent(name: VoiceChatActionName, args: Record<string, any>): VoiceIntent {
   switch (name) {
     case "log_meal":
       return {
@@ -292,11 +380,128 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+const COACH_MEMORY_CATEGORIES: readonly CoachMemoryCategory[] = [
+  "goal",
+  "preference",
+  "constraint",
+  "life_event",
+  "milestone",
+];
+
+const MAX_LIVE_MEMORIES = 100;
+const MAX_MEMORY_CONTENT = 500;
+
+function normalizeMemoryCategory(value: unknown): CoachMemoryCategory {
+  return COACH_MEMORY_CATEGORIES.includes(value as CoachMemoryCategory)
+    ? (value as CoachMemoryCategory)
+    : "preference";
+}
+
+function sanitizeMemoryContent(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .slice(0, MAX_MEMORY_CONTENT);
+}
+
+function enforceMemoryCap(memories: CoachMemory[], now: number): CoachMemory[] {
+  const live = memories.filter((m) => !m.deletedAt);
+  const excess = live.length - MAX_LIVE_MEMORIES;
+  if (excess <= 0) return memories;
+
+  const oldestFirst = (a: CoachMemory, b: CoachMemory) =>
+    (a.updatedAt || a.createdAt) - (b.updatedAt || b.createdAt);
+  const drop = [
+    ...live.filter((m) => m.category !== "constraint").sort(oldestFirst),
+    ...live.filter((m) => m.category === "constraint").sort(oldestFirst),
+  ]
+    .slice(0, excess)
+    .map((m) => m.id);
+  const dropIds = new Set(drop);
+
+  return memories.map((m) => (dropIds.has(m.id) ? { ...m, deletedAt: now, updatedAt: now } : m));
+}
+
+function isMemoryAction(name: ChatActionName): name is MemoryActionName {
+  return name === "save_memory" || name === "update_memory" || name === "forget_memory";
+}
+
+async function applyMemoryAction(
+  name: MemoryActionName,
+  args: Record<string, unknown>,
+): Promise<{ ok: boolean; message: string }> {
+  const now = Date.now();
+
+  if (name === "save_memory") {
+    const content = sanitizeMemoryContent(args.content);
+    if (!content) return { ok: false, message: "I need something specific to remember." };
+
+    const memory: CoachMemory = {
+      id: newId("mem"),
+      category: normalizeMemoryCategory(args.category),
+      content,
+      createdAt: now,
+      updatedAt: now,
+      sourceConversationId:
+        typeof args.sourceConversationId === "string"
+          ? args.sourceConversationId
+          : typeof args.conversationId === "string"
+            ? args.conversationId
+            : undefined,
+    };
+
+    await updateCoachMemoriesImpl((memories) => enforceMemoryCap([...memories, memory], now));
+    return { ok: true, message: "Noted — I'll remember that." };
+  }
+
+  if (name === "update_memory") {
+    const id = String(args.id ?? "").trim();
+    const content = sanitizeMemoryContent(args.content);
+    if (!id) return { ok: false, message: "I need the memory id to update." };
+    if (!content) return { ok: false, message: "I need the updated memory text." };
+
+    let found = false;
+    await updateCoachMemoriesImpl((memories) =>
+      memories.map((m) => {
+        if (m.id !== id || m.deletedAt) return m;
+        found = true;
+        return {
+          ...m,
+          content,
+          category:
+            args.category === undefined ? m.category : normalizeMemoryCategory(args.category),
+          updatedAt: now,
+        };
+      }),
+    );
+    return found
+      ? { ok: true, message: "Updated — I'll remember it that way." }
+      : { ok: false, message: "I couldn't find that memory to update." };
+  }
+
+  const id = String(args.id ?? "").trim();
+  if (!id) return { ok: false, message: "I need the memory id to forget." };
+
+  let found = false;
+  await updateCoachMemoriesImpl((memories) =>
+    memories.map((m) => {
+      if (m.id !== id || m.deletedAt) return m;
+      found = true;
+      return { ...m, deletedAt: now, updatedAt: now };
+    }),
+  );
+  return found
+    ? { ok: true, message: "Forgotten." }
+    : { ok: false, message: "I couldn't find that memory to forget." };
+}
+
 const VALID_ACTIONS: ReadonlySet<string> = new Set<ChatActionName>([
   "log_meal",
   "log_water",
   "add_task",
   "mark_task_done",
+  "save_memory",
+  "update_memory",
+  "forget_memory",
 ]);
 
 /**
@@ -312,9 +517,44 @@ export const applyChatAction = createServerFn({ method: "POST" })
     if (!VALID_ACTIONS.has(name)) {
       return { ok: false, message: "Unknown action." };
     }
+    if (isMemoryAction(name)) {
+      return applyMemoryAction(name, data?.args || {});
+    }
     const intent = actionToIntent(name, data?.args || {});
     const result = await executeVoiceIntentImpl(intent);
     return { ok: result.success, message: result.spokenText };
+  });
+
+/* ============================================================
+   COACH MEMORIES (ADR-020)
+   Personal-scoped durable facts the coach can use across conversations.
+   Stored in `coach-memories.json`.
+   ============================================================ */
+
+/** List live coach memories, newest-updated first. */
+export const loadCoachMemories = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ memories: CoachMemory[] }> => {
+    await requireAuthSession();
+    const store = await loadCoachMemoriesImpl();
+    return {
+      memories: store.memories
+        .filter((m) => !m.deletedAt)
+        .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)),
+    };
+  },
+);
+
+/** Soft-delete a coach memory by id. */
+export const deleteCoachMemory = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    await requireAuthSession();
+    const id = data?.id;
+    const now = Date.now();
+    await updateCoachMemoriesImpl((memories) =>
+      memories.map((m) => (m.id === id ? { ...m, deletedAt: now, updatedAt: now } : m)),
+    );
+    return { ok: true };
   });
 
 /* ============================================================

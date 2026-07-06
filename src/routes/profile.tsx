@@ -3,15 +3,20 @@ import { useState, useEffect } from "react";
 import {
   User,
   Target,
+  Compass,
   Dumbbell,
   Utensils,
   Wallet,
   Save,
   Check,
+  Brain,
+  Trash2,
   Calendar as CalendarIcon,
 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +35,8 @@ import { Reveal } from "@/components/motion";
 import { cn } from "@/lib/utils";
 import { loadUserProfile, saveUserProfile } from "@/server/domain";
 import { generateCoaching } from "@/server/coach";
+import { loadCoachMemories, deleteCoachMemory } from "@/server/chat";
+import type { CoachMemory, CoachMemoryCategory } from "@/lib/domain";
 import {
   cmToInches,
   computeAge,
@@ -59,6 +66,11 @@ type Form = {
   timezone: string;
   goals: string;
   activityLevel: string;
+  coachingStyle: string;
+  currentFocus: string;
+  motivation: string;
+  lifeContext: string;
+  foodPreferences: string;
   injuries: string;
   trainingDaysPerWeek: string;
   equipmentAccess: string;
@@ -82,6 +94,11 @@ const EMPTY: Form = {
   timezone: "",
   goals: "",
   activityLevel: "",
+  coachingStyle: "",
+  currentFocus: "",
+  motivation: "",
+  lifeContext: "",
+  foodPreferences: "",
   injuries: "",
   trainingDaysPerWeek: "",
   equipmentAccess: "",
@@ -110,6 +127,15 @@ const num = (s: string): number | undefined => {
 };
 const str = (s: string): string | undefined => (s.trim() ? s.trim() : undefined);
 
+/** Human labels for the coach-memory categories (ADR-020). */
+const MEMORY_CATEGORY_LABELS: Record<CoachMemoryCategory, string> = {
+  goal: "Goal",
+  preference: "Preference",
+  constraint: "Constraint",
+  life_event: "Life event",
+  milestone: "Milestone",
+};
+
 function profileToForm(p: UserProfile): Form {
   return {
     displayName: p.displayName ?? "",
@@ -120,6 +146,11 @@ function profileToForm(p: UserProfile): Form {
     timezone: p.timezone ?? "",
     goals: csv(p.goals),
     activityLevel: p.activityLevel ?? "",
+    coachingStyle: p.coachingStyle ?? "",
+    currentFocus: p.currentFocus ?? "",
+    motivation: p.motivation ?? "",
+    lifeContext: p.lifeContext ?? "",
+    foodPreferences: csv(p.foodPreferences),
     injuries: csv(p.injuries),
     trainingDaysPerWeek: p.trainingDaysPerWeek?.toString() ?? "",
     equipmentAccess: csv(p.equipmentAccess),
@@ -145,6 +176,11 @@ function formToProfile(f: Form): Partial<UserProfile> {
     timezone: str(f.timezone),
     goals: fromCsv(f.goals),
     activityLevel: (str(f.activityLevel) as UserProfile["activityLevel"]) ?? undefined,
+    coachingStyle: (str(f.coachingStyle) as UserProfile["coachingStyle"]) ?? undefined,
+    currentFocus: str(f.currentFocus),
+    motivation: str(f.motivation),
+    lifeContext: str(f.lifeContext),
+    foodPreferences: fromCsv(f.foodPreferences),
     injuries: fromCsv(f.injuries),
     trainingDaysPerWeek: num(f.trainingDaysPerWeek),
     equipmentAccess: fromCsv(f.equipmentAccess),
@@ -252,6 +288,7 @@ function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [memories, setMemories] = useState<CoachMemory[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -265,6 +302,29 @@ function ProfilePage() {
       active = false;
     };
   }, []);
+
+  // What the coach remembers (ADR-020) — display/manage only, outside the form.
+  useEffect(() => {
+    let active = true;
+    loadCoachMemories()
+      .then(({ memories }) => {
+        if (active) setMemories(memories);
+      })
+      .catch((e) => console.warn("[profile] memories load failed", e));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleForget(id: string) {
+    // Optimistically drop it; the delete is best-effort (soft-delete server-side).
+    setMemories((prev) => prev.filter((m) => m.id !== id));
+    try {
+      await deleteCoachMemory({ data: { id } });
+    } catch (e) {
+      console.warn("[profile] forget memory failed", e);
+    }
+  }
 
   function set<K extends keyof Form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -299,6 +359,8 @@ function ProfilePage() {
   const age = computeAge(str(form.birthDate));
   const profileSignals = [
     form.goals,
+    form.currentFocus,
+    form.motivation,
     form.injuries,
     form.trainingDaysPerWeek,
     form.equipmentAccess,
@@ -469,6 +531,80 @@ function ProfilePage() {
                 </CardContent>
               </Card>
 
+              {/* COACHING STYLE & CONTEXT */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Compass className="size-4 text-primary" /> Coaching style &amp; context
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Field
+                    label="Coaching style"
+                    hint="How you want the coach to talk to you — gentle encouragement, a balanced mix, or direct and no-nonsense."
+                  >
+                    <Select
+                      value={form.coachingStyle || "none"}
+                      onValueChange={(v) => set("coachingStyle", v === "none" ? "" : v)}
+                    >
+                      <SelectTrigger aria-label="Coaching style" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="none">—</SelectItem>
+                          <SelectItem value="gentle">Gentle</SelectItem>
+                          <SelectItem value="balanced">Balanced</SelectItem>
+                          <SelectItem value="direct">Direct</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Current focus"
+                    hint="Your season right now — e.g. cutting until August, money is the priority this quarter."
+                  >
+                    <Input
+                      value={form.currentFocus}
+                      onChange={(e) => set("currentFocus", e.target.value)}
+                      placeholder="Cutting until August; savings come first this quarter"
+                    />
+                  </Field>
+                  <Field
+                    label="What's driving you"
+                    hint="The why behind your goals — lets the coach connect nudges to what actually matters."
+                  >
+                    <Textarea
+                      value={form.motivation}
+                      onChange={(e) => set("motivation", e.target.value)}
+                      placeholder="Want to keep up with my kids and feel strong at 50."
+                      rows={2}
+                    />
+                  </Field>
+                  <Field
+                    label="Life context"
+                    hint="Work schedule, family, travel — anything that shapes your week."
+                  >
+                    <Textarea
+                      value={form.lifeContext}
+                      onChange={(e) => set("lifeContext", e.target.value)}
+                      placeholder="Desk job, two young kids, travel for work about once a month."
+                      rows={2}
+                    />
+                  </Field>
+                  <Field
+                    label="Food likes &amp; dislikes"
+                    hint="Comma-separated. Restrictions say what's forbidden; this says what you'll actually eat."
+                  >
+                    <Input
+                      value={form.foodPreferences}
+                      onChange={(e) => set("foodPreferences", e.target.value)}
+                      placeholder="love chicken and rice, hate cottage cheese, coffee daily"
+                    />
+                  </Field>
+                </CardContent>
+              </Card>
+
               {/* FITNESS */}
               <Card>
                 <CardHeader>
@@ -633,6 +769,57 @@ function ProfilePage() {
                       rows={3}
                     />
                   </Field>
+                </CardContent>
+              </Card>
+
+              {/* WHAT YOUR COACH REMEMBERS (ADR-020) — display/manage only,
+                  not part of the form/save flow. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Brain className="size-4 text-primary" /> What your coach remembers
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {memories.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      As you chat, your coach saves durable facts — goals, preferences, constraints,
+                      and life events — so it can pick up where you left off. They'll show up here,
+                      and you can remove any that no longer fit.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {memories.map((m) => (
+                        <div
+                          key={m.id}
+                          className="group flex items-start gap-3 rounded-xl border bg-card px-3 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant="secondary"
+                                className="rounded-full text-[10px] font-medium text-muted-foreground"
+                              >
+                                {MEMORY_CATEGORY_LABELS[m.category]}
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground">
+                                {formatDistanceToNow(m.updatedAt, { addSuffix: true })}
+                              </span>
+                            </div>
+                            <p className="text-sm leading-relaxed">{m.content}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleForget(m.id)}
+                            aria-label="Forget this memory"
+                            className="shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

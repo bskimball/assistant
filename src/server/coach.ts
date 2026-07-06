@@ -17,6 +17,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import type {
+  CoachMemory,
   ExercisePhase,
   ISODate,
   ISOWeek,
@@ -47,10 +48,12 @@ import {
   loadWorkoutPlansImpl,
   saveWorkoutPlansImpl,
   loadUserProfileImpl,
+  loadCoachMemoriesImpl,
   estimateMacrosFromText,
 } from "@/server/domain-impl";
 import { requireAuthSession } from "@/lib/auth";
 import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
+import { memoriesBlock } from "@/server/context";
 
 export type CoachDomain = "focus" | "fitness" | "nutrition" | "finance" | "family" | "general";
 
@@ -798,6 +801,10 @@ export function profileBlock(profile: UserProfile): string {
   ].filter(Boolean);
   if (bio.length) lines.push(`- Bio: ${bio.join(", ")}`);
   if (profile.goals?.length) lines.push(`- Goals: ${profile.goals.join("; ")}`);
+  if (profile.coachingStyle) lines.push(`- Coaching style: ${profile.coachingStyle}`);
+  if (profile.motivation) lines.push(`- Motivation: ${profile.motivation}`);
+  if (profile.lifeContext) lines.push(`- Life context: ${profile.lifeContext}`);
+  if (profile.currentFocus) lines.push(`- Current focus: ${profile.currentFocus}`);
   if (profile.injuries?.length)
     lines.push(`- Injuries/limits (MUST respect): ${profile.injuries.join(", ")}`);
   if (profile.equipmentAccess?.length)
@@ -810,6 +817,8 @@ export function profileBlock(profile: UserProfile): string {
     );
   if (profile.dietaryRestrictions?.length)
     lines.push(`- Dietary restrictions (MUST respect): ${profile.dietaryRestrictions.join(", ")}`);
+  if (profile.foodPreferences?.length)
+    lines.push(`- Food preferences: ${profile.foodPreferences.join(", ")}`);
   if (profile.riskTolerance) lines.push(`- Investing risk tolerance: ${profile.riskTolerance}`);
   if (profile.monthlySavingsGoal)
     lines.push(`- Monthly savings goal: $${profile.monthlySavingsGoal}`);
@@ -824,14 +833,17 @@ function buildCoachPrompt(
   profile: UserProfile,
   trend: TrendSignals,
   plannedWorkout: WorkoutSuggestion,
+  memories: CoachMemory[],
 ): string {
   const name = profile.displayName || "Brian";
   const waterOz = mlToFlOz(signals.waterMl) ?? 0;
   const avgWaterOz = mlToFlOz(trend.avgWaterMl) ?? 0;
+  const remembered = memoriesBlock(memories);
   return `You are ${name}'s personal advisory board: an elite life coach, a certified strength & conditioning coach, and a CFP-level financial advisor. Give concise, actionable coaching for TODAY based on real data. Personalize every suggestion to the profile and the 7-day trend — never contradict injuries or dietary restrictions.
 
 User profile:
 ${profileBlock(profile)}
+${remembered ? `\nWhat you remember about the member:\n${remembered}\n` : ""}
 
 Today's data (${signals.date}, weekday index ${signals.dayOfWeek} where 0=Sunday):
 - Tasks: ${signals.tasksDone}/${signals.tasksTotal} complete
@@ -884,12 +896,16 @@ async function aiCoaching(
   trend: TrendSignals,
   apiKey: string,
   plannedWorkout: WorkoutSuggestion,
+  memories: CoachMemory[],
 ): Promise<CoachingResult> {
   const parsed = await completeJSON<any>(apiKey, {
     model: "grok-4.3",
     messages: [
       { role: "system", content: "Return strictly valid minified JSON only. No prose." },
-      { role: "user", content: buildCoachPrompt(signals, profile, trend, plannedWorkout) },
+      {
+        role: "user",
+        content: buildCoachPrompt(signals, profile, trend, plannedWorkout, memories),
+      },
     ],
     temperature: 0.5,
     maxTokens: 700,
@@ -941,7 +957,10 @@ export const generateCoaching = createServerFn({ method: "POST" })
       };
     }
 
-    const profile = await loadUserProfileImpl();
+    const [profile, memoriesStore] = await Promise.all([
+      loadUserProfileImpl(),
+      loadCoachMemoriesImpl(),
+    ]);
     const signals = await collectSignals(date, profile);
     const trend = await collectTrend(date, signals.proteinTarget);
     const weeklyWorkout = await getOrCreateWeeklyWorkout(date, profile);
@@ -950,7 +969,14 @@ export const generateCoaching = createServerFn({ method: "POST" })
     const apiKey = await getGrokApiKey();
     if (apiKey) {
       try {
-        result = await aiCoaching(signals, profile, trend, apiKey, weeklyWorkout.workout);
+        result = await aiCoaching(
+          signals,
+          profile,
+          trend,
+          apiKey,
+          weeklyWorkout.workout,
+          memoriesStore.memories,
+        );
       } catch (e) {
         console.warn("[coach] Grok coaching failed, using fallback", e);
         result = fallbackCoaching(signals, profile, trend, weeklyWorkout.workout);

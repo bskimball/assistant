@@ -5,6 +5,8 @@ import type {
   CategoryGroup,
   ChatConversation,
   ChatConversationsStore,
+  CoachMemoriesStore,
+  CoachMemory,
   DailyFinanceSnapshot,
   DailyFocusScore,
   DailyNutrition,
@@ -124,6 +126,31 @@ export async function updateChatConversationsImpl(
   const store = await getDomainStore();
   return store.ref.update<ChatConversationsStore>("chat-conversations.json", (current) => ({
     conversations: mutate(current?.conversations ?? []),
+    updatedAt: Date.now(),
+  }));
+}
+
+export async function loadCoachMemoriesImpl(): Promise<CoachMemoriesStore> {
+  const store = await getDomainStore();
+  return (
+    (await store.ref.get<CoachMemoriesStore>("coach-memories.json")) ?? {
+      memories: [],
+      updatedAt: Date.now(),
+    }
+  );
+}
+
+/**
+ * Atomically mutate coach memories (etag CAS + retry) so two tabs saving
+ * memories concurrently can't drop each other's facts. `mutate` may run more
+ * than once on conflict — keep it pure over its input.
+ */
+export async function updateCoachMemoriesImpl(
+  mutate: (memories: CoachMemory[]) => CoachMemory[],
+): Promise<CoachMemoriesStore> {
+  const store = await getDomainStore();
+  return store.ref.update<CoachMemoriesStore>("coach-memories.json", (current) => ({
+    memories: mutate(current?.memories ?? []),
     updatedAt: Date.now(),
   }));
 }
