@@ -94,6 +94,7 @@ function WorkoutsPage() {
   const [logTitle, setLogTitle] = useState("");
   const [logMinutes, setLogMinutes] = useState("");
   const [logEffort, setLogEffort] = useState(3);
+  const [logDay, setLogDay] = useState<"today" | "yesterday">("today");
 
   function flash(msg: string, ms = 3000) {
     setStatus(msg);
@@ -173,14 +174,47 @@ function WorkoutsPage() {
     const title = logTitle.trim();
     if (!title || busy) return;
     const mins = parseInt(logMinutes, 10);
+    // Yesterday's sessions are stamped at noon that day, same as planned back-logs.
+    const performedAt =
+      logDay === "yesterday"
+        ? (() => {
+            const d = new Date(today + "T12:00:00");
+            d.setDate(d.getDate() - 1);
+            return d.getTime();
+          })()
+        : undefined;
     void logSession({
       title,
       durationMinutes: Number.isFinite(mins) && mins > 0 ? mins : undefined,
       effortRating: logEffort as 1 | 2 | 3 | 4 | 5,
+      performedAt,
     });
     setLogTitle("");
     setLogMinutes("");
     setLogEffort(3);
+    setLogDay("today");
+  }
+
+  async function unlogPlanned(date: string) {
+    if (busy) return;
+    // Un-check = soft-delete the most recent session logged for that day.
+    const match = sessions
+      .filter((s) => dayKey(s.performedAt) === date)
+      .sort((a, b) => b.performedAt - a.performedAt)[0];
+    if (!match) return;
+    setBusy(true);
+    try {
+      const now = Date.now();
+      const next = sessions.map((s) => (s.id === match.id ? { ...s, deletedAt: now } : s));
+      await saveWorkoutSessions({ data: { sessions: next } });
+      await refreshSessions();
+      flash("Unchecked — session removed.");
+    } catch (e) {
+      console.error("[workouts] unlog failed", e);
+      flash("Couldn’t uncheck that workout — try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleDelete(id: string) {
@@ -339,12 +373,21 @@ function WorkoutsPage() {
                           </Button>
                         )}
                         {done && (
-                          <Badge
-                            variant="secondary"
-                            className="shrink-0 rounded-full bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-500"
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void unlogPlanned(session.date)}
+                            aria-label={`Uncheck ${session.title}`}
+                            title="Uncheck this workout"
+                            className="shrink-0 disabled:opacity-50"
                           >
-                            Done
-                          </Badge>
+                            <Badge
+                              variant="secondary"
+                              className="rounded-full bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 transition-colors hover:bg-destructive/10 hover:text-destructive dark:text-emerald-500"
+                            >
+                              Done
+                            </Badge>
+                          </button>
                         )}
                       </div>
 
@@ -371,7 +414,7 @@ function WorkoutsPage() {
           <CardContent>
             <form
               onSubmit={handleQuickLog}
-              className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto]"
+              className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto]"
             >
               <Input
                 value={logTitle}
@@ -387,6 +430,21 @@ function WorkoutsPage() {
                 className="w-full sm:w-20"
                 disabled={busy}
               />
+              <Select
+                value={logDay}
+                onValueChange={(v) => setLogDay(v as "today" | "yesterday")}
+                disabled={busy}
+              >
+                <SelectTrigger aria-label="Workout day" className="w-full sm:w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="yesterday">Yesterday</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <Select
                 value={String(logEffort)}
                 onValueChange={(v) => setLogEffort(Number(v))}
@@ -411,8 +469,8 @@ function WorkoutsPage() {
               </Button>
             </form>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Logs an ad-hoc session for today. Use the “Log” buttons above to record a planned
-              session with its full exercise list.
+              Logs an ad-hoc session for today or yesterday. Use the “Log” buttons above to record
+              a planned session with its full exercise list.
             </p>
           </CardContent>
         </Card>
