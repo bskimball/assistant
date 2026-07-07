@@ -382,7 +382,7 @@ function ProfilePage() {
   ].filter(Boolean);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Settings</div>

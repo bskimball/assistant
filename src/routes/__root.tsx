@@ -151,32 +151,37 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             honors the OS reduce-motion setting without changing the DOM (no
             hydration mismatch). */}
         <MotionConfig reducedMotion="user">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{
-                opacity: 0,
-                y: -8,
-                filter: "blur(4px)",
-                transition: { duration: 0.15, ease: "easeIn" },
-              }}
-              transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-            >
-              {/* Inner wrapper (motion owns the outer div's inline opacity):
+          {/* overflow-y-clip: the enter/exit y-offsets would otherwise extend
+              the page 8px past the viewport mid-animation, flashing a
+              scrollbar on pages that fit exactly. */}
+          <div className="overflow-y-clip">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={pathname}
+                initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{
+                  opacity: 0,
+                  y: -8,
+                  filter: "blur(4px)",
+                  transition: { duration: 0.15, ease: "easeIn" },
+                }}
+                transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+              >
+                {/* Inner wrapper (motion owns the outer div's inline opacity):
                   while the next page's loaders run, fade the stale page so the
                   user sees their tap registered. The delay keeps fast (cached)
                   navigations from flickering. */}
-              <div
-                className={`transition-opacity delay-150 duration-300 ${
-                  showPending ? "opacity-40" : "opacity-100"
-                }`}
-              >
-                {children}
-              </div>
-            </motion.div>
-          </AnimatePresence>
+                <div
+                  className={`transition-opacity delay-150 duration-300 ${
+                    showPending ? "opacity-40" : "opacity-100"
+                  }`}
+                >
+                  {children}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </MotionConfig>
         <TanStackDevtools
           config={{

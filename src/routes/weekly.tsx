@@ -311,7 +311,7 @@ function Weekly() {
     stats && stats.tasksTotal > 0 ? Math.round((stats.tasksCompleted / stats.tasksTotal) * 100) : 0;
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

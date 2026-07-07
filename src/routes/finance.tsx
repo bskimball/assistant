@@ -254,7 +254,7 @@ function FinancePage() {
   const netWorth = hub?.snapshot.netWorth ?? 0;
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         {/* Header */}
         <div className="mb-5">

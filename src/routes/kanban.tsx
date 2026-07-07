@@ -230,7 +230,7 @@ function KanbanBoard() {
   }, [tasks]);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

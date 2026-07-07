@@ -142,9 +142,21 @@
     @apply border-border outline-ring/50;
   }
 
-  html,
-  body {
+  /* Exactly one vertical scroll container: the viewport (html). Body stays
+     `visible` so its overflow propagates up — giving both `auto` makes body a
+     second, nested scroller (double scrollbar). `scrollbar-gutter: stable`
+     reserves the scrollbar column even when content fits, so the layout
+     doesn't shift sideways when navigating between short and tall pages.
+     The explicit values also serve as the mobile/PWA scroll-freeze reset. */
+  html {
     overflow-y: auto;
+    scrollbar-gutter: stable;
+    height: auto;
+    min-height: 100%;
+  }
+
+  body {
+    overflow-y: visible;
     height: auto;
     min-height: 100%;
   }

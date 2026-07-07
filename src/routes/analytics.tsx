@@ -112,7 +112,7 @@ function Analytics() {
   const netCashflow = points.reduce((sum, p) => sum + p.cashflow, 0);
 
   return (
-    <div className="min-h-dvh bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
