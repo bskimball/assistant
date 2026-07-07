@@ -469,8 +469,8 @@ function WorkoutsPage() {
               </Button>
             </form>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Logs an ad-hoc session for today or yesterday. Use the “Log” buttons above to record
-              a planned session with its full exercise list.
+              Logs an ad-hoc session for today or yesterday. Use the “Log” buttons above to record a
+              planned session with its full exercise list.
             </p>
           </CardContent>
         </Card>
