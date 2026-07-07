@@ -169,7 +169,7 @@ function WorkoutsPage() {
     });
   }
 
-  function handleQuickLog(e?: React.FormEvent) {
+  function handleQuickLog(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     const title = logTitle.trim();
     if (!title || busy) return;
@@ -235,7 +235,7 @@ function WorkoutsPage() {
   }
 
   return (
-    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         {/* Header */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

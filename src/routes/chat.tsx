@@ -490,7 +490,7 @@ function ChatPage() {
   const empty = messages.length === 0;
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] w-full flex-col px-4 pb-16 pt-6 sm:px-6 sm:pb-4">
+    <div className="flex h-[calc(100dvh-3.5rem)] w-full flex-col px-4 pb-24 pt-6 sm:px-6 sm:pb-4">
       <div className="mx-auto flex min-h-0 w-full max-w-page flex-1 flex-col">
         {/* Header — eyebrow + title, consistent with the other pages */}
         <div className="flex items-end justify-between gap-3 pb-4">

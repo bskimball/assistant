@@ -332,7 +332,7 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  async function handleQuickAdd(e?: React.FormEvent) {
+  async function handleQuickAdd(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday || !taskInput.trim()) return;
     const newTask = createProductivityTask({
@@ -375,7 +375,7 @@ function UnifiedDailyDashboard() {
   }
 
   // Add / update a finance account balance.
-  async function handleAddAccount(e?: React.FormEvent) {
+  async function handleAddAccount(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday) return;
     const name = acctName.trim();
@@ -433,7 +433,7 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  async function handleAddTransaction(e?: React.FormEvent) {
+  async function handleAddTransaction(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday) return;
     const amount = parseFloat(txnAmount);
@@ -464,7 +464,7 @@ function UnifiedDailyDashboard() {
 
   // Add a food/meal: the AI estimates calories + macros from the description,
   // then we log it to today's nutrition.
-  async function handleAddFood(e?: React.FormEvent) {
+  async function handleAddFood(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday) return;
     const description = foodName.trim();
@@ -779,7 +779,7 @@ function UnifiedDailyDashboard() {
       : "No activity recorded for this day.");
 
   return (
-    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         {/* Top nav + date */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -823,7 +823,7 @@ function UnifiedDailyDashboard() {
                     variant="outline"
                     size="sm"
                     onClick={() => dateInputRef.current?.showPicker?.()}
-                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-[132px]"
+                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-33"
                     aria-label="Pick a date"
                   >
                     <CalendarDays className="size-3.5 text-muted-foreground" />
@@ -884,7 +884,7 @@ function UnifiedDailyDashboard() {
               />
             </div>
 
-            <div className="max-w-[420px] text-center sm:text-left">
+            <div className="max-w-105 text-center sm:text-left">
               <div className="text-[13px] font-medium text-muted-foreground">Today at a glance</div>
               <div className="mt-1 text-xl leading-tight">
                 {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
@@ -1571,7 +1571,7 @@ function UnifiedDailyDashboard() {
                       delay={revealDelay(idx)}
                       className="flex gap-2 text-muted-foreground"
                     >
-                      <span className="mt-px inline-block w-[42px] shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                      <span className="mt-px inline-block w-10.5 shrink-0 font-mono text-[10px] text-muted-foreground/70">
                         {new Date(c.ts).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",

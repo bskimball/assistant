@@ -1,8 +1,20 @@
-skills are in .agent/skills/
+skills: `.agent/skills/` · project specs: AGENTS.md — this file is orchestration only.
 
-## Picking the right models for workflows and subagents
+## Delegate by default
 
-Rankings, higher = better. Cost reflects what I actually pay (OpenAI has really generous limits), not list price. Intelligence is how hard a problem you can hand the model unsupervised. Taste covers UI/UX, code quality, API design, and copy.
+You are the orchestrator: route, judge, integrate. Do a subtask in-session only when it's truly small (one file, one edit) or needs the full conversation context. Otherwise route it:
+
+| task looks like...                                           | model               | via                            |
+| ------------------------------------------------------------ | ------------------- | ------------------------------ |
+| clear-spec implementation, migrations, data analysis, tests  | gpt-5.5             | `codex exec` / codex-\* skills |
+| codebase search, image/screenshot reading, git/CLI runs      | flash-3.5           | `agy -p ...`                   |
+| log/output triage, file summaries, quick lookups & fact-finds | flash-3.5           | `agy -p ...`                   |
+| mechanical edits (renames, formatting, boilerplate, codemods) | flash-3.5           | `agy -p ...`                   |
+| UI implementation, copy, API design (anything user-facing)   | opus-4.8 or fable-5 | Agent model param              |
+| planning / architecture / implementation strategy            | fable-5 or opus-4.8 | Agent model param              |
+| reviews of plans/implementations                             | gpt-5.5             | `codex review`                 |
+
+Model traits (1–9, higher better; cost = what I actually pay — OpenAI limits are generous):
 
 | model     | cost | intelligence | taste | speed |
 | --------- | ---- | ------------ | ----- | ----- |
@@ -12,38 +24,31 @@ Rankings, higher = better. Cost reflects what I actually pay (OpenAI has really 
 | fable-5   | 2    | 9            | 9     | 4     |
 | flash-3.5 | 7    | 4            | 7     | 9     |
 
-**Default to delegating.** You are the orchestrator: your job is routing, judgment, and integration — not doing the work in-session. Before starting any subtask yourself, route it through the table below. Doing it yourself is the exception, reserved for tasks that are truly small (one file, one edit) or that require the full conversation context.
-
-Routing table — match the task, use that model, no deliberation needed:
-
-| task looks like...                                                               | route to            | via                            |
-| -------------------------------------------------------------------------------- | ------------------- | ------------------------------ |
-| clear-spec implementation, migrations, data analysis, test writing               | gpt-5.5             | `codex exec` / codex-\* skills |
-| codebase search, reading/describing images or screenshots, git/wrangler/CLI runs | flash-3.5           | `agy -p ...`                   |
-| UI implementation, copy, API design (anything user-facing)                       | opus-4.8 or fable-5 | Agent model param              |
-| planning / architecture / implementation strategy                                | fable-5 or Opus-4.8 | Agent model param              |
-| reviews of plans/implementations                                                 | gpt-5.5             | `codex review`                 |
-
 Rules:
 
-- Opus/fable are the right pick for their rows (user-facing work, planning) — use them freely there. Just don't reach for them for mechanical or search work; that's what gpt-5.5 and flash-3.5 are for.
-- The wrapper overhead for codex/agy is not a reason to skip them — a thin wrapper agent takes seconds to spawn and gpt-5.5 is effectively free.
-- These are defaults, not limits. Standing permission to escalate: if a cheaper model's output doesn't meet the bar, redo it with a smarter model without asking. Judge the output, not the price tag.
-- Cost is a tie-breaker only; when axes conflict for anything that ships, intelligence > taste > cost.
-- Anything user-facing needs taste ≥ 7. Don't hand flash-3.5 design work or anything that ships unsupervised — low intelligence; escalate if its output misses.
+- Routing rows are defaults, not limits. Standing permission to escalate: if a cheaper model's output misses the bar, redo it with a smarter model without asking. Judge the output, not the price tag.
+- For anything that ships: intelligence > taste > cost. User-facing work needs taste ≥ 7 — never give flash-3.5 design work or anything shipping unsupervised.
+- Opus/fable are correct for their rows; just don't use them for mechanical or search work.
+- Reach for flash-3.5 first on anything fast, well-scoped, and self-verifying — search, triage, lookups, mechanical edits. It's the cheapest-to-run, fastest model and its taste (7) is fine for non-shipping work; escalate only if it stalls or the task turns out to need real reasoning (intelligence 4). Don't hand it design, judgment, or anything shipping unsupervised.
+- Wrapper spawn overhead is never a reason to skip codex/agy — gpt-5.5 is effectively free.
+- After any delegated CLI run (codex, agy, etc.), summarize the result for the user: what the tool did, what changed (files/diffs), and anything notable. Never just relay raw output or silently move on — integrate and report.
 - Never use Haiku.
-- Mechanics: gpt-5.5 is only reachable through the Codex CLI — `codex exec` / `codex review` (my ~/.codex/config.toml defaults to gpt-5.5). Use the codex-implementation, codex-review, and codex-computer-use skills; for work they don't cover (investigation, data analysis), run `codex exec -s read-only` directly with a self-contained prompt.
-- Claude models (sonnet-5, opus-4.8, fable-5) run via the Agent/Workflow model parameter.
 
-Using gpt-5.5 inside workflows and subagents (the model parameter only takes Claude models, so use a wrapper):
+Mechanics:
 
-- Spawn a thin Claude wrapper agent with `model: 'sonnet', effort: 'low'` whose prompt instructs it to write a self-contained codex prompt, run `codex exec` via Bash, and return the output.
+- **gpt-5.5** — only via Codex CLI (`~/.codex/config.toml` defaults to it). Use the codex-implementation / codex-review / codex-computer-use skills; for uncovered work (investigation, data analysis) run `codex exec -s read-only` with a self-contained prompt.
+- **flash-3.5** — `agy -p "prompt" --model "Gemini 3.5 Flash (Low)"` (`(Medium)`/`(High)` for harder asks; `agy models` lists names). `-c` continues the last session; `--add-dir <path>` widens the workspace; `--dangerously-skip-permissions` only for known-safe read/search tasks.
+- **Claude models** — Agent/Workflow `model` param directly.
+- **gpt-5.5 or flash-3.5 inside workflows/subagents** (the model param only takes Claude models): spawn a thin `model: 'sonnet', effort: 'low'` wrapper agent that composes a self-contained prompt, runs `codex exec` / `agy -p` via Bash, and returns the output.
 
-Using flash-3.5 via the Antigravity CLI (`agy`):
+## Advisor (fable) — Opus main only
 
-- One-shot, non-interactive (the usual way): `agy -p "your prompt" --model "Gemini 3.5 Flash (Low)"` — use `(Medium)` or `(High)` for harder asks. `agy models` lists exact model names.
-- Follow-up in the same conversation: add `-c` to continue the most recent session.
-- It runs in the current directory; use `--add-dir <path>` to widen the workspace, `--sandbox` for restricted terminal access, and `--dangerously-skip-permissions` only for known-safe read/search tasks that would otherwise stall on prompts.
-- Same wrapper pattern as gpt-5.5 applies inside workflows/subagents: a thin `model: 'sonnet', effort: 'low'` agent that composes the prompt, runs `agy -p ...` via Bash, and returns the output.
+**Only when the main model is Opus 4.8.** If the main model is Fable, skip this section entirely — you already are the top-tier model, so there's no stronger advisor to escalate to. Just orchestrate and delegate per the table above.
 
-refer to AGENTS.md for project specs — this file is for orchestration
+When on Opus, the `advisor()` tool forwards the full conversation to Fable 5 (`advisorModel: "fable"` in settings; docs: https://code.claude.com/docs/en/advisor). Delegation is for doing work; the advisor is for judgment calls mid-task — call it instead of muddling through or switching models:
+
+- before committing to an approach on anything nontrivial
+- when stuck — recurring errors, results that don't fit
+- before declaring a hard task complete (write/commit deliverables first)
+
+Its guidance generally wins; if your own evidence contradicts a specific claim, reconcile in a follow-up advisor call rather than silently picking a side. Subagents inherit the advisor when their model supports the pairing.

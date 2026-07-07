@@ -130,7 +130,7 @@ function KanbanBoard() {
     }
   }
 
-  async function handleQuickAdd(e?: React.FormEvent) {
+  async function handleQuickAdd(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday || !taskInput.trim()) return;
     const col = quickCategory || "inbox";
@@ -230,7 +230,7 @@ function KanbanBoard() {
   }, [tasks]);
 
   return (
-    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -273,7 +273,7 @@ function KanbanBoard() {
                     variant="outline"
                     size="sm"
                     onClick={() => dateInputRef.current?.showPicker?.()}
-                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-[132px]"
+                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-33"
                     aria-label="Pick a date"
                   >
                     <CalendarDays className="size-3.5 text-muted-foreground" />
@@ -425,14 +425,14 @@ function KanbanBoard() {
 
         {/* Full Kanban */}
         <div className="kanban-board overflow-x-auto pb-4">
-          <div className="flex min-w-[980px] gap-2">
+          <div className="flex min-w-245 gap-2">
             {KANBAN_COLUMNS.map((col) => {
               const colTasks = tasksByColumn[col.id] || [];
               const isDone = col.id === "done";
               return (
                 <div
                   key={col.id}
-                  className={`w-56 shrink-0 rounded-xl border bg-muted/30 p-3 flex flex-col min-h-[140px] ${
+                  className={`w-56 shrink-0 rounded-xl border bg-muted/30 p-3 flex flex-col min-h-35 ${
                     colTasks.length === 0 ? "opacity-80" : ""
                   }`}
                   onDragOver={_handleDragOver}

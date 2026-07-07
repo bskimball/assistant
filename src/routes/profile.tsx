@@ -336,7 +336,7 @@ function ProfilePage() {
     setSavedAt(null);
   }
 
-  async function handleSave(e?: React.FormEvent) {
+  async function handleSave(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     setSaving(true);
     try {
@@ -382,7 +382,7 @@ function ProfilePage() {
   ].filter(Boolean);
 
   return (
-    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6">
           <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Settings</div>

@@ -254,7 +254,7 @@ function FinancePage() {
   const netWorth = hub?.snapshot.netWorth ?? 0;
 
   return (
-    <div className="bg-background px-4 pb-16 pt-8 sm:px-6">
+    <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         {/* Header */}
         <div className="mb-5">
@@ -387,7 +387,7 @@ function OverviewTab({
     await refreshFinanceData();
   }
 
-  async function addAccount(e: React.FormEvent) {
+  async function addAccount(e: React.SyntheticEvent) {
     e.preventDefault();
     const amt = Number(amount);
     if (!name.trim() || !Number.isFinite(amt)) return;
@@ -697,7 +697,7 @@ function OverviewTab({
                   </span>
                 </div>
                 {Math.round(hub.snapshot.netWorth) !== Math.round(accountsTotal) && (
-                  <p className="!mt-1 text-[11px] text-muted-foreground">
+                  <p className="mt-1! text-[11px] text-muted-foreground">
                     Net worth {fmtMoney(hub.snapshot.netWorth)} also counts{" "}
                     {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of holdings tracked on the
                     Investments tab.
@@ -827,7 +827,7 @@ function OverviewAISuggestionsCard({
   }
 
   return (
-    <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card shadow-sm">
+    <Card className="overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -913,7 +913,7 @@ function EmergencyFundProgressCard({
         : "bg-muted/40 text-muted-foreground ring-foreground/10";
 
   return (
-    <Card className="overflow-hidden border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.06] to-card">
+    <Card className="overflow-hidden border-emerald-500/20 bg-linear-to-br from-emerald-500/6 to-card">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -1175,7 +1175,7 @@ function SimplefinConnectionsCard({
   const nextSyncAt = status?.manualSyncAvailableAt;
   const manualSyncBlocked = !!nextSyncAt && nextSyncAt > Date.now();
 
-  async function connect(e: React.FormEvent) {
+  async function connect(e: React.SyntheticEvent) {
     e.preventDefault();
     if (!setupToken.trim()) return;
     setBusy(true);
@@ -1950,7 +1950,7 @@ function MonthNav({
       >
         <ChevronLeft className="size-4" />
       </Button>
-      <span className="min-w-[92px] text-center tabular-nums">{formatMonthLabel(month)}</span>
+      <span className="min-w-23 text-center tabular-nums">{formatMonthLabel(month)}</span>
       <Button
         type="button"
         variant="ghost"
@@ -2488,7 +2488,7 @@ function RecurringRow({
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             aria-label="Name"
-            className="h-8 min-w-[140px] flex-1"
+            className="h-8 min-w-35 flex-1"
           />
           <Input
             type="number"
@@ -2930,7 +2930,7 @@ function DebtPayoffComparisonCard({ loans }: { loans: Subscription[] }) {
       : 0;
 
   return (
-    <Card className="border-amber-500/20 bg-gradient-to-br from-amber-500/[0.06] to-card">
+    <Card className="border-amber-500/20 bg-linear-to-br from-amber-500/6 to-card">
       <CardHeader>
         <CardTitle className="flex flex-col gap-3 text-base sm:flex-row sm:items-center sm:justify-between">
           <span className="flex items-center gap-2">
@@ -3203,7 +3203,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     );
   }
 
-  async function addManual(e: React.FormEvent) {
+  async function addManual(e: React.SyntheticEvent) {
     e.preventDefault();
     const amt = Number(amount);
     if (!name.trim() || !Number.isFinite(amt) || amt <= 0) return;
@@ -3389,7 +3389,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={namePlaceholder}
-                className="min-w-[140px] flex-1"
+                className="min-w-35 flex-1"
               />
               <Input
                 type="number"
@@ -3528,7 +3528,7 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
     }
   }
 
-  async function addPosition(e: React.FormEvent) {
+  async function addPosition(e: React.SyntheticEvent) {
     e.preventDefault();
     const q = Number(qty);
     const pr = Number(price);
@@ -3601,7 +3601,7 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
         <CardContent>
           {positions.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[30rem] text-sm">
+              <table className="w-full min-w-120 text-sm">
                 <thead>
                   <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="py-1.5 pr-2 text-left font-medium">Symbol</th>
@@ -3950,7 +3950,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
         : "text-muted-foreground";
 
   return (
-    <Card className="border-sky-500/20 bg-gradient-to-br from-sky-500/[0.06] to-card">
+    <Card className="border-sky-500/20 bg-linear-to-br from-sky-500/6 to-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <LineChart className="size-4 text-sky-600 dark:text-sky-400" />
@@ -4227,7 +4227,7 @@ function Stat({
   hero?: boolean;
 }) {
   return (
-    <Card className={hero ? "border-primary/40 bg-primary/[0.03]" : undefined}>
+    <Card className={hero ? "border-primary/40 bg-primary/3" : undefined}>
       <CardContent className="pt-4">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
         <div
@@ -4342,7 +4342,7 @@ function BudgetBar({
         <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
           {emptyTrack && (
             <span
-              className="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-[length:8px_8px] opacity-25"
+              className="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-size-[8px_8px] opacity-25"
               aria-hidden
             />
           )}
@@ -4352,7 +4352,7 @@ function BudgetBar({
           />
           {plannedPct > 0 && (
             <div
-              className={`absolute inset-y-0 transition-[left,width] duration-300 ease-out ${plannedBarColor} bg-[linear-gradient(135deg,rgba(255,255,255,.28)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.28)_50%,rgba(255,255,255,.28)_75%,transparent_75%,transparent)] bg-[length:8px_8px]`}
+              className={`absolute inset-y-0 transition-[left,width] duration-300 ease-out ${plannedBarColor} bg-[linear-gradient(135deg,rgba(255,255,255,.28)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.28)_50%,rgba(255,255,255,.28)_75%,transparent_75%,transparent)] bg-size-[8px_8px]`}
               style={{ left: `${statementPct}%`, width: `${plannedPct}%` }}
             />
           )}
