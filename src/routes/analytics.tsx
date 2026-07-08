@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, queryOptions, keepPreviousData } from "@tanstack/react-query";
 import {
   Target,
@@ -12,8 +12,7 @@ import {
   Minus,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Reveal, revealDelay } from "@/components/motion";
+import { Item, Reveal, revealDelay, Stagger } from "@/components/motion";
 import { loadDailyDashboard, loadTransactions, loadWorkoutSessions } from "@/server/domain";
 import { mlToFlOz, todayISO, toISODate, type ISODate } from "@/lib/domain";
 
@@ -117,24 +116,32 @@ function Analytics() {
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Analytics</div>
-            <div className="text-3xl font-semibold tracking-tighter">Trends</div>
+            <div className="text-balance text-3xl font-semibold tracking-tighter">Trends</div>
           </div>
-          <div className="flex items-center gap-1">
-            {([7, 14, 30] as const).map((r) => (
-              <Button
-                key={r}
-                variant={range === r ? "default" : "outline"}
-                size="sm"
-                onClick={() => setRange(r)}
-              >
-                {r}d
-              </Button>
-            ))}
+          <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1 ring-1 ring-foreground/10">
+            {([7, 14, 30] as const).map((r) => {
+              const active = range === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRange(r)}
+                  aria-pressed={active}
+                  className={`h-9 min-w-11 rounded px-3 text-sm font-medium tabular-nums transition-[background-color,color,box-shadow,scale] duration-150 ease-out active:scale-[0.96] ${
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {r}d
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Summary tiles — 5 metrics, so 5 across on wide screens (no orphan row) */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Stagger className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <SummaryTile
             icon={Target}
             label="Avg task completion"
@@ -165,29 +172,33 @@ function Analytics() {
             sub={`logged · ${range}d`}
             tone={netCashflow < 0 ? "neg" : netCashflow > 0 ? "pos" : undefined}
           />
-        </div>
+        </Stagger>
 
         {loading ? (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              Crunching {range} days…
+          <Card className="shadow-sm">
+            <CardContent className="animate-pulse py-10 text-center text-sm text-muted-foreground">
+              Crunching <span className="tabular-nums">{range}</span> days…
             </CardContent>
           </Card>
         ) : points.length === 0 ? (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+          <Card className="relative overflow-hidden shadow-sm">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-size-[8px_8px] opacity-25"
+            />
+            <CardContent className="relative py-10 text-center text-sm text-muted-foreground">
               No data yet. Log a few days from the dashboard.
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-6">
             <Reveal delay={revealDelay(0)}>
-              <ChartCard icon={Target} title="Task completion %" color="var(--primary)">
+              <ChartCard icon={Target} title="Task completion %">
                 <LineChart points={points} sel={(p) => p.completionPct} max={100} unit="%" />
               </ChartCard>
             </Reveal>
             <Reveal delay={revealDelay(1)}>
-              <ChartCard icon={Utensils} title="Protein % of target" color="var(--primary)">
+              <ChartCard icon={Utensils} title="Protein % of target">
                 <LineChart points={points} sel={(p) => p.proteinPct} max={100} unit="%" />
               </ChartCard>
             </Reveal>
@@ -242,17 +253,20 @@ function SummaryTile({
         ? "text-destructive"
         : "";
   return (
-    <div className="rounded-xl border bg-card p-3">
+    <Item className="rounded-xl border bg-card p-3 shadow-sm">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Icon className="size-3.5" /> {label}
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+          <Icon className="size-3" />
+        </span>
+        {label}
       </div>
       <div
-        className={`mt-1 flex items-center gap-1.5 text-xl font-semibold tabular-nums ${valueTone}`}
+        className={`mt-1.5 flex items-center gap-1.5 text-xl font-semibold tabular-nums ${valueTone}`}
       >
         {value}
         {trend !== undefined && trend !== 0 && (
           <span
-            className={`flex items-center text-xs ${trend > 0 ? "text-emerald-600" : "text-red-600"}`}
+            className={`flex items-center text-xs tabular-nums ${trend > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
           >
             {trend > 0 ? (
               <TrendingUp className="size-3.5" />
@@ -265,7 +279,7 @@ function SummaryTile({
         {trend === 0 && <Minus className="size-3.5 text-muted-foreground" />}
       </div>
       {sub && <div className="text-[10px] text-muted-foreground/70">{sub}</div>}
-    </div>
+    </Item>
   );
 }
 
@@ -276,14 +290,16 @@ function ChartCard({
 }: {
   icon: typeof Target;
   title: string;
-  color?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Card>
+    <Card className="overflow-hidden bg-linear-to-br from-primary/4 via-card to-card shadow-sm">
       <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
-          <Icon className="size-4 text-primary" /> {title}
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Icon className="size-4" />
+          </span>
+          {title}
         </CardTitle>
       </CardHeader>
       <CardContent>{children}</CardContent>
@@ -308,6 +324,8 @@ function LineChart({
   unit?: string;
   prefix?: boolean;
 }) {
+  // useId emits colons, which break `url(#…)` fragment references in SVG.
+  const gradientId = `line-fill-${useId().replace(/:/g, "")}`;
   if (points.length === 0) return null;
   const vals = points.map(sel);
   const top = max ?? Math.max(1, ...vals);
@@ -331,13 +349,25 @@ function LineChart({
         preserveAspectRatio="none"
         style={{ height: H }}
       >
-        <path d={area} className="fill-primary/10" />
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.22} />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <path d={area} fill={`url(#${gradientId})`} />
         <path d={line} className="stroke-primary" strokeWidth={2} fill="none" />
-        {coords.map(([x, yy], i) => (
-          <circle key={i} cx={x} cy={yy} r={2} className="fill-primary" />
-        ))}
+        {coords.map(([x, yy], i) => {
+          const isLatest = i === coords.length - 1;
+          return (
+            <g key={i}>
+              {isLatest && <circle cx={x} cy={yy} r={5} className="fill-primary/20" />}
+              <circle cx={x} cy={yy} r={isLatest ? 2.5 : 2} className="fill-primary" />
+            </g>
+          );
+        })}
       </svg>
-      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground tabular-nums">
         <span>{points[0].date.slice(5)}</span>
         <span className="font-medium text-foreground">latest {fmt(latest)}</span>
         <span>{points[points.length - 1].date.slice(5)}</span>
@@ -363,7 +393,9 @@ function BarsChart({
         {points.map((p, i) => (
           <div
             key={p.date}
-            className={`flex-1 rounded-t transition-all ${vals[i] < 0 ? "bg-red-500" : "bg-primary"}`}
+            className={`flex-1 rounded-t-sm transition-[height,opacity] duration-300 ease-out ${
+              vals[i] < 0 ? "bg-destructive/80" : "bg-primary/80"
+            }`}
             style={{
               height: `${Math.max(2, (Math.abs(vals[i]) / top) * 100)}%`,
               opacity: vals[i] ? 1 : 0.15,
@@ -372,7 +404,7 @@ function BarsChart({
           />
         ))}
       </div>
-      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground tabular-nums">
         <span>{points[0].date.slice(5)}</span>
         <span>{points[points.length - 1].date.slice(5)}</span>
       </div>

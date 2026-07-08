@@ -79,6 +79,9 @@ function KanbanBoard() {
   const [tasksVersion, setTasksVersion] = useState(0);
   const [_isLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Visual drag state only — drop logic is unchanged.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<ColumnId | null>(null);
 
   // Subscribe for reactivity
   useEffect(() => {
@@ -212,12 +215,25 @@ function KanbanBoard() {
 
   function handleDragStart(e: React.DragEvent, id: string) {
     e.dataTransfer.setData("text/plain", id);
+    setDraggingId(id);
   }
-  function _handleDragOver(e: React.DragEvent) {
+  function handleDragEnd() {
+    setDraggingId(null);
+    setDragOverCol(null);
+  }
+  function handleColumnDragOver(e: React.DragEvent, columnId: ColumnId) {
     e.preventDefault();
+    if (isToday && dragOverCol !== columnId) setDragOverCol(columnId);
+  }
+  function handleColumnDragLeave(e: React.DragEvent, columnId: ColumnId) {
+    // Ignore leave events fired when moving over the column's own children.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    if (dragOverCol === columnId) setDragOverCol(null);
   }
   async function handleDrop(e: React.DragEvent, columnId: ColumnId) {
     e.preventDefault();
+    setDraggingId(null);
+    setDragOverCol(null);
     const id = e.dataTransfer.getData("text/plain");
     if (id && isToday) await moveTaskToColumn(id, columnId);
   }
@@ -237,7 +253,7 @@ function KanbanBoard() {
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Tasks &amp; Reminders
             </div>
-            <div className="text-3xl font-semibold tracking-tighter">Kanban Board</div>
+            <div className="text-balance text-3xl font-semibold tracking-tighter">Kanban Board</div>
           </div>
 
           <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
@@ -320,7 +336,7 @@ function KanbanBoard() {
 
         {/* Quick add */}
         {isToday && (
-          <Card className="mb-6">
+          <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
             <CardContent className="pt-4">
               <form onSubmit={handleQuickAdd} className="space-y-2">
                 <div className="flex gap-2">
@@ -361,7 +377,7 @@ function KanbanBoard() {
                         variant={quickCategory === cat ? "default" : "outline"}
                         size="sm"
                         onClick={() => setQuickCategory(cat as any)}
-                        className="h-auto px-2 py-0.5 text-xs"
+                        className="h-auto px-2 py-0.5 text-xs transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                       >
                         {label}
                       </Button>
@@ -373,7 +389,7 @@ function KanbanBoard() {
                     size="sm"
                     pressed={quickShared}
                     onPressedChange={(p) => setQuickShared(p)}
-                    className="ml-1 h-auto gap-1 px-2 py-0.5 text-xs"
+                    className="ml-1 h-auto gap-1 px-2 py-0.5 text-xs transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                     title={
                       quickShared ? "New task is shared with household" : "New task is personal"
                     }
@@ -389,14 +405,18 @@ function KanbanBoard() {
 
         {/* Reminders */}
         {reminders.length > 0 && (
-          <Alert className="mb-3 border-amber-200 bg-amber-50/60 text-xs dark:bg-amber-950/30">
-            <AlertTitle className="text-amber-700 dark:text-amber-400">
+          <Alert className="mb-3 border-amber-500/30 bg-amber-500/10 text-xs">
+            <AlertTitle className="text-amber-700 dark:text-amber-300">
               Reminders ({reminders.length})
             </AlertTitle>
             <AlertDescription>
               <div className="flex flex-wrap gap-2">
                 {reminders.slice(0, 6).map((r) => (
-                  <Badge key={r.id} variant="secondary" className="bg-white/70 dark:bg-black/20">
+                  <Badge
+                    key={r.id}
+                    variant="secondary"
+                    className="bg-background/70 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+                  >
                     {r.due}: {r.text.slice(0, 35)}
                   </Badge>
                 ))}
@@ -414,7 +434,7 @@ function KanbanBoard() {
               variant={scopeFilter === f ? "default" : "outline"}
               size="sm"
               onClick={() => setScopeFilter(f)}
-              className="h-auto gap-1 rounded-full px-2.5 py-1 capitalize"
+              className="h-auto gap-1 rounded-full px-2.5 py-1 capitalize transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
             >
               {f === "shared" && <Users className="size-3" />}
               {f === "mine" && <Lock className="size-3" />}
@@ -429,22 +449,33 @@ function KanbanBoard() {
             {KANBAN_COLUMNS.map((col) => {
               const colTasks = tasksByColumn[col.id] || [];
               const isDone = col.id === "done";
+              const isDropTarget = draggingId !== null && dragOverCol === col.id;
               return (
                 <div
                   key={col.id}
-                  className={`w-56 shrink-0 rounded-xl border bg-muted/30 p-3 flex flex-col min-h-35 ${
-                    colTasks.length === 0 ? "opacity-80" : ""
-                  }`}
-                  onDragOver={_handleDragOver}
+                  className={`flex min-h-35 w-56 shrink-0 flex-col rounded-2xl p-3 ring-1 transition-[background-color,box-shadow,opacity] duration-150 ease-out ${
+                    isDropTarget
+                      ? "bg-primary/8 shadow-md ring-primary/30"
+                      : "bg-muted/30 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-foreground/10"
+                  } ${colTasks.length === 0 && !isDropTarget ? "opacity-80" : ""}`}
+                  onDragOver={(e) => handleColumnDragOver(e, col.id)}
+                  onDragLeave={(e) => handleColumnDragLeave(e, col.id)}
                   onDrop={(e) => handleDrop(e, col.id)}
                 >
                   <div className="mb-2 flex items-center justify-between px-1 text-sm font-semibold">
                     <span className="flex items-center gap-1.5">
-                      <col.icon className="size-4 text-muted-foreground" /> {col.label}
+                      <col.icon
+                        className={`size-4 transition-colors duration-150 ${
+                          isDropTarget ? "text-primary" : "text-muted-foreground"
+                        }`}
+                      />{" "}
+                      {col.label}
                     </span>
                     <span
-                      className={`text-xs font-normal ${
-                        colTasks.length === 0 ? "text-muted-foreground/40" : "text-muted-foreground"
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                        colTasks.length === 0
+                          ? "text-muted-foreground/40"
+                          : "bg-background/70 text-muted-foreground shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
                       }`}
                     >
                       {colTasks.length}
@@ -453,12 +484,25 @@ function KanbanBoard() {
                   <div className="flex-1 space-y-2">
                     {colTasks.map((task, ti) => {
                       const overdue = task.due && task.due < selectedDate && !isDone;
+                      const isDragging = draggingId === task.id;
+                      const cardRing = isDragging
+                        ? "ring-primary/40"
+                        : overdue
+                          ? "ring-destructive/40"
+                          : "ring-foreground/10";
                       return (
                         <Reveal as="div" key={task.id} delay={revealDelay(ti)}>
                           <div
                             draggable={isToday}
                             onDragStart={(e) => handleDragStart(e, task.id)}
-                            className={`group rounded-lg border bg-background p-2.5 text-sm shadow-sm ${isDone ? "line-through opacity-70" : ""} ${overdue ? "border-red-400" : ""}`}
+                            onDragEnd={handleDragEnd}
+                            className={`group rounded-lg bg-background/70 p-2.5 text-sm shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 transition-[translate,scale,opacity,box-shadow] duration-150 ease-out ${cardRing} ${
+                              isDragging
+                                ? "scale-[0.98] opacity-50 shadow-md"
+                                : isToday
+                                  ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing"
+                                  : ""
+                            } ${isDone ? `line-through ${isDragging ? "" : "opacity-70"}` : ""}`}
                           >
                             <div className="font-medium leading-tight pr-8">{task.text}</div>
                             <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
@@ -471,19 +515,23 @@ function KanbanBoard() {
                                 <span className="rounded bg-muted px-1">{task.project}</span>
                               )}
                               {task.due && (
-                                <span className={overdue ? "text-red-600 font-medium" : ""}>
+                                <span
+                                  className={`tabular-nums ${overdue ? "font-medium text-destructive" : ""}`}
+                                >
                                   due {task.due}
                                 </span>
                               )}
-                              {task.estimatedMinutes && <span>{task.estimatedMinutes}m</span>}
+                              {task.estimatedMinutes && (
+                                <span className="tabular-nums">{task.estimatedMinutes}m</span>
+                              )}
                             </div>
                             {isToday && (
-                              <div className="mt-1.5 flex items-center gap-0.5 opacity-70 group-hover:opacity-100">
+                              <div className="mt-1.5 flex items-center gap-0.5 opacity-70 transition-opacity duration-150 group-hover:opacity-100">
                                 <button
                                   onClick={() =>
                                     moveTaskToColumn(task.id, cycleToColumn(task.column, -1))
                                   }
-                                  className="rounded p-1 hover:bg-muted"
+                                  className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
                                   aria-label="Move left"
                                   title="Move left"
                                 >
@@ -493,7 +541,7 @@ function KanbanBoard() {
                                   onClick={() =>
                                     moveTaskToColumn(task.id, cycleToColumn(task.column, 1))
                                   }
-                                  className="rounded p-1 hover:bg-muted"
+                                  className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
                                   aria-label="Move right"
                                   title="Move right"
                                 >
@@ -501,7 +549,7 @@ function KanbanBoard() {
                                 </button>
                                 <button
                                   onClick={() => toggleTaskDone(task.id)}
-                                  className="rounded p-1 hover:bg-muted"
+                                  className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
                                   aria-label={isDone ? "Mark not done" : "Mark done"}
                                   title={isDone ? "Undo" : "Done"}
                                 >
@@ -519,7 +567,7 @@ function KanbanBoard() {
                                       persistTasks(selectedDate);
                                     }
                                   }}
-                                  className="rounded p-1 hover:bg-muted"
+                                  className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
                                   aria-label="Edit"
                                   title="Edit"
                                 >
@@ -527,7 +575,7 @@ function KanbanBoard() {
                                 </button>
                                 <button
                                   onClick={() => toggleTaskShared(task.id)}
-                                  className="rounded p-1 hover:bg-muted"
+                                  className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
                                   aria-label={
                                     task.shared ? "Make personal" : "Share with household"
                                   }
@@ -541,7 +589,7 @@ function KanbanBoard() {
                                 </button>
                                 <button
                                   onClick={() => deleteTask(task.id)}
-                                  className="ml-auto rounded p-1 text-destructive hover:bg-muted"
+                                  className="ml-auto rounded-md p-1.5 text-destructive transition-[background-color,scale] duration-150 ease-out hover:bg-destructive/10 active:scale-[0.96]"
                                   aria-label="Delete"
                                   title="Delete"
                                 >
@@ -554,7 +602,15 @@ function KanbanBoard() {
                       );
                     })}
                     {colTasks.length === 0 && (
-                      <div className="text-xs text-muted-foreground/60 p-2">Drop tasks here</div>
+                      <div
+                        className={`rounded-lg border border-dashed px-2 py-4 text-center text-xs transition-colors duration-150 ${
+                          isDropTarget
+                            ? "border-primary/40 text-primary"
+                            : "border-foreground/15 text-muted-foreground/60"
+                        }`}
+                      >
+                        Drop tasks here
+                      </div>
                     )}
                   </div>
                 </div>

@@ -25,7 +25,6 @@ import {
   Square,
   Check,
   X,
-  Loader2,
   Utensils,
   Droplet,
   ListTodo,
@@ -106,12 +105,22 @@ interface ChatCache {
   summaries: ChatConversationSummary[];
 }
 
-const cache: ChatCache = { loaded: false, activeId: null, messages: [], summaries: [] };
+const cache: ChatCache = {
+  loaded: false,
+  activeId: null,
+  messages: [],
+  summaries: [],
+};
 
 function toRecords(messages: UIMessage[]): ChatMessageRecord[] {
   return messages
     .filter((m) => m.content.trim().length > 0)
-    .map((m) => ({ id: m.id, role: m.role, content: m.content, createdAt: m.createdAt }));
+    .map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt,
+    }));
 }
 
 function fromRecords(records: ChatMessageRecord[]): UIMessage[] {
@@ -166,7 +175,9 @@ function useChatStream(date: string) {
     const records = toRecords(msgs);
     if (records.length === 0) return;
     try {
-      const { summary } = await saveChatConversation({ data: { id, messages: records } });
+      const { summary } = await saveChatConversation({
+        data: { id, messages: records },
+      });
       setSummaries((prev) => upsertConversation(prev, summary));
     } catch (e) {
       console.warn("[chat] persist failed", e);
@@ -189,7 +200,9 @@ function useChatStream(date: string) {
         const { conversations } = await loadChatHistory();
         setSummaries(conversations);
         if (messagesRef.current.length === 0 && conversations.length > 0) {
-          const full = await loadChatConversation({ data: { id: conversations[0].id } });
+          const full = await loadChatConversation({
+            data: { id: conversations[0].id },
+          });
           if (full && messagesRef.current.length === 0) {
             setActiveId(full.id);
             setMessages(fromRecords(full.messages));
@@ -274,7 +287,10 @@ function useChatStream(date: string) {
               continue;
             }
             if (frame.type === "delta" && frame.text) {
-              patch(assistantId, (m) => ({ ...m, content: m.content + frame.text }));
+              patch(assistantId, (m) => ({
+                ...m,
+                content: m.content + frame.text,
+              }));
             } else if (frame.type === "action" && frame.name) {
               const isMemory = MEMORY_ACTION_NAMES.has(frame.name);
               const action: UIAction = {
@@ -284,7 +300,10 @@ function useChatStream(date: string) {
                 // Memory writes auto-apply (no Apply button) and render as a chip.
                 status: isMemory ? "auto" : "pending",
               };
-              patch(assistantId, (m) => ({ ...m, actions: [...m.actions, action] }));
+              patch(assistantId, (m) => ({
+                ...m,
+                actions: [...m.actions, action],
+              }));
               // Fire-and-forget the memory write; the chip already reflects it, and
               // memory is low-stakes so we tolerate errors silently (ADR-020).
               if (isMemory) {
@@ -318,7 +337,9 @@ function useChatStream(date: string) {
         actions: m.actions.map((a) => (a.id === action.id ? { ...a, status: "applied" } : a)),
       }));
       try {
-        const result = await applyChatAction({ data: { name: action.name, args: action.args } });
+        const result = await applyChatAction({
+          data: { name: action.name, args: action.args },
+        });
         setMessages((prev) => [
           ...prev,
           {
@@ -425,6 +446,10 @@ const SUGGESTIONS = [
   "Add a task to call the dentist",
 ];
 
+/** House press feedback (see finance.tsx) — interruptible, specific properties only. */
+const PRESS =
+  "transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]";
+
 const ACTION_META: Record<ChatActionName, { Icon: typeof Utensils; label: string }> = {
   log_meal: { Icon: Utensils, label: "Log meal" },
   log_water: { Icon: Droplet, label: "Log water" },
@@ -503,7 +528,7 @@ function ChatPage() {
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className={`gap-1.5 ${PRESS}`}
               onClick={chat.newChat}
               disabled={empty && chat.activeId === null}
             >
@@ -512,7 +537,7 @@ function ChatPage() {
             {/* History is a persistent sidebar on desktop; a drawer on smaller screens. */}
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 lg:hidden">
+                <Button variant="outline" size="sm" className={`gap-1.5 lg:hidden ${PRESS}`}>
                   <History className="size-4" /> <span className="hidden sm:inline">History</span>
                 </Button>
               </SheetTrigger>
@@ -526,7 +551,7 @@ function ChatPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="w-full gap-1.5"
+                    className={`w-full gap-1.5 ${PRESS}`}
                     onClick={() => {
                       chat.newChat();
                       setHistoryOpen(false);
@@ -552,7 +577,7 @@ function ChatPage() {
         {/* Body: persistent history sidebar (desktop) + conversation */}
         <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
           <aside className="hidden min-h-0 lg:block">
-            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-card/40">
+            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl bg-card/40 shadow-sm ring-1 ring-foreground/10">
               <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <History className="size-4 text-muted-foreground" /> History
@@ -587,12 +612,12 @@ function ChatPage() {
                 }`}
               >
                 {empty ? (
-                  <div className="mt-6 rounded-2xl border bg-card/50 p-6 text-center">
+                  <div className="mt-6 rounded-2xl border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-6 text-center shadow-sm">
                     <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       <Sparkles className="size-6" />
                     </div>
-                    <p className="text-sm font-medium">Your data-aware coach</p>
-                    <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                    <p className="text-balance text-sm font-medium">Your data-aware coach</p>
+                    <p className="mx-auto mt-1 max-w-sm text-pretty text-sm text-muted-foreground">
                       I can see today's numbers and your 7-day trend. Try one of these:
                     </p>
                     <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -603,7 +628,7 @@ function ChatPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => send(s)}
-                          className="rounded-full text-muted-foreground hover:text-foreground"
+                          className={`rounded-full text-muted-foreground hover:text-foreground ${PRESS}`}
                         >
                           {s}
                         </Button>
@@ -623,9 +648,13 @@ function ChatPage() {
                   </AnimatePresence>
                 )}
                 {error && (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <Reveal
+                    as="div"
+                    y={6}
+                    className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  >
                     {error}
-                  </div>
+                  </Reveal>
                 )}
                 <div ref={bottomRef} />
               </div>
@@ -633,7 +662,7 @@ function ChatPage() {
 
             {/* Composer */}
             <div className="mx-auto w-full max-w-4xl pt-3">
-              <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring">
+              <div className="flex items-end gap-2 rounded-2xl bg-card p-2 shadow-sm ring-1 ring-foreground/10 transition-[box-shadow] duration-150 ease-out focus-within:shadow-md focus-within:ring-ring/60">
                 <Textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -647,6 +676,7 @@ function ChatPage() {
                     type="button"
                     size="icon"
                     variant="secondary"
+                    className={`rounded-lg ${PRESS}`}
                     onClick={chat.stop}
                     aria-label="Stop"
                   >
@@ -656,6 +686,7 @@ function ChatPage() {
                   <Button
                     type="button"
                     size="icon"
+                    className={`rounded-lg shadow-sm ${PRESS}`}
                     onClick={submit}
                     disabled={!input.trim()}
                     aria-label="Send"
@@ -728,7 +759,7 @@ function HistoryList({
                 type="button"
                 onClick={() => onDelete(s.id)}
                 aria-label="Delete conversation"
-                className="shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                className="shrink-0 rounded-md p-2 text-muted-foreground opacity-0 transition-[opacity,scale,background-color,color] duration-150 ease-out hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 active:scale-[0.96] group-hover:opacity-100"
               >
                 <Trash2 className="size-4" />
               </button>
@@ -760,16 +791,22 @@ function MessageBubble({
     >
       <div className={`flex max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
         <div
-          className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
-            isUser ? "bg-primary text-primary-foreground" : "border bg-card text-card-foreground"
+          className={`whitespace-pre-wrap px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
+            isUser
+              ? "rounded-2xl rounded-br-md bg-linear-to-b from-primary to-primary/90 text-primary-foreground shadow-sm"
+              : "rounded-2xl rounded-bl-md bg-card text-card-foreground shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
           }`}
         >
           {message.content}
           {message.streaming && !message.content && (
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            <span className="flex items-center gap-1 py-1" aria-label="Coach is thinking">
+              <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/70" />
+              <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/70 [animation-delay:160ms]" />
+              <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/70 [animation-delay:320ms]" />
+            </span>
           )}
           {message.streaming && message.content && (
-            <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse bg-current align-middle" />
+            <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-full bg-current align-middle" />
           )}
         </div>
 
@@ -807,7 +844,7 @@ function ActionCard({
         initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-        className="flex items-center gap-1.5 rounded-full border bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground"
+        className="flex items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground ring-1 ring-foreground/10"
       >
         <Icon className="size-3.5 shrink-0" />
         <span className="truncate">{describeAction(action.name, action.args)}</span>
@@ -820,7 +857,7 @@ function ActionCard({
       initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
       transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-      className="flex w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5"
+      className="flex w-full items-center gap-3 rounded-xl bg-background/70 px-3 py-2.5 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <Icon className="size-4" />
@@ -830,18 +867,23 @@ function ActionCard({
         <div className="truncate text-sm">{describeAction(action.name, action.args)}</div>
       </div>
       {action.status === "applied" ? (
-        <span className="flex items-center gap-1 text-xs font-medium text-primary">
+        <motion.span
+          initial={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+          animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+          transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+          className="flex items-center gap-1 text-xs font-medium text-primary"
+        >
           <Check className="size-4" /> Done
-        </span>
+        </motion.span>
       ) : (
         <div className="flex shrink-0 items-center gap-1.5">
-          <Button size="sm" className="h-8 gap-1" onClick={onApply}>
+          <Button size="sm" className={`h-8 gap-1 shadow-sm ${PRESS}`} onClick={onApply}>
             <Check className="size-3.5" /> Apply
           </Button>
           <Button
             size="icon"
             variant="ghost"
-            className="size-8"
+            className={`size-8 ${PRESS}`}
             onClick={onDismiss}
             aria-label="Dismiss"
           >

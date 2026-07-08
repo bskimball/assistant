@@ -173,8 +173,9 @@ function Weekly() {
   const rangeLabel = `${fmtDay(dates[0])} – ${fmtDay(dates[6])}`;
 
   const queryClient = useQueryClient();
-  const { data, isPending: loading } = useQuery(weeklyDataQueryOptions(anchor));
+  const { data, isPending: loading, isPlaceholderData } = useQuery(weeklyDataQueryOptions(anchor));
   const stats = data?.stats ?? null;
+  const today = todayISO();
 
   const [narrative, setNarrative] = useState<WeeklyNarrativeResult | null>(null);
   const [narrativeLoading, setNarrativeLoading] = useState(false);
@@ -318,7 +319,7 @@ function Weekly() {
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Weekly Review
             </div>
-            <div className="text-3xl font-semibold tracking-tighter">{week}</div>
+            <div className="text-3xl font-semibold tracking-tighter tabular-nums">{week}</div>
             <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{weekLabel}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
@@ -328,7 +329,7 @@ function Weekly() {
               size="sm"
               onClick={() => setAnchor(todayISO())}
               disabled={isCurrentWeek}
-              className="h-8 shrink-0 gap-1.5 disabled:opacity-100"
+              className="h-8 shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-100"
               aria-label={isCurrentWeek ? "Showing this week" : "Go to this week"}
             >
               <span
@@ -341,7 +342,7 @@ function Weekly() {
               <Button
                 variant="outline"
                 size="icon"
-                className="size-8 shrink-0"
+                className="size-8 shrink-0 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                 onClick={() => shiftWeek(-1)}
                 aria-label="Previous week"
               >
@@ -353,7 +354,7 @@ function Weekly() {
                   variant="outline"
                   size="sm"
                   onClick={() => dateInputRef.current?.showPicker?.()}
-                  className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-[140px]"
+                  className="h-8 w-full justify-center gap-1.5 font-medium tabular-nums transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] sm:w-auto sm:min-w-[140px]"
                   aria-label="Pick a week"
                 >
                   <CalendarDays className="size-3.5 text-muted-foreground" />
@@ -375,7 +376,7 @@ function Weekly() {
               <Button
                 variant="outline"
                 size="icon"
-                className="size-8 shrink-0"
+                className="size-8 shrink-0 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                 onClick={() => shiftWeek(1)}
                 aria-label="Next week"
               >
@@ -385,166 +386,207 @@ function Weekly() {
           </div>
         </div>
 
-        {/* Stat tiles */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile
-            icon={Target}
-            label="Task completion"
-            value={`${completion}%`}
-            sub={stats ? `${stats.tasksCompleted}/${stats.tasksTotal}` : "—"}
-          />
-          <StatTile
-            icon={Dumbbell}
-            label="Workouts"
-            value={stats ? String(stats.workouts) : "—"}
-            sub="sessions"
-          />
-          <StatTile
-            icon={Utensils}
-            label="Avg protein"
-            value={stats ? `${stats.avgProteinPct}%` : "—"}
-            sub="of target"
-          />
-          <StatTile
-            icon={Wallet}
-            label="Net worth"
-            value={stats ? `$${stats.netWorth.toLocaleString()}` : "—"}
-            sub={stats ? `${stats.activeDays}/7 active` : ""}
-          />
-        </div>
+        {/* Dim (don't blank) the week's content while a neighbouring week loads —
+            keepPreviousData keeps the old numbers up, this signals the swap. */}
+        <div
+          className={`transition-opacity duration-300 ease-out ${isPlaceholderData ? "opacity-60" : ""}`}
+        >
+          {/* Stat tiles */}
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile
+              icon={Target}
+              label="Task completion"
+              value={`${completion}%`}
+              sub={stats ? `${stats.tasksCompleted}/${stats.tasksTotal}` : "—"}
+              hero
+            />
+            <StatTile
+              icon={Dumbbell}
+              label="Workouts"
+              value={stats ? String(stats.workouts) : "—"}
+              sub="sessions"
+            />
+            <StatTile
+              icon={Utensils}
+              label="Avg protein"
+              value={stats ? `${stats.avgProteinPct}%` : "—"}
+              sub="of target"
+            />
+            <StatTile
+              icon={Wallet}
+              label="Net worth"
+              value={stats ? `$${stats.netWorth.toLocaleString()}` : "—"}
+              sub={stats ? `${stats.activeDays}/7 active` : ""}
+            />
+          </div>
 
-        {/* Per-day completion bars */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Daily task completion</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-sm text-muted-foreground">Loading week…</div>
-            ) : (
-              <div className="flex items-end justify-between gap-2 h-32">
-                {stats?.perDayCompletion.map((d, i) => {
-                  const dow = new Date(d.date + "T00:00:00").toLocaleDateString([], {
-                    weekday: "short",
-                  });
-                  // Color a day by how much of its tasks got done (higher is better).
-                  const tone = !d.total
-                    ? "bg-muted-foreground"
-                    : d.pct >= 80
-                      ? "bg-emerald-500"
-                      : d.pct >= 40
-                        ? "bg-amber-500"
-                        : "bg-primary";
-                  return (
-                    <Reveal
-                      as="div"
-                      key={d.date}
-                      delay={revealDelay(i)}
-                      className="flex flex-1 flex-col items-center gap-1"
-                    >
-                      <div className="flex w-full flex-1 items-end">
+          {/* Per-day completion bars */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CalendarDays className="size-4 text-muted-foreground" /> Daily task completion
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex h-36 items-center justify-center text-sm text-muted-foreground">
+                  Loading week…
+                </div>
+              ) : (
+                <div className="flex h-36 items-end justify-between gap-2">
+                  {stats?.perDayCompletion.map((d, i) => {
+                    const dow = new Date(d.date + "T00:00:00").toLocaleDateString([], {
+                      weekday: "short",
+                    });
+                    const isToday = d.date === today;
+                    // Color a day by how much of its tasks got done (higher is better).
+                    const tone = !d.total
+                      ? "bg-muted-foreground"
+                      : d.pct >= 80
+                        ? "bg-emerald-500"
+                        : d.pct >= 40
+                          ? "bg-amber-500"
+                          : "bg-primary";
+                    return (
+                      <Reveal
+                        as="div"
+                        key={d.date}
+                        delay={revealDelay(i)}
+                        className={`flex flex-1 flex-col items-center gap-1 rounded-lg px-1 pb-1.5 pt-1.5 ${
+                          isToday ? "bg-primary/6 ring-1 ring-primary/15" : ""
+                        }`}
+                      >
+                        {/* Faint full-height track so short bars still read against it */}
+                        <div className="flex w-full flex-1 items-end overflow-hidden rounded-md bg-muted/30">
+                          <div
+                            className={`w-full rounded-t transition-[height,opacity] duration-300 ease-out ${tone}`}
+                            style={{
+                              height: `${Math.max(4, d.pct)}%`,
+                              opacity: d.total ? 1 : 0.2,
+                            }}
+                            title={`${d.pct}% (${d.total} tasks)`}
+                          />
+                        </div>
                         <div
-                          className={`w-full rounded-t transition-all ${tone}`}
-                          style={{
-                            height: `${Math.max(4, d.pct)}%`,
-                            opacity: d.total ? 1 : 0.2,
-                          }}
-                          title={`${d.pct}% (${d.total} tasks)`}
-                        />
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">{dow}</div>
-                      <div className="text-[10px] tabular-nums text-muted-foreground/70">
-                        {d.total ? `${d.pct}%` : "–"}
-                      </div>
-                    </Reveal>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* AI review */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Sparkles className="size-4 text-primary" /> Coach’s Weekly Review
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 text-xs font-normal"
-                onClick={generate}
-                disabled={narrativeLoading || !stats}
-              >
-                <RefreshCw className={`size-3.5 ${narrativeLoading ? "animate-spin" : ""}`} />
-                {narrativeLoading ? "Reflecting…" : "Generate"}
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            {narrative?.reflection && (
-              <Reveal key={narrative.reflection} as="div" className="text-muted-foreground">
-                {narrative.reflection}
-              </Reveal>
-            )}
-
-            <ReviewField
-              icon={Trophy}
-              label="Wins"
-              value={wins}
-              onChange={setWins}
-              placeholder="One win per line…"
-            />
-            <ReviewField
-              icon={TriangleAlert}
-              label="Blockers"
-              value={blockers}
-              onChange={setBlockers}
-              placeholder="What got in the way…"
-            />
-            <ReviewField
-              icon={ArrowRight}
-              label="Next week focus"
-              value={nextWeekFocus}
-              onChange={setNextWeekFocus}
-              placeholder="Priorities for next week…"
-            />
-
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">Reflection</div>
-              <Textarea
-                value={reflection}
-                onChange={(e) => setReflection(e.target.value)}
-                rows={3}
-                placeholder="Freeform reflection…"
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Button size="sm" className="gap-1.5" onClick={save} disabled={saving}>
-                <Save className="size-4" /> {saving ? "Saving…" : "Save review"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5"
-                onClick={scheduleNextWeek}
-                disabled={saving || !nextWeekFocus.trim()}
-              >
-                <ArrowRight className="size-4" /> Schedule next week
-              </Button>
-              {savedAt && <span className="text-xs text-muted-foreground">Saved ✓</span>}
-              {scheduledAt && <span className="text-xs text-muted-foreground">Scheduled ✓</span>}
-              {narrative && (
-                <span className="text-[10px] text-muted-foreground/60">
-                  {narrative.generatedBy === "ai" ? "AI-generated" : "Coach (offline rules)"}
-                </span>
+                          className={`text-[10px] ${
+                            isToday ? "font-semibold text-primary" : "text-muted-foreground"
+                          }`}
+                        >
+                          {dow}
+                        </div>
+                        <div className="text-[10px] tabular-nums text-muted-foreground/70">
+                          {d.total ? `${d.pct}%` : "–"}
+                        </div>
+                      </Reveal>
+                    );
+                  })}
+                </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* AI review */}
+          <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between text-base">
+                <span className="flex items-center gap-2">
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Sparkles className="size-4" />
+                  </span>
+                  Coach’s Weekly Review
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs font-normal transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
+                  onClick={generate}
+                  disabled={narrativeLoading || !stats}
+                >
+                  <RefreshCw className={`size-3.5 ${narrativeLoading ? "animate-spin" : ""}`} />
+                  {narrativeLoading ? "Reflecting…" : "Generate"}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              {narrative?.reflection && (
+                <Reveal
+                  key={narrative.reflection}
+                  as="div"
+                  className="rounded-lg bg-background/70 p-3 text-pretty leading-6 text-muted-foreground shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+                >
+                  {narrative.reflection}
+                </Reveal>
+              )}
+
+              <ReviewField
+                icon={Trophy}
+                label="Wins"
+                value={wins}
+                onChange={setWins}
+                placeholder="One win per line…"
+              />
+              <ReviewField
+                icon={TriangleAlert}
+                label="Blockers"
+                value={blockers}
+                onChange={setBlockers}
+                placeholder="What got in the way…"
+              />
+              <ReviewField
+                icon={ArrowRight}
+                label="Next week focus"
+                value={nextWeekFocus}
+                onChange={setNextWeekFocus}
+                placeholder="Priorities for next week…"
+              />
+
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">Reflection</div>
+                <Textarea
+                  value={reflection}
+                  onChange={(e) => setReflection(e.target.value)}
+                  rows={3}
+                  placeholder="Freeform reflection…"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  size="sm"
+                  className="gap-1.5 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
+                  onClick={save}
+                  disabled={saving}
+                >
+                  <Save className="size-4" /> {saving ? "Saving…" : "Save review"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
+                  onClick={scheduleNextWeek}
+                  disabled={saving || !nextWeekFocus.trim()}
+                >
+                  <ArrowRight className="size-4" /> Schedule next week
+                </Button>
+                {savedAt && (
+                  <Reveal as="span" className="text-xs text-muted-foreground">
+                    Saved ✓
+                  </Reveal>
+                )}
+                {scheduledAt && (
+                  <Reveal as="span" className="text-xs text-muted-foreground">
+                    Scheduled ✓
+                  </Reveal>
+                )}
+                {narrative && (
+                  <span className="text-[10px] text-muted-foreground/60">
+                    {narrative.generatedBy === "ai" ? "AI-generated" : "Coach (offline rules)"}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
@@ -555,16 +597,24 @@ function StatTile({
   label,
   value,
   sub,
+  hero,
 }: {
   icon: typeof Target;
   label: string;
   value: string;
   sub?: string;
+  hero?: boolean;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-3">
+    <div
+      className={`rounded-xl p-3 ring-1 ${
+        hero
+          ? "border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm ring-transparent"
+          : "bg-card ring-foreground/10"
+      }`}
+    >
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Icon className="size-3.5" /> {label}
+        <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}
       </div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
       {sub && <div className="text-[10px] text-muted-foreground/70 tabular-nums">{sub}</div>}

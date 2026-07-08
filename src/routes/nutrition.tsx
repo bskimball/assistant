@@ -251,7 +251,7 @@ function NutritionPage() {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Nutrition</div>
-            <div className="text-3xl font-semibold tracking-tighter">{dateLabel}</div>
+            <div className="text-balance text-3xl font-semibold tracking-tighter">{dateLabel}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
             <Button
@@ -259,7 +259,7 @@ function NutritionPage() {
               size="sm"
               onClick={() => navigate({ search: { date: undefined } })}
               disabled={isToday}
-              className="h-8 shrink-0 gap-1.5 disabled:opacity-100"
+              className="h-8 shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-100"
             >
               <span
                 className={`size-1.5 rounded-full bg-current transition-opacity ${isToday ? "opacity-100" : "opacity-0"}`}
@@ -270,7 +270,7 @@ function NutritionPage() {
               <Button
                 variant="outline"
                 size="icon"
-                className="size-8 shrink-0"
+                className="size-8 shrink-0 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                 onClick={() => shiftDay(-1)}
                 aria-label="Previous day"
               >
@@ -281,7 +281,7 @@ function NutritionPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => dateInputRef.current?.showPicker?.()}
-                  className="h-8 w-full justify-center gap-1.5 font-medium tabular-nums sm:w-auto sm:min-w-[150px]"
+                  className="h-8 w-full justify-center gap-1.5 font-medium tabular-nums transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] sm:w-auto sm:min-w-[150px]"
                   aria-label="Pick a day"
                 >
                   <CalendarDays className="size-3.5 text-muted-foreground" />
@@ -307,7 +307,7 @@ function NutritionPage() {
               <Button
                 variant="outline"
                 size="icon"
-                className="size-8 shrink-0"
+                className="size-8 shrink-0 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                 onClick={() => shiftDay(1)}
                 disabled={isToday}
                 aria-label="Next day"
@@ -327,6 +327,7 @@ function NutritionPage() {
             target={targets.calories}
             unit="cal"
             goal="under"
+            hero
           />
           <MacroTile
             icon={Beef}
@@ -346,8 +347,9 @@ function NutritionPage() {
               <span className="flex items-center gap-2">
                 <Droplet className="size-4 text-primary" /> Water
               </span>
-              <span className="tabular-nums text-sm text-muted-foreground">
-                {displayWaterOz} / {targets.waterOz} fl oz
+              <span className="text-sm tabular-nums text-muted-foreground">
+                <span className="font-semibold text-foreground">{displayWaterOz}</span> /{" "}
+                {targets.waterOz} fl oz
               </span>
             </CardTitle>
           </CardHeader>
@@ -357,7 +359,7 @@ function NutritionPage() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="size-9 shrink-0"
+                className="size-9 shrink-0 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                 disabled={busy || displayWaterOz <= 0}
                 onClick={() => setWaterOz(waterOz - 4)}
                 aria-label="Remove 4 fl oz"
@@ -376,7 +378,7 @@ function NutritionPage() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="size-9 shrink-0"
+                className="size-9 shrink-0 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                 disabled={busy}
                 onClick={() => setWaterOz(waterOz + 4)}
                 aria-label="Add 4 fl oz"
@@ -391,10 +393,13 @@ function NutritionPage() {
         </Card>
 
         {/* Add food */}
-        <Card className="mb-6">
+        <Card className="mb-6 border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="size-4 text-primary" /> Log food
+              <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Sparkles className="size-4" />
+              </span>
+              Log food
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -406,7 +411,11 @@ function NutritionPage() {
                 className="flex-1"
                 disabled={foodEstimating}
               />
-              <Button type="submit" className="gap-1" disabled={!foodName.trim() || foodEstimating}>
+              <Button
+                type="submit"
+                className="gap-1 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
+                disabled={!foodName.trim() || foodEstimating}
+              >
                 {foodEstimating ? (
                   <RefreshCw className="size-4 animate-spin" />
                 ) : (
@@ -426,7 +435,7 @@ function NutritionPage() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between text-base">
               <span>{isToday ? "Today’s log" : "Log"}</span>
-              <span className="text-sm font-normal text-muted-foreground">
+              <span className="text-sm font-normal tabular-nums text-muted-foreground">
                 {meals.length} {meals.length === 1 ? "entry" : "entries"}
               </span>
             </CardTitle>
@@ -436,10 +445,11 @@ function NutritionPage() {
               <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
             ) : meals.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
+                <Utensils className="mx-auto mb-2 size-5 text-muted-foreground/50" aria-hidden />
                 Nothing logged {isToday ? "yet today" : "this day"}.
               </div>
             ) : (
-              <ul className="divide-y divide-border">
+              <ul className="space-y-2">
                 {meals.map((m, mi) => {
                   const items = m.foodItems || [];
                   const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
@@ -448,7 +458,7 @@ function NutritionPage() {
                       as="li"
                       key={m.id}
                       delay={revealDelay(mi)}
-                      className="py-3 first:pt-0 last:pb-0"
+                      className="rounded-lg bg-background/70 p-3 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
@@ -501,7 +511,7 @@ function NutritionPage() {
                           type="button"
                           size="icon"
                           variant="ghost"
-                          className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          className="-m-1.5 size-10 shrink-0 text-muted-foreground transition-[scale,background-color,color] duration-150 ease-out hover:text-destructive active:scale-[0.96]"
                           disabled={busy}
                           onClick={() => handleDeleteMeal(m.id)}
                           aria-label="Remove entry"
@@ -547,7 +557,10 @@ function WaterSlider({
     <div className="relative flex flex-1 items-center py-2">
       {/* track */}
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-        <div className={`h-full transition-all ${tone}`} style={{ width: `${valuePct}%` }} />
+        <div
+          className={`h-full rounded-full transition-[width,background-color] duration-150 ease-out ${tone}`}
+          style={{ width: `${valuePct}%` }}
+        />
       </div>
       {/* target tick */}
       <div
@@ -557,7 +570,7 @@ function WaterSlider({
       />
       {/* visible thumb (driven by value; the range overlay handles input) */}
       <div
-        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow transition-all"
+        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow transition-[left] duration-150 ease-out"
         style={{ left: `${valuePct}%` }}
         aria-hidden="true"
       />
@@ -600,8 +613,11 @@ function Progress({
         ? "bg-amber-500"
         : "bg-primary";
   return (
-    <div className="h-2 w-full overflow-hidden rounded bg-muted">
-      <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
+    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div
+        className={`h-full rounded-full transition-[width,background-color] duration-300 ease-out ${tone}`}
+        style={{ width: `${pct}%` }}
+      />
     </div>
   );
 }
@@ -613,6 +629,7 @@ function MacroTile({
   target,
   unit,
   goal = "hit",
+  hero,
 }: {
   icon: typeof Utensils;
   label: string;
@@ -620,14 +637,23 @@ function MacroTile({
   target?: number;
   unit: string;
   goal?: "hit" | "under";
+  // The hero tile (calories) is the day's headline number — give it the subtle
+  // primary gradient + a slightly larger figure so it reads as the star.
+  hero?: boolean;
 }) {
   return (
-    <Card>
+    <Card
+      className={
+        hero
+          ? "border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm"
+          : undefined
+      }
+    >
       <CardContent className="pt-4">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon className="size-3.5" /> {label}
+          <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}
         </div>
-        <div className="mt-1 text-2xl font-semibold tabular-nums">
+        <div className={`mt-1 font-semibold tabular-nums ${hero ? "text-3xl" : "text-2xl"}`}>
           {value}
           <span className="ml-1 text-sm font-normal text-muted-foreground">{unit}</span>
         </div>
@@ -644,7 +670,7 @@ function MacroTile({
           // Carbs/Fat have no target — keep the tile the same height with a muted
           // track so the row reads as intentional rather than half-finished.
           <>
-            <div className="mt-1.5 h-2 w-full rounded bg-muted/40" />
+            <div className="mt-1.5 h-2 w-full rounded-full bg-muted/40" />
             <div className="mt-1 text-[11px] text-muted-foreground">no target set</div>
           </>
         )}

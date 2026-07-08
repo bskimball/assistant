@@ -241,8 +241,8 @@ function WorkoutsPage() {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Fitness</div>
-            <h1 className="text-3xl font-semibold tracking-tighter">Workouts</h1>
-            <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+            <h1 className="text-balance text-3xl font-semibold tracking-tighter">Workouts</h1>
+            <p className="mt-2 max-w-xl text-pretty text-sm text-muted-foreground">
               Your week of training — warm-up, main work, core, and cooldown stretch — plus a full
               history of everything you’ve logged.
             </p>
@@ -265,6 +265,7 @@ function WorkoutsPage() {
             value={`${weekWorkouts}`}
             sub={`of ${targetDays} target`}
             progress={{ value: weekWorkouts, target: targetDays }}
+            hero
           />
           <StatTile
             icon={Dumbbell}
@@ -287,14 +288,29 @@ function WorkoutsPage() {
         </div>
 
         {status && (
-          <div className="mb-4 rounded-lg border bg-accent/40 px-3 py-2 text-sm">{status}</div>
+          <div className="mb-4 rounded-lg bg-card px-3 py-2 text-sm text-muted-foreground ring-1 ring-foreground/10">
+            {status}
+          </div>
         )}
 
         {/* This week's plan */}
-        <Card className="mb-6">
+        <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarRange className="size-4 text-primary" /> This Week
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+              <span className="flex items-center gap-2">
+                <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <CalendarRange className="size-4" />
+                </span>
+                This Week
+              </span>
+              {plan?.plannedSessions?.length ? (
+                <Badge
+                  variant="secondary"
+                  className="bg-primary/10 text-[10px] uppercase tracking-wide text-primary"
+                >
+                  {weekWorkouts >= targetDays ? "Target hit" : `${targetDays - weekWorkouts} to go`}
+                </Badge>
+              ) : null}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -319,11 +335,11 @@ function WorkoutsPage() {
                       delay={revealDelay(i)}
                       className="py-3 first:pt-0 last:pb-0"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="-mx-2 -my-1 flex items-center gap-3 rounded-lg px-2 py-1 transition-[background-color] hover:bg-muted/30">
                         {/* Day badge */}
                         <div
                           className={`flex w-12 shrink-0 flex-col items-center rounded-lg border py-1 ${
-                            isToday ? "border-primary bg-primary/10" : "border-border"
+                            isToday ? "border-primary bg-primary/10 shadow-sm" : "border-border"
                           }`}
                         >
                           <span
@@ -365,7 +381,7 @@ function WorkoutsPage() {
                           <Button
                             size="sm"
                             variant={isToday ? "default" : "outline"}
-                            className="h-8 shrink-0 gap-1"
+                            className="h-8 shrink-0 gap-1 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                             disabled={busy}
                             onClick={() => logPlanned(session)}
                           >
@@ -379,7 +395,7 @@ function WorkoutsPage() {
                             onClick={() => void unlogPlanned(session.date)}
                             aria-label={`Uncheck ${session.title}`}
                             title="Uncheck this workout"
-                            className="shrink-0 disabled:opacity-50"
+                            className="-mx-1 -my-2 shrink-0 px-1 py-2 transition-[scale] duration-150 ease-out active:scale-[0.96] disabled:opacity-50"
                           >
                             <Badge
                               variant="secondary"
@@ -392,7 +408,7 @@ function WorkoutsPage() {
                       </div>
 
                       {open && (
-                        <div className="ml-[3.75rem] mt-3">
+                        <div className="ml-[3.75rem] mt-3 rounded-[20px] bg-background/70 p-2 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10">
                           <PhasedExerciseList exercises={session.exercises} />
                         </div>
                       )}
@@ -464,7 +480,11 @@ function WorkoutsPage() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <Button type="submit" className="gap-1" disabled={!logTitle.trim() || busy}>
+              <Button
+                type="submit"
+                className="gap-1 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
+                disabled={!logTitle.trim() || busy}
+              >
                 <Plus className="size-4" /> Log
               </Button>
             </form>
@@ -482,7 +502,7 @@ function WorkoutsPage() {
               <span className="flex items-center gap-2">
                 <HistoryIcon className="size-4 text-primary" /> History
               </span>
-              <span className="text-sm font-normal text-muted-foreground">
+              <span className="text-sm font-normal tabular-nums text-muted-foreground">
                 {sessions.length} {sessions.length === 1 ? "session" : "sessions"}
               </span>
             </CardTitle>
@@ -507,7 +527,7 @@ function WorkoutsPage() {
                       delay={revealDelay(i)}
                       className="py-3 first:pt-0 last:pb-0"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="-mx-2 -my-1 flex items-start justify-between gap-3 rounded-lg px-2 py-1 transition-[background-color] hover:bg-muted/30">
                         <button
                           type="button"
                           onClick={() => exs.length && toggle(key)}
@@ -547,7 +567,7 @@ function WorkoutsPage() {
                           type="button"
                           size="icon"
                           variant="ghost"
-                          className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          className="-my-1 size-10 shrink-0 text-muted-foreground transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96] hover:text-destructive"
                           disabled={busy}
                           onClick={() => handleDelete(s.id)}
                           aria-label="Remove workout"
@@ -556,7 +576,7 @@ function WorkoutsPage() {
                         </Button>
                       </div>
                       {open && exs.length > 0 && (
-                        <div className="mt-3">
+                        <div className="mt-3 rounded-[20px] bg-background/70 p-2 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10">
                           <PhasedExerciseList exercises={exs} />
                         </div>
                       )}
@@ -570,7 +590,7 @@ function WorkoutsPage() {
 
         <p className="mt-6 text-[11px] text-muted-foreground/60">
           Plan blends strength, calisthenics, and yoga across the week.{" "}
-          <Link to="/profile" className="underline hover:text-foreground">
+          <Link to="/profile" className="underline transition-colors hover:text-foreground">
             Tune your training days & styles
           </Link>
           .
@@ -661,27 +681,38 @@ function StatTile({
   value,
   sub,
   progress,
+  hero,
 }: {
   icon: typeof Dumbbell;
   label: string;
   value: string;
   sub?: string;
   progress?: { value: number; target: number };
+  hero?: boolean;
 }) {
   const pct = progress
     ? Math.min(100, Math.round((progress.value / Math.max(1, progress.target)) * 100))
     : 0;
   const tone = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-500" : "bg-primary";
   return (
-    <Card>
+    <Card
+      className={
+        hero
+          ? "border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm"
+          : undefined
+      }
+    >
       <CardContent className="pt-4">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon className="size-3.5" /> {label}
+          <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}
         </div>
         <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
         {progress && (
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-muted">
-            <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full transition-[width] duration-300 ease-out ${tone}`}
+              style={{ width: `${pct}%` }}
+            />
           </div>
         )}
         {sub && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{sub}</div>}

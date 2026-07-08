@@ -787,7 +787,9 @@ function UnifiedDailyDashboard() {
             <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
               Daily Dashboard
             </div>
-            <div className="text-3xl font-semibold tracking-tighter">How am I doing?</div>
+            <div className="text-balance text-3xl font-semibold tracking-tighter">
+              How am I doing?
+            </div>
           </div>
 
           <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
@@ -869,54 +871,63 @@ function UnifiedDailyDashboard() {
         </div>
 
         {/* Primary Headline: rings + synthesis */}
-        <div className="mb-6 rounded-2xl border bg-card p-5">
-          <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-            <div className="flex items-center gap-6">
-              <ProgressRing
-                value={focusProgress}
-                label="Focus"
-                sub={`${doneTasks.length}/${tasks.length} tasks`}
-              />
-              <ProgressRing
-                value={proteinPct}
-                label="Protein"
-                sub={`${proteinCurrent}g / ${proteinTarget}g`}
-              />
-            </div>
-
-            <div className="max-w-105 text-center sm:text-left">
-              <div className="text-[13px] font-medium text-muted-foreground">Today at a glance</div>
-              <div className="mt-1 text-xl leading-tight">
-                {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
-                {proteinCurrent > 0 ? `${proteinPct}% protein` : "Log nutrition or tasks"}
+        <Reveal>
+          <div className="relative mb-6 overflow-hidden rounded-2xl border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-5 shadow-sm">
+            {/* Dot-grid texture, faded from the corner so it reads as paper, not noise */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-size-[8px_8px] opacity-25 [mask-image:radial-gradient(320px_circle_at_top_right,black,transparent)]"
+            />
+            <div className="relative flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+              <div className="flex items-center gap-6">
+                <ProgressRing
+                  value={focusProgress}
+                  label="Focus"
+                  sub={`${doneTasks.length}/${tasks.length} tasks`}
+                />
+                <ProgressRing
+                  value={proteinPct}
+                  label="Protein"
+                  sub={`${proteinCurrent}g / ${proteinTarget}g`}
+                />
               </div>
-              <Reveal key={headline} className="mt-2 line-clamp-3 text-sm text-muted-foreground">
-                {headline}
-              </Reveal>
+
+              <div className="max-w-105 text-center sm:text-left">
+                <div className="text-[13px] font-medium text-muted-foreground">
+                  Today at a glance
+                </div>
+                <div className="mt-1 text-xl leading-tight">
+                  {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
+                  {proteinCurrent > 0 ? `${proteinPct}% protein` : "Log nutrition or tasks"}
+                </div>
+                <Reveal key={headline} className="mt-2 line-clamp-3 text-sm text-muted-foreground">
+                  {headline}
+                </Reveal>
+              </div>
+
+              {isToday && (
+                <button
+                  onClick={handleFabClick}
+                  disabled={isVoiceProcessing}
+                  className={`flex size-16 shrink-0 items-center justify-center rounded-full border shadow-sm transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] ${isListening ? "border-red-500 bg-red-500 text-white shadow" : "border-border hover:border-primary hover:text-primary"}`}
+                  aria-label={isListening ? "Stop listening" : "Start voice input"}
+                >
+                  {isListening ? (
+                    <Square className="size-6 fill-current" />
+                  ) : (
+                    <Mic className="size-6" />
+                  )}
+                </button>
+              )}
             </div>
 
-            {isToday && (
-              <button
-                onClick={handleFabClick}
-                disabled={isVoiceProcessing}
-                className={`flex size-16 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.985] ${isListening ? "border-red-500 bg-red-500 text-white shadow" : "border-border hover:border-primary hover:text-primary"}`}
-                aria-label={isListening ? "Stop listening" : "Start voice input"}
-              >
-                {isListening ? (
-                  <Square className="size-6 fill-current" />
-                ) : (
-                  <Mic className="size-6" />
-                )}
-              </button>
+            {(voiceStatus || isVoiceProcessing) && (
+              <div className="relative mt-3 text-center text-[10px] uppercase tracking-[1px] text-muted-foreground/70">
+                {voiceStatus}
+              </div>
             )}
           </div>
-
-          {(voiceStatus || isVoiceProcessing) && (
-            <div className="mt-3 text-center text-[10px] uppercase tracking-[1px] text-muted-foreground/70">
-              {voiceStatus}
-            </div>
-          )}
-        </div>
+        </Reveal>
 
         {/* Listening overlay */}
         <Dialog
@@ -973,621 +984,653 @@ function UnifiedDailyDashboard() {
         )}
 
         {/* AI COACH SUGGESTIONS */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Sparkles className="size-4 text-indigo-500" /> Coach Suggestions
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => refreshCoaching(true)}
-                disabled={coachLoading || !isToday}
-                className="h-7 gap-1.5 text-xs font-normal"
-              >
-                <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />
-                {coachLoading ? "Thinking…" : "Refresh"}
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {coaching?.suggestions?.length ? (
-              <ul className="space-y-2">
-                {coaching.suggestions.map((s, i) => {
-                  const Icon = DOMAIN_ICON[s.domain] || Brain;
-                  return (
-                    <Reveal as="li" key={i} delay={revealDelay(i)} className="flex gap-2.5 text-sm">
-                      <Icon
-                        className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-indigo-500"}`}
-                      />
-                      <div className="min-w-0">
-                        <span>{s.text}</span>
-                        {s.action && isToday && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            — try “{s.action.trim()}”
-                          </span>
-                        )}
-                      </div>
-                    </Reveal>
-                  );
-                })}
-              </ul>
-            ) : coachLoading ? (
-              <div className="text-sm text-muted-foreground">Your coach is reviewing today…</div>
-            ) : dailyPlan?.aiSuggestions?.length ? (
-              <ul className="space-y-1.5 text-sm">
-                {dailyPlan.aiSuggestions.slice(0, 6).map((s, i) => (
-                  <li key={i} className="flex gap-2">
-                    <Brain className="mt-0.5 size-4 shrink-0 text-primary/80" />
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-muted-foreground">No suggestions yet — tap Refresh.</div>
-            )}
-            {coaching && (
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <div className="text-[10px] text-muted-foreground/60">
-                  {coaching.generatedBy === "ai" ? "Generated by Grok" : "Coach (offline rules)"} •
-                  updated{" "}
-                  {new Date(coaching.updatedAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
+        <Reveal delay={revealDelay(1)}>
+          <Card className="mb-6 overflow-hidden border-indigo-500/20 bg-linear-to-br from-indigo-500/8 via-card to-card shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-indigo-500" /> Coach Suggestions
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refreshCoaching(true)}
+                  disabled={coachLoading || !isToday}
+                  className="h-7 gap-1.5 text-xs font-normal"
+                >
+                  <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />
+                  {coachLoading ? "Thinking…" : "Refresh"}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {coaching?.suggestions?.length ? (
+                <ul className="space-y-2">
+                  {coaching.suggestions.map((s, i) => {
+                    const Icon = DOMAIN_ICON[s.domain] || Brain;
+                    return (
+                      <Reveal
+                        as="li"
+                        key={i}
+                        delay={revealDelay(i)}
+                        className="flex gap-2.5 text-sm"
+                      >
+                        <Icon
+                          className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-indigo-500"}`}
+                        />
+                        <div className="min-w-0">
+                          <span>{s.text}</span>
+                          {s.action && isToday && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              — try “{s.action.trim()}”
+                            </span>
+                          )}
+                        </div>
+                      </Reveal>
+                    );
                   })}
+                </ul>
+              ) : coachLoading ? (
+                <div className="text-sm text-muted-foreground">Your coach is reviewing today…</div>
+              ) : dailyPlan?.aiSuggestions?.length ? (
+                <ul className="space-y-1.5 text-sm">
+                  {dailyPlan.aiSuggestions.slice(0, 6).map((s, i) => (
+                    <li key={i} className="flex gap-2">
+                      <Brain className="mt-0.5 size-4 shrink-0 text-primary/80" />
+                      <span>{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No suggestions yet — tap Refresh.
                 </div>
-                {isToday && (
-                  <Button
-                    size="sm"
-                    variant={dailyPlan?.acceptedAt ? "outline" : "default"}
-                    className="h-7 gap-1.5 text-xs"
-                    onClick={handleAcceptCoachPlan}
-                    disabled={syncing || !!dailyPlan?.acceptedAt}
-                  >
-                    <Check className="size-3.5" />
-                    {dailyPlan?.acceptedAt ? "Plan accepted" : "Accept plan"}
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+              {coaching && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="text-[10px] text-muted-foreground/60">
+                    {coaching.generatedBy === "ai" ? "Generated by Grok" : "Coach (offline rules)"}{" "}
+                    • updated{" "}
+                    {new Date(coaching.updatedAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                  {isToday && (
+                    <Button
+                      size="sm"
+                      variant={dailyPlan?.acceptedAt ? "outline" : "default"}
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={handleAcceptCoachPlan}
+                      disabled={syncing || !!dailyPlan?.acceptedAt}
+                    >
+                      <Check className="size-3.5" />
+                      {dailyPlan?.acceptedAt ? "Plan accepted" : "Accept plan"}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </Reveal>
 
         {/* WORKOUT SUGGESTION */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Dumbbell className="size-4 text-emerald-500" /> Today’s Workout
-              </span>
-              <Link to="/workouts" className="text-sm font-normal text-primary hover:underline">
-                Open workouts →
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="rounded bg-muted px-2 py-1 tabular-nums">
-                {weekWorkoutCount} workout{weekWorkoutCount === 1 ? "" : "s"} in 7 days
-              </span>
-              {recentWorkout && (
-                <span className="rounded bg-muted px-2 py-1">
-                  Last: {recentWorkout.notes || "session"}{" "}
-                  {recentWorkout.durationMinutes ? `• ${recentWorkout.durationMinutes} min` : ""}
-                  {recentWorkout.effortRating ? ` • effort ${recentWorkout.effortRating}/5` : ""}
+        <Reveal delay={revealDelay(2)}>
+          <Card className="mb-6 overflow-hidden border-emerald-500/20 bg-linear-to-br from-emerald-500/8 via-card to-card shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Dumbbell className="size-4 text-emerald-500" /> Today’s Workout
                 </span>
-              )}
-            </div>
-            {coaching?.workout ? (
-              <Reveal key={coaching.workout.title}>
-                <WorkoutCarousel
-                  title={coaching.workout.title}
-                  focus={coaching.workout.focus}
-                  estimatedMinutes={coaching.workout.estimatedMinutes}
-                  exercises={coaching.workout.exercises}
-                />
-                {isToday && (
-                  <Button
-                    size="sm"
-                    className="mt-1 gap-1.5"
-                    onClick={logSuggestedWorkout}
-                    disabled={syncing}
-                  >
-                    <Check className="size-4" /> Mark complete
-                  </Button>
+                <Link to="/workouts" className="text-sm font-normal text-primary hover:underline">
+                  Open workouts →
+                </Link>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="rounded bg-muted px-2 py-1 tabular-nums">
+                  {weekWorkoutCount} workout{weekWorkoutCount === 1 ? "" : "s"} in 7 days
+                </span>
+                {recentWorkout && (
+                  <span className="rounded bg-muted px-2 py-1">
+                    Last: {recentWorkout.notes || "session"}{" "}
+                    {recentWorkout.durationMinutes ? `• ${recentWorkout.durationMinutes} min` : ""}
+                    {recentWorkout.effortRating ? ` • effort ${recentWorkout.effortRating}/5` : ""}
+                  </span>
                 )}
-              </Reveal>
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                {coachLoading
-                  ? "Building your session…"
-                  : "Tap Refresh on suggestions to generate a session."}
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {coaching?.workout ? (
+                <Reveal key={coaching.workout.title}>
+                  <WorkoutCarousel
+                    title={coaching.workout.title}
+                    focus={coaching.workout.focus}
+                    estimatedMinutes={coaching.workout.estimatedMinutes}
+                    exercises={coaching.workout.exercises}
+                  />
+                  {isToday && (
+                    <Button
+                      size="sm"
+                      className="mt-1 gap-1.5"
+                      onClick={logSuggestedWorkout}
+                      disabled={syncing}
+                    >
+                      <Check className="size-4" /> Mark complete
+                    </Button>
+                  )}
+                </Reveal>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  {coachLoading
+                    ? "Building your session…"
+                    : "Tap Refresh on suggestions to generate a session."}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </Reveal>
 
         {/* FOCUS & TASKS */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <ListTodo className="size-4 text-primary" /> Focus &amp; Tasks
-              </span>
-              <Link to="/kanban" className="text-sm font-normal text-primary hover:underline">
-                Open full Kanban →
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isToday ? (
-              <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
-                <Input
-                  value={taskInput}
-                  onChange={(e) => setTaskInput(e.target.value)}
-                  placeholder="Quick add task for today…"
-                  className="flex-1"
-                />
-                <Button type="submit" size="sm" disabled={!taskInput.trim()} className="gap-1">
-                  <Plus className="size-4" /> Add
-                </Button>
-                <VoiceInput onTranscript={handleVoiceTranscript} />
-              </form>
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                Tasks for past days are view-only here. Use the full Kanban to edit.
-              </div>
-            )}
-            {tasks.length > 0 && (
-              <ul className="mt-3 space-y-1 text-sm">
-                {tasks.slice(0, 6).map((t, i) => (
-                  <Reveal
-                    as="li"
-                    key={t.id}
-                    delay={revealDelay(i)}
-                    className="flex items-center gap-2"
-                  >
-                    <span
-                      className={`flex size-4 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
-                    >
-                      {t.done && <Check className="size-3" />}
-                    </span>
-                    <span className={t.done ? "text-muted-foreground line-through" : ""}>
-                      {t.text}
-                    </span>
-                    {t.shared && (
-                      <Badge
-                        variant="secondary"
-                        className="gap-0.5 bg-primary/10 px-1 text-[10px] text-primary"
-                      >
-                        <Users className="size-2.5" /> Shared
-                      </Badge>
-                    )}
-                  </Reveal>
-                ))}
-              </ul>
-            )}
-            <div className="mt-2 text-[10px] text-muted-foreground">
-              Voice/AI supported — try “add workout 30 min” or “remind me to call mom”.
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* NUTRITION */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Utensils className="size-4 text-amber-500" /> Nutrition
-              </span>
-              <Link
-                to="/nutrition"
-                search={{ date: isToday ? undefined : selectedDate }}
-                className="text-sm font-normal text-primary hover:underline"
-              >
-                Open nutrition →
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {/* Calories — headline number for the day */}
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <div>Calories</div>
-              <div className="tabular-nums text-muted-foreground">
-                {caloriesCurrent} / {caloriesTarget} cal
-              </div>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-              <div
-                className={`h-full transition-all ${fillTone(
-                  Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100)),
-                  caloriesCurrent > caloriesTarget * 1.05,
-                )}`}
-                style={{
-                  width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
-                }}
-              />
-            </div>
-
-            {/* Protein */}
-            <div className="mb-2 mt-3 flex items-center justify-between text-sm">
-              <div>Protein</div>
-              <div className="tabular-nums text-muted-foreground">
-                {proteinCurrent}g / {proteinTarget}g
-              </div>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-              <div
-                className={`h-full transition-all ${fillTone(proteinPct)}`}
-                style={{ width: `${proteinPct}%` }}
-              />
-            </div>
-
-            {/* Carbs / Fat */}
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">Carbs</div>
-                <div className="font-medium tabular-nums">{carbsCurrent}g</div>
-              </div>
-              <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">Fat</div>
-                <div className="font-medium tabular-nums">{fatCurrent}g</div>
-              </div>
-            </div>
-
-            {/* Water — draggable slider (same control as the nutrition page) */}
-            <div className="mt-3">
-              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Droplet className="size-3.5" /> Water
+        <Reveal delay={revealDelay(3)}>
+          <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <ListTodo className="size-4 text-primary" /> Focus &amp; Tasks
                 </span>
-                <span className="tabular-nums">
-                  {displayWaterOz} / {waterTargetOz} fl oz
-                </span>
-              </div>
+                <Link to="/kanban" className="text-sm font-normal text-primary hover:underline">
+                  Open full Kanban →
+                </Link>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
               {isToday ? (
-                <div className="flex items-center gap-3">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="size-9 shrink-0"
-                    disabled={foodEstimating || displayWaterOz <= 0}
-                    onClick={() => setWaterOz(waterOz - 4)}
-                    aria-label="Remove 4 fl oz"
-                  >
-                    <Minus className="size-4" />
-                  </Button>
-                  <WaterSlider
-                    value={displayWaterOz}
-                    target={waterTargetOz}
-                    max={waterSliderMax}
-                    disabled={foodEstimating}
-                    onDraft={setWaterDraft}
-                    onCommit={commitWaterDraft}
+                <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
+                  <Input
+                    value={taskInput}
+                    onChange={(e) => setTaskInput(e.target.value)}
+                    placeholder="Quick add task for today…"
+                    className="flex-1"
                   />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="size-9 shrink-0"
-                    disabled={foodEstimating}
-                    onClick={() => setWaterOz(waterOz + 4)}
-                    aria-label="Add 4 fl oz"
-                  >
-                    <Plus className="size-4" />
+                  <Button type="submit" size="sm" disabled={!taskInput.trim()} className="gap-1">
+                    <Plus className="size-4" /> Add
                   </Button>
-                </div>
+                  <VoiceInput onTranscript={handleVoiceTranscript} />
+                </form>
               ) : (
-                <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-                  <div
-                    className={`h-full transition-all ${fillTone(waterPct)}`}
-                    style={{ width: `${waterPct}%` }}
-                  />
+                <div className="text-sm text-muted-foreground">
+                  Tasks for past days are view-only here. Use the full Kanban to edit.
                 </div>
               )}
-            </div>
-
-            {(nutrition?.mealLogs?.length ?? 0) > 0 && (
-              <div className="mt-3">
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Recent logs
-                </div>
-                <ul className="space-y-1 text-sm">
-                  {nutrition!.mealLogs
-                    .filter((m) => !m.deletedAt)
-                    .slice(-5)
-                    .reverse()
-                    .map((m, idx) => {
-                      const items = m.foodItems || [];
-                      const name =
-                        items.length > 1
-                          ? `${items[0]?.name || "meal"} +${items.length - 1}`
-                          : items[0]?.name || "meal";
-                      const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
-                      const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
-                      return (
-                        <Reveal
-                          as="li"
-                          key={m.id}
-                          delay={revealDelay(idx)}
-                          className="flex items-end gap-2"
-                        >
-                          <span className="min-w-0 truncate">
-                            <span className="text-muted-foreground">
-                              {new Date(m.timestamp).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>{" "}
-                            {name}
-                          </span>
-                          <span className="mb-1 min-w-4 flex-1 border-b border-dotted border-muted-foreground/35" />
-                          <span className="ml-auto shrink-0 text-right tabular-nums text-muted-foreground">
-                            {cals} cal · {prot}g
-                          </span>
-                          {isToday && (
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              disabled={foodEstimating}
-                              onClick={() => handleDeleteMeal(m.id)}
-                              aria-label={`Remove ${name}`}
-                              title="Remove food entry"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          )}
-                        </Reveal>
-                      );
-                    })}
-                </ul>
-              </div>
-            )}
-
-            {isToday && (
-              <div className="mt-3 space-y-2">
-                <form onSubmit={handleAddFood} className="flex items-center gap-2">
-                  <Input
-                    value={foodName}
-                    onChange={(e) => setFoodName(e.target.value)}
-                    placeholder="Add food (e.g. 6oz chicken breast)…"
-                    className="flex-1"
-                    disabled={foodEstimating}
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="gap-1"
-                    disabled={!foodName.trim() || foodEstimating}
-                  >
-                    {foodEstimating ? (
-                      <RefreshCw className="size-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="size-4" />
-                    )}
-                    {foodEstimating ? "Estimating…" : "Add food"}
-                  </Button>
-                </form>
-                {foodStatus ? (
-                  <div className="text-[11px] text-muted-foreground">{foodStatus}</div>
-                ) : (
-                  <div className="text-[10px] text-muted-foreground/70">
-                    Type any food — the AI fills in calories &amp; protein. Or say “log 40g protein
-                    chicken”.
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* FINANCE — first-class snapshot */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
-              <Link
-                to="/finance"
-                className="flex items-center gap-2 transition-colors hover:text-primary"
-              >
-                <Wallet className="size-4 text-green-600 dark:text-green-500" /> Finance Snapshot
-              </Link>
-              <span className="text-lg font-semibold tabular-nums">
-                ${(finance?.netWorth ?? 0).toLocaleString()}
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Net worth
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">Cash flow (mo)</div>
-                <div
-                  className={`font-medium tabular-nums ${
-                    financeCashFlow < 0 ? "text-destructive" : "text-green-600 dark:text-green-500"
-                  }`}
-                >
-                  {financeCashFlow < 0 ? "-" : "+"}$
-                  {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
-                </div>
-              </div>
-              <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">
-                  {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
-                </div>
-                <div className="font-medium tabular-nums">${financeIncome.toLocaleString()}</div>
-              </div>
-              <div className="rounded bg-muted px-2 py-1">
-                <div className="text-muted-foreground">Spending (mo)</div>
-                <div className="font-medium tabular-nums">${financeSpend.toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="mt-1 text-[10px] text-muted-foreground">
-              {monthTransactions.length
-                ? `${monthTransactions.length} transaction${monthTransactions.length === 1 ? "" : "s"} in ${selectedMonth}`
-                : `No transactions imported for ${selectedMonth}`}
-            </div>
-
-            {finance?.accounts?.length ? (
-              <ul className="mt-2 space-y-1 text-sm">
-                {finance.accounts.map((a, i) => (
-                  <Reveal
-                    as="li"
-                    key={i}
-                    delay={revealDelay(i)}
-                    className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
-                  >
-                    <span>{a.account}</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      ${a.amount.toLocaleString()}
-                    </span>
-                  </Reveal>
-                ))}
-              </ul>
-            ) : (
-              <div className="mt-2 text-sm text-muted-foreground">
-                No accounts tracked yet. Add balances below to start your net-worth baseline.
-              </div>
-            )}
-
-            {isToday && (
-              <div className="mt-3 space-y-2">
-                <form onSubmit={handleAddAccount} className="flex items-center gap-2">
-                  <Input
-                    value={acctName}
-                    onChange={(e) => setAcctName(e.target.value)}
-                    placeholder="Account (e.g. Checking)"
-                    className="flex-1"
-                  />
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={acctAmount}
-                    onChange={(e) => setAcctAmount(e.target.value)}
-                    placeholder="Balance"
-                    className="w-32"
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="gap-1"
-                    disabled={!acctName.trim() || !acctAmount}
-                  >
-                    <Plus className="size-4" /> Balance
-                  </Button>
-                </form>
-                <form
-                  onSubmit={handleAddTransaction}
-                  className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr_1fr_auto]"
-                >
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={txnAmount}
-                    onChange={(e) => setTxnAmount(e.target.value)}
-                    placeholder="+/- amount"
-                  />
-                  <Input
-                    value={txnCategory}
-                    onChange={(e) => setTxnCategory(e.target.value)}
-                    placeholder="Category"
-                  />
-                  <Input
-                    value={txnNote}
-                    onChange={(e) => setTxnNote(e.target.value)}
-                    placeholder="Note"
-                  />
-                  <Button type="submit" size="sm" className="gap-1" disabled={!txnAmount}>
-                    <Plus className="size-4" /> Cashflow
-                  </Button>
-                </form>
-              </div>
-            )}
-            {dayTransactions.length > 0 && (
-              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                {dayTransactions
-                  .slice(-3)
-                  .reverse()
-                  .map((t, i) => (
+              {tasks.length > 0 ? (
+                <ul className="mt-3 space-y-1 text-sm">
+                  {tasks.slice(0, 6).map((t, i) => (
                     <Reveal
                       as="li"
                       key={t.id}
                       delay={revealDelay(i)}
-                      className="flex items-center justify-between gap-2"
+                      className="flex items-center gap-2"
                     >
-                      <span className="truncate">{t.category || t.notes || t.type}</span>
-                      <span className="tabular-nums">${t.amount.toLocaleString()}</span>
+                      <span
+                        className={`flex size-4 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
+                      >
+                        {t.done && <Check className="size-3" />}
+                      </span>
+                      <span className={t.done ? "text-muted-foreground line-through" : ""}>
+                        {t.text}
+                      </span>
+                      {t.shared && (
+                        <Badge
+                          variant="secondary"
+                          className="gap-0.5 bg-primary/10 px-1 text-[10px] text-primary"
+                        >
+                          <Users className="size-2.5" /> Shared
+                        </Badge>
+                      )}
                     </Reveal>
                   ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+                </ul>
+              ) : isToday ? (
+                <div className="mt-3 text-sm text-muted-foreground">
+                  No tasks yet today — add one above or ask the coach for a plan.
+                </div>
+              ) : (
+                <div className="mt-3 text-sm text-muted-foreground">
+                  No tasks were logged for this day.
+                </div>
+              )}
+              <div className="mt-2 text-[10px] text-muted-foreground">
+                Voice/AI supported — try “add workout 30 min” or “remind me to call mom”.
+              </div>
+            </CardContent>
+          </Card>
+        </Reveal>
+
+        {/* NUTRITION */}
+        <Reveal delay={revealDelay(4)}>
+          <Card className="mb-6 overflow-hidden border-amber-500/20 bg-linear-to-br from-amber-500/8 via-card to-card shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Utensils className="size-4 text-amber-500" /> Nutrition
+                </span>
+                <Link
+                  to="/nutrition"
+                  search={{ date: isToday ? undefined : selectedDate }}
+                  className="text-sm font-normal text-primary hover:underline"
+                >
+                  Open nutrition →
+                </Link>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Calories — headline number for the day */}
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <div>Calories</div>
+                <div className="tabular-nums text-muted-foreground">
+                  {caloriesCurrent} / {caloriesTarget} cal
+                </div>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
+                <div
+                  className={`h-full transition-all ${fillTone(
+                    Math.min(
+                      100,
+                      Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100),
+                    ),
+                    caloriesCurrent > caloriesTarget * 1.05,
+                  )}`}
+                  style={{
+                    width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
+                  }}
+                />
+              </div>
+
+              {/* Protein */}
+              <div className="mb-2 mt-3 flex items-center justify-between text-sm">
+                <div>Protein</div>
+                <div className="tabular-nums text-muted-foreground">
+                  {proteinCurrent}g / {proteinTarget}g
+                </div>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
+                <div
+                  className={`h-full transition-all ${fillTone(proteinPct)}`}
+                  style={{ width: `${proteinPct}%` }}
+                />
+              </div>
+
+              {/* Carbs / Fat */}
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded bg-muted px-2 py-1">
+                  <div className="text-muted-foreground">Carbs</div>
+                  <div className="font-medium tabular-nums">{carbsCurrent}g</div>
+                </div>
+                <div className="rounded bg-muted px-2 py-1">
+                  <div className="text-muted-foreground">Fat</div>
+                  <div className="font-medium tabular-nums">{fatCurrent}g</div>
+                </div>
+              </div>
+
+              {/* Water — draggable slider (same control as the nutrition page) */}
+              <div className="mt-3">
+                <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <Droplet className="size-3.5" /> Water
+                  </span>
+                  <span className="tabular-nums">
+                    {displayWaterOz} / {waterTargetOz} fl oz
+                  </span>
+                </div>
+                {isToday ? (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="size-9 shrink-0"
+                      disabled={foodEstimating || displayWaterOz <= 0}
+                      onClick={() => setWaterOz(waterOz - 4)}
+                      aria-label="Remove 4 fl oz"
+                    >
+                      <Minus className="size-4" />
+                    </Button>
+                    <WaterSlider
+                      value={displayWaterOz}
+                      target={waterTargetOz}
+                      max={waterSliderMax}
+                      disabled={foodEstimating}
+                      onDraft={setWaterDraft}
+                      onCommit={commitWaterDraft}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="size-9 shrink-0"
+                      disabled={foodEstimating}
+                      onClick={() => setWaterOz(waterOz + 4)}
+                      aria-label="Add 4 fl oz"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
+                    <div
+                      className={`h-full transition-all ${fillTone(waterPct)}`}
+                      style={{ width: `${waterPct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {(nutrition?.mealLogs?.length ?? 0) > 0 && (
+                <div className="mt-3">
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Recent logs
+                  </div>
+                  <ul className="space-y-1 text-sm">
+                    {nutrition!.mealLogs
+                      .filter((m) => !m.deletedAt)
+                      .slice(-5)
+                      .reverse()
+                      .map((m, idx) => {
+                        const items = m.foodItems || [];
+                        const name =
+                          items.length > 1
+                            ? `${items[0]?.name || "meal"} +${items.length - 1}`
+                            : items[0]?.name || "meal";
+                        const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
+                        const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
+                        return (
+                          <Reveal
+                            as="li"
+                            key={m.id}
+                            delay={revealDelay(idx)}
+                            className="flex items-end gap-2"
+                          >
+                            <span className="min-w-0 truncate">
+                              <span className="text-muted-foreground">
+                                {new Date(m.timestamp).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>{" "}
+                              {name}
+                            </span>
+                            <span className="mb-1 min-w-4 flex-1 border-b border-dotted border-muted-foreground/35" />
+                            <span className="ml-auto shrink-0 text-right tabular-nums text-muted-foreground">
+                              {cals} cal · {prot}g
+                            </span>
+                            {isToday && (
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                disabled={foodEstimating}
+                                onClick={() => handleDeleteMeal(m.id)}
+                                aria-label={`Remove ${name}`}
+                                title="Remove food entry"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            )}
+                          </Reveal>
+                        );
+                      })}
+                  </ul>
+                </div>
+              )}
+
+              {isToday && (
+                <div className="mt-3 space-y-2">
+                  <form onSubmit={handleAddFood} className="flex items-center gap-2">
+                    <Input
+                      value={foodName}
+                      onChange={(e) => setFoodName(e.target.value)}
+                      placeholder="Add food (e.g. 6oz chicken breast)…"
+                      className="flex-1"
+                      disabled={foodEstimating}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      className="gap-1"
+                      disabled={!foodName.trim() || foodEstimating}
+                    >
+                      {foodEstimating ? (
+                        <RefreshCw className="size-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-4" />
+                      )}
+                      {foodEstimating ? "Estimating…" : "Add food"}
+                    </Button>
+                  </form>
+                  {foodStatus ? (
+                    <div className="text-[11px] text-muted-foreground">{foodStatus}</div>
+                  ) : (
+                    <div className="text-[10px] text-muted-foreground/70">
+                      Type any food — the AI fills in calories &amp; protein. Or say “log 40g
+                      protein chicken”.
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </Reveal>
+
+        {/* FINANCE — first-class snapshot */}
+        <Reveal delay={revealDelay(5)}>
+          <Card className="mb-6 overflow-hidden border-green-500/20 bg-linear-to-br from-green-500/8 via-card to-card shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between">
+                <Link
+                  to="/finance"
+                  className="flex items-center gap-2 transition-colors hover:text-primary"
+                >
+                  <Wallet className="size-4 text-green-600 dark:text-green-500" /> Finance Snapshot
+                </Link>
+                <span className="text-lg font-semibold tabular-nums">
+                  ${(finance?.netWorth ?? 0).toLocaleString()}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Net worth
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded bg-muted px-2 py-1">
+                  <div className="text-muted-foreground">Cash flow (mo)</div>
+                  <div
+                    className={`font-medium tabular-nums ${
+                      financeCashFlow < 0
+                        ? "text-destructive"
+                        : "text-green-600 dark:text-green-500"
+                    }`}
+                  >
+                    {financeCashFlow < 0 ? "-" : "+"}$
+                    {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded bg-muted px-2 py-1">
+                  <div className="text-muted-foreground">
+                    {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
+                  </div>
+                  <div className="font-medium tabular-nums">${financeIncome.toLocaleString()}</div>
+                </div>
+                <div className="rounded bg-muted px-2 py-1">
+                  <div className="text-muted-foreground">Spending (mo)</div>
+                  <div className="font-medium tabular-nums">${financeSpend.toLocaleString()}</div>
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                {monthTransactions.length
+                  ? `${monthTransactions.length} transaction${monthTransactions.length === 1 ? "" : "s"} in ${selectedMonth}`
+                  : `No transactions imported for ${selectedMonth}`}
+              </div>
+
+              {finance?.accounts?.length ? (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {finance.accounts.map((a, i) => (
+                    <Reveal
+                      as="li"
+                      key={i}
+                      delay={revealDelay(i)}
+                      className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
+                    >
+                      <span>{a.account}</span>
+                      <span className="tabular-nums text-muted-foreground">
+                        ${a.amount.toLocaleString()}
+                      </span>
+                    </Reveal>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-2 text-sm text-muted-foreground">
+                  No accounts tracked yet. Add balances below to start your net-worth baseline.
+                </div>
+              )}
+
+              {isToday && (
+                <div className="mt-3 space-y-2">
+                  <form onSubmit={handleAddAccount} className="flex items-center gap-2">
+                    <Input
+                      value={acctName}
+                      onChange={(e) => setAcctName(e.target.value)}
+                      placeholder="Account (e.g. Checking)"
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={acctAmount}
+                      onChange={(e) => setAcctAmount(e.target.value)}
+                      placeholder="Balance"
+                      className="w-32"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      className="gap-1"
+                      disabled={!acctName.trim() || !acctAmount}
+                    >
+                      <Plus className="size-4" /> Balance
+                    </Button>
+                  </form>
+                  <form
+                    onSubmit={handleAddTransaction}
+                    className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr_1fr_auto]"
+                  >
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={txnAmount}
+                      onChange={(e) => setTxnAmount(e.target.value)}
+                      placeholder="+/- amount"
+                    />
+                    <Input
+                      value={txnCategory}
+                      onChange={(e) => setTxnCategory(e.target.value)}
+                      placeholder="Category"
+                    />
+                    <Input
+                      value={txnNote}
+                      onChange={(e) => setTxnNote(e.target.value)}
+                      placeholder="Note"
+                    />
+                    <Button type="submit" size="sm" className="gap-1" disabled={!txnAmount}>
+                      <Plus className="size-4" /> Cashflow
+                    </Button>
+                  </form>
+                </div>
+              )}
+              {dayTransactions.length > 0 && (
+                <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                  {dayTransactions
+                    .slice(-3)
+                    .reverse()
+                    .map((t, i) => (
+                      <Reveal
+                        as="li"
+                        key={t.id}
+                        delay={revealDelay(i)}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">{t.category || t.notes || t.type}</span>
+                        <span className="tabular-nums">${t.amount.toLocaleString()}</span>
+                      </Reveal>
+                    ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </Reveal>
 
         {/* RECENT ACTIVITY */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const rec = dashboard?.recent || {
-                interactions: [],
-                transcripts: [],
-              };
-              const combined = [
-                ...(rec.interactions || []).map((i) => ({
-                  ts: i.timestamp,
-                  label: "AI",
-                  text: (i.response || i.intent || "").toString().slice(0, 120),
-                })),
-                ...(rec.transcripts || []).map((v) => ({
-                  ts: v.timestamp,
-                  label: "Voice",
-                  text: v.transcriptText?.slice(0, 120) || "",
-                })),
-              ]
-                .sort((a, b) => b.ts - a.ts)
-                .slice(0, 8);
+        <Reveal delay={revealDelay(6)}>
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-base">Recent Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const rec = dashboard?.recent || {
+                  interactions: [],
+                  transcripts: [],
+                };
+                const combined = [
+                  ...(rec.interactions || []).map((i) => ({
+                    ts: i.timestamp,
+                    label: "AI",
+                    text: (i.response || i.intent || "").toString().slice(0, 120),
+                  })),
+                  ...(rec.transcripts || []).map((v) => ({
+                    ts: v.timestamp,
+                    label: "Voice",
+                    text: v.transcriptText?.slice(0, 120) || "",
+                  })),
+                ]
+                  .sort((a, b) => b.ts - a.ts)
+                  .slice(0, 8);
 
-              if (combined.length === 0)
+                if (combined.length === 0)
+                  return (
+                    <div className="text-sm text-muted-foreground">
+                      No voice or AI activity for this day.
+                    </div>
+                  );
+
                 return (
-                  <div className="text-sm text-muted-foreground">
-                    No voice or AI activity for this day.
+                  <div className="space-y-2 text-sm">
+                    {combined.map((c, idx) => (
+                      <Reveal
+                        as="div"
+                        key={idx}
+                        delay={revealDelay(idx)}
+                        className="flex gap-2 text-muted-foreground"
+                      >
+                        <span className="mt-px inline-block w-10.5 shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                          {new Date(c.ts).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        <span className="shrink-0 font-medium text-foreground/80">{c.label}:</span>
+                        <span className="min-w-0 flex-1">{c.text}</span>
+                      </Reveal>
+                    ))}
                   </div>
                 );
+              })()}
+            </CardContent>
+          </Card>
+        </Reveal>
 
-              return (
-                <div className="space-y-2 text-sm">
-                  {combined.map((c, idx) => (
-                    <Reveal
-                      as="div"
-                      key={idx}
-                      delay={revealDelay(idx)}
-                      className="flex gap-2 text-muted-foreground"
-                    >
-                      <span className="mt-px inline-block w-10.5 shrink-0 font-mono text-[10px] text-muted-foreground/70">
-                        {new Date(c.ts).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                      <span className="shrink-0 font-medium text-foreground/80">{c.label}:</span>
-                      <span className="min-w-0 flex-1">{c.text}</span>
-                    </Reveal>
-                  ))}
-                </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
-
-        <div className="text-[10px] text-muted-foreground/60 flex items-center gap-2">
+        <div className="flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground/60">
           {selectedDate} • TanStack Start + R2 {syncing && "• syncing…"} {isLoading && "• loading…"}
         </div>
       </div>
