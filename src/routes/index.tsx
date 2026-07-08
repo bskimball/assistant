@@ -117,6 +117,24 @@ function fillTone(pct: number, over = false): string {
   return "bg-primary";
 }
 
+/** Recent Activity shows AIInteraction.response — prefer spoken prose, never raw JSON. */
+function humanizeAiActivity(response?: string, intent?: string): string {
+  const raw = (response || intent || "").toString().trim();
+  if (!raw) return "";
+  if (raw.startsWith("{") || raw.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw) as { result?: unknown; spokenText?: unknown };
+      const spoken =
+        (typeof parsed.result === "string" && parsed.result) ||
+        (typeof parsed.spokenText === "string" && parsed.spokenText);
+      if (spoken) return spoken.slice(0, 120);
+    } catch {
+      /* keep raw slice below */
+    }
+  }
+  return raw.slice(0, 120);
+}
+
 function UnifiedDailyDashboard() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -1586,7 +1604,7 @@ function UnifiedDailyDashboard() {
                   ...(rec.interactions || []).map((i) => ({
                     ts: i.timestamp,
                     label: "AI",
-                    text: (i.response || i.intent || "").toString().slice(0, 120),
+                    text: humanizeAiActivity(i.response, i.intent),
                   })),
                   ...(rec.transcripts || []).map((v) => ({
                     ts: v.timestamp,

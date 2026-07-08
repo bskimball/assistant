@@ -26,10 +26,11 @@ Model traits (1–9, higher better; cost = what I actually pay — OpenAI limits
 
 Rules:
 
+- **gpt-5.5 is the workhorse.** It's the default for any non-trivial task that isn't user-facing UI or pure search/triage: implementation, migrations, data analysis, tests, investigation, refactors, debugging — reach for it (via codex) first. Cost 9 + intelligence 8 means it's both the cheapest-to-run and the smartest non-boutique option; there's rarely a reason not to lean on it.
 - Routing rows are defaults, not limits. Standing permission to escalate: if a cheaper model's output misses the bar, redo it with a smarter model without asking. Judge the output, not the price tag.
 - For anything that ships: intelligence > taste > cost. User-facing work needs taste ≥ 7 — never give flash-3.5 design work or anything shipping unsupervised.
 - Opus/fable are correct for their rows; just don't use them for mechanical or search work.
-- Reach for flash-3.5 first on anything fast, well-scoped, and self-verifying — search, triage, lookups, mechanical edits. It's the cheapest-to-run, fastest model and its taste (7) is fine for non-shipping work; escalate only if it stalls or the task turns out to need real reasoning (intelligence 4). Don't hand it design, judgment, or anything shipping unsupervised.
+- Reach for flash-3.5 on the fast, self-verifying, low-reasoning slice — codebase search, log/output triage, quick lookups, mechanical edits (renames, formatting, codemods). It's the fastest model and its taste (7) is fine for non-shipping work, but its intelligence is only 4: the moment a task needs real reasoning, hand it to gpt-5.5 instead. Never give it design, judgment, or anything shipping unsupervised.
 - Wrapper spawn overhead is never a reason to skip codex/agy — gpt-5.5 is effectively free.
 - After any delegated CLI run (codex, agy, etc.), summarize the result for the user: what the tool did, what changed (files/diffs), and anything notable. Never just relay raw output or silently move on — integrate and report.
 - Never use Haiku.

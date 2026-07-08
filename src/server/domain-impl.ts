@@ -717,7 +717,9 @@ Rules:
 - createTask/logWater/logMeal/markTaskDone can execute immediately.
 - deleteTask requires confirmation.
 - For createTask include { text: string, date?: "today"|"tomorrow"|YYYY-MM-DD }.
-- For logMeal include { description: string, date?: ... } and explicit macro fields if spoken.
+- For logMeal include { description: string, date?: ... } and explicit macro fields if spoken
+  (use keys calories, protein, carbs, fat — not proteinGrams). If the user only states a macro
+  (e.g. "log 40g protein"), set description to something like "40g protein" and protein: 40.
 - For logWater include { fluidOunces: number } for US customary phrases, or
   { milliliters: number } if the user explicitly says ml. Infer 8 fl oz if vague "a glass".
 - Extract the key request precisely. Do not invent.
@@ -894,15 +896,22 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
       }
 
       case "logMeal": {
-        const desc = (intent.payload.description || intent.payload.text || "meal").toString();
         const date = resolveVoiceTargetDate(intent.payload.date, today);
         const nutrition = await loadDailyNutritionImpl(date);
         const explicitMacros = {
           calories: Number(intent.payload.calories ?? intent.payload.kcal ?? 0),
-          protein: Number(intent.payload.protein ?? intent.payload.proteinG ?? 0),
-          carbs: Number(intent.payload.carbs ?? intent.payload.carbsG ?? 0),
-          fat: Number(intent.payload.fat ?? intent.payload.fatG ?? 0),
+          protein: Number(
+            intent.payload.protein ?? intent.payload.proteinG ?? intent.payload.proteinGrams ?? 0,
+          ),
+          carbs: Number(intent.payload.carbs ?? intent.payload.carbsG ?? intent.payload.carbGrams ?? 0),
+          fat: Number(intent.payload.fat ?? intent.payload.fatG ?? intent.payload.fatGrams ?? 0),
         };
+        // Models often return { proteinGrams: 40 } without a description.
+        const desc = (
+          intent.payload.description ||
+          intent.payload.text ||
+          (explicitMacros.protein > 0 ? `${explicitMacros.protein}g protein` : "meal")
+        ).toString();
         const estimated = estimateMacrosFromText(desc);
         const macros =
           explicitMacros.calories ||
@@ -1058,17 +1067,15 @@ export async function processVoiceInputImpl(data: {
       };
 
   const interactionId = `ai-${now}`;
+  // Human-readable only — Recent Activity on the dashboard shows `response`
+  // verbatim. Keep structured debug data out of the user-facing string.
   const interaction: AIInteraction = {
     id: interactionId,
     createdAt: now,
     timestamp: now,
     intent: intent.action,
     prompt: `voice:${text.slice(0, 120)}`,
-    response: JSON.stringify({
-      intent,
-      executed: shouldExecute,
-      result: exec.spokenText,
-    }),
+    response: exec.spokenText,
     model: "grok-voice-pipeline",
     tokensIn: undefined,
     tokensOut: undefined,

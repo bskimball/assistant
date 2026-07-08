@@ -193,6 +193,18 @@ const ACTION_TOOLS: ChatTool[] = [
   },
 ];
 
+/** True when the buffer looks like a JSON/code payload rather than prose. */
+function isLikelyJsonBlob(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.startsWith("```")) return true;
+  if (t.startsWith("{") || t.startsWith("[")) {
+    // Ambiguous until we have a few chars; treat leading brace as JSON-ish.
+    return true;
+  }
+  return false;
+}
+
 function systemPrompt(contextBlock: string, date: ISODate): string {
   return `You are Compass Coach — the member's personal life coach, certified strength & conditioning coach, and CFP-level financial advisor, all in one warm, direct voice. You converse about their real, recorded data and help them improve their fitness, nutrition, finances, productivity, and family life.
 
@@ -206,7 +218,8 @@ How to respond:
 - Respect any injuries and dietary restrictions in the profile without exception.
 - Be concise and actionable. No medical/financial disclaimers, no filler.
 - When the member shares something durable (a new goal, preference, constraint, upcoming life event, milestone, or win), call save_memory. When a remembered fact changed or is disavowed, call update_memory or forget_memory using the ids shown in the "What you remember about the member" section. Never save transient daily facts that belong in logs.
-- When the member clearly wants to RECORD or CHANGE something (e.g. "log 40g protein", "add a task to call the dentist", "I drank 16 oz of water", "mark the laundry done"), call the matching function instead of only describing it. Otherwise, just answer in prose. Never invent data you weren't given.`;
+- When the member clearly wants to RECORD or CHANGE something (e.g. "log 40g protein", "add a task to call the dentist", "I drank 16 oz of water", "mark the laundry done"), call the matching function. Also answer in a short plain-English sentence (what you queued + any progress toward their targets). Do not only emit a tool call with no prose.
+- Never print JSON, code fences, function-call syntax, or raw tool arguments to the member. Tools are for the app; prose is for the member. Never invent data you weren't given.`;
 }
 
 /* ============================================================
@@ -275,12 +288,23 @@ export const chatStream = createServerFn({ method: "POST" })
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          let sawText = false;
+          let textBuf = "";
+          let sawProse = false;
           const toolNames: ChatActionName[] = [];
           for await (const ev of streamChat(apiKey, { model, messages, tools: ACTION_TOOLS })) {
             if (ev.type === "delta") {
-              if (ev.text.trim()) sawText = true;
-              controller.enqueue(sse({ type: "delta", text: ev.text }));
+              if (sawProse) {
+                if (ev.text) controller.enqueue(sse({ type: "delta", text: ev.text }));
+                continue;
+              }
+              textBuf += ev.text;
+              // Hold back pure JSON blobs so tool payloads never appear as the
+              // assistant message. Once we know it's prose, stream live.
+              if (ev.text && !isLikelyJsonBlob(textBuf)) {
+                controller.enqueue(sse({ type: "delta", text: textBuf }));
+                sawProse = true;
+                textBuf = "";
+              }
             } else if (ev.type === "tool_call") {
               let args: Record<string, unknown> = {};
               try {
@@ -292,24 +316,21 @@ export const chatStream = createServerFn({ method: "POST" })
               controller.enqueue(sse({ type: "action", id: ev.id, name: ev.name, args }));
             }
           }
-          // Memory writes auto-apply with no visible card (ADR-020), so a turn
-          // that ended in memory-only tool calls with no prose would leave the
-          // member unanswered. Run a follow-up completion (no tools) so the
-          // coach still responds. Pure LLM call — no store access, so the
-          // scope-binding invariant (ADR-017) holds.
-          if (!sawText && toolNames.length > 0 && toolNames.every(isMemoryAction)) {
+
+          // Grok 4.5 often tool-calls with empty content. Memory tools auto-apply
+          // (ADR-020) and log_* tools show an Apply card — either way the member
+          // needs a prose reply. Follow-up is a pure LLM call (no store access).
+          if (toolNames.length > 0 && !sawProse) {
+            const followUp = toolNames.every(isMemoryAction)
+              ? "You already saved the durable fact(s) the member shared — do not mention tools or print JSON. Answer their last message in a short plain-English sentence."
+              : `You already proposed action card(s) (${toolNames.join(", ")}) for the member to Apply — do not call tools or print JSON/code. Confirm in one short plain-English sentence what you queued and, if relevant, how it moves them toward today's targets.`;
             for await (const ev of streamChat(apiKey, {
               model,
-              messages: [
-                ...messages,
-                {
-                  role: "system",
-                  content:
-                    "You already saved the durable fact(s) the member shared — do not mention saving or call any tools. Now answer the member's last message in prose.",
-                },
-              ],
+              messages: [...messages, { role: "system", content: followUp }],
             })) {
-              if (ev.type === "delta") controller.enqueue(sse({ type: "delta", text: ev.text }));
+              if (ev.type === "delta" && ev.text) {
+                controller.enqueue(sse({ type: "delta", text: ev.text }));
+              }
             }
           }
           controller.enqueue(sse({ type: "done" }));

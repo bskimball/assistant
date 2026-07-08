@@ -199,7 +199,10 @@ export async function completeJSON<T>(apiKey: string, request: JSONChatRequest):
       model: request.model ?? GROK_MODELS.default,
       messages: request.messages,
       temperature: request.temperature ?? 0.1,
-      max_tokens: request.maxTokens ?? 400,
+      // Reasoning models spend tokens on internal thought; leave headroom for the JSON.
+      max_tokens: request.maxTokens ?? 800,
+      // Constrain output to JSON so prose/reasoning never leaks into the content field.
+      response_format: { type: "json_object" },
     }),
   });
   if (!resp.ok) throw new Error("Grok HTTP " + resp.status);
