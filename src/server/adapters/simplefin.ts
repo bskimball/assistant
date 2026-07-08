@@ -186,7 +186,7 @@ function buildAccountsRequest(
 
 export async function fetchAccounts(
   accessUrl: string,
-  opts?: { startDate?: number; balancesOnly?: boolean },
+  opts?: { startDate?: number; balancesOnly?: boolean; timeoutMs?: number },
 ): Promise<SimplefinFetchResult> {
   let request: { url: string; auth: string };
   try {
@@ -196,7 +196,7 @@ export async function fetchAccounts(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 12000);
   try {
     const resp = await fetch(request.url, {
       headers: { Authorization: request.auth },

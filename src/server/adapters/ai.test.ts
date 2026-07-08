@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { streamChat, type StreamChatEvent } from "./ai";
+import { GROK_MODELS, streamChat, type StreamChatEvent } from "./ai";
 
 /** Build a mock fetch Response whose body streams the given raw chunks (as if
  *  arriving over the wire — chunk boundaries deliberately split SSE frames). */
@@ -71,5 +71,17 @@ describe("streamChat", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(mockStreamResponse([], false));
 
     await expect(collect(streamChat("key", { messages: [] }))).rejects.toThrow(/Grok stream HTTP/);
+  });
+
+  it("defaults to the flagship Grok model when none is provided", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(mockStreamResponse(["data: [DONE]\n\n"]));
+
+    await collect(streamChat("key", { messages: [{ role: "user", content: "hi" }] }));
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+    expect(body.model).toBe(GROK_MODELS.default);
+    expect(GROK_MODELS.default).toBe("grok-4.5");
   });
 });

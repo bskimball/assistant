@@ -11,11 +11,10 @@
  * contract as the rest of the coach.
  */
 
-import { getGrokApiKey } from "@/server/adapters/ai";
+import { getGrokApiKey, GROK_MODELS } from "@/server/adapters/ai";
 import { getObjectBytes, getRefKey, putObject } from "@/server/adapters/r2";
 import { asArrayBuffer, base64ToBytes } from "@/server/encoding";
 
-const IMAGE_MODEL = "grok-imagine-image";
 const DEFAULT_CONTENT_TYPE = "image/png";
 
 function artKey(slug: string): string {
@@ -49,7 +48,7 @@ async function generate(name: string): Promise<{ data: ArrayBuffer; contentType:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: IMAGE_MODEL,
+        model: GROK_MODELS.image,
         prompt: buildPrompt(name),
         n: 1,
         response_format: "b64_json",

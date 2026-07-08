@@ -417,6 +417,14 @@ export interface Subscription extends BaseEntity {
    * subscriptions default to wants and can also represent recurring savings.
    */
   group?: CategoryGroup;
+  /**
+   * Learned merchant-descriptor substrings that identify this item's charge in a
+   * bank statement. A manually-named item ("Jeep payment") rarely matches its
+   * real descriptor ("TRUIST IL PYMT"); confirming a candidate charge stores the
+   * cleaned descriptor here (lowercased) so future charges match without
+   * double-counting. Consumed by `recurringMatchesTransaction`.
+   */
+  matchHints?: string[];
 }
 
 /**

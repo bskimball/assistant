@@ -34,7 +34,7 @@ The engine first collects `DaySignals` (tasks done/total, protein vs target, wat
 
 ### 3. Works with zero config (deterministic fallback)
 
-- If `GROK_API_KEY` is present, the engine asks Grok (`grok-3-mini`) for the structured JSON and validates/normalizes the result, backfilling any missing pieces from the fallback.
+- If `GROK_API_KEY` is present, the engine asks Grok (`grok-4.5`, via `getGrokJsonModel`) for the structured JSON and validates/normalizes the result, backfilling any missing pieces from the fallback.
 - If no key (or on any LLM error), a **deterministic rules-based coach** produces real coaching from the same signals. The app is fully useful offline; the LLM is an upgrade, not a dependency.
 
 ### 4. Workout rotation
@@ -68,7 +68,7 @@ After generation, suggestions are persisted into the day's `DailyPlan.aiSuggesti
 
 - _LLM returns malformed JSON_ → strip code fences, `try/parse`, fall back on error; normalize/clamp fields.
 - _Suggestions feel stale_ → persisted but regenerable on demand; finance edits auto-refresh.
-- _Token cost creep_ → `max_tokens` capped, `grok-3-mini`, one call per explicit generation, results cached in `DailyPlan`.
+- _Token cost creep_ → `max_tokens` capped, flagship `grok-4.5` (env-overridable), one call per explicit generation, results cached in `DailyPlan`.
 
 ## Alternatives Considered
 

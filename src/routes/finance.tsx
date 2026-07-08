@@ -41,6 +41,7 @@ import {
   Circle,
   CheckCircle2,
   ListChecks,
+  Link2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,7 @@ import {
   recurringAdditionsForMonth,
   recurringAdditionsFromItems,
   recurringItemsForMonth,
+  recurringMatchesTransaction,
   simulateDebtPayoff,
   transactionsForMonth,
   type BudgetBucket,
@@ -2439,6 +2441,7 @@ function RecurringRow({
   onChangeGroup,
   onToggleCancel,
   onSaveEdit,
+  onDelete,
 }: {
   s: Subscription;
   chargeStatus?: string;
@@ -2446,8 +2449,10 @@ function RecurringRow({
   onChangeGroup: (s: Subscription, g: SpendGroup) => void;
   onToggleCancel: (s: Subscription) => void;
   onSaveEdit: (s: Subscription, patch: Partial<Subscription>) => void;
+  onDelete: (s: Subscription) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editName, setEditName] = useState(s.name);
   const [editAmount, setEditAmount] = useState(String(s.amount));
   const [editCadence, setEditCadence] = useState<Subscription["cadence"]>(s.cadence);
@@ -2536,6 +2541,25 @@ function RecurringRow({
             />
           </div>
         )}
+        {s.matchHints?.length ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Linked charges</span>
+            {s.matchHints.map((hint) => (
+              <button
+                key={hint}
+                type="button"
+                onClick={() =>
+                  onSaveEdit(s, { matchHints: (s.matchHints ?? []).filter((h) => h !== hint) })
+                }
+                className="inline-flex h-7 items-center gap-1 rounded-full bg-muted px-2 text-xs text-muted-foreground ring-1 ring-foreground/10 transition-colors hover:text-destructive"
+                aria-label={`Remove linked charge ${hint}`}
+              >
+                <span className="max-w-32 truncate">{hint}</span>
+                <X className="size-3 shrink-0" />
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="flex items-center gap-1.5">
           <Button
             size="sm"
@@ -2630,6 +2654,37 @@ function RecurringRow({
               </>
             )}
           </Button>
+          {confirmingDelete ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs text-destructive"
+                onClick={() => onDelete(s)}
+                aria-label={`Confirm delete ${cleanMerchantName(s.name)}`}
+              >
+                <Trash2 className="size-3.5" /> Delete?
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs text-muted-foreground"
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Keep
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+              onClick={() => setConfirmingDelete(true)}
+              aria-label={`Delete ${cleanMerchantName(s.name)}`}
+            >
+              <Trash2 className="size-3.5" /> Delete
+            </Button>
+          )}
         </div>
       </div>
     </li>
@@ -2649,53 +2704,109 @@ const SECTION_META: {
 
 // One verification row: matched charge (green check + paid detail) or an
 // unmatched item (muted circle + why it may be missing).
-function PaymentCheckRow({ item }: { item: BudgetRecurringItem }) {
+function PaymentCheckRow({
+  item,
+  candidates,
+  onLinkCharge,
+}: {
+  item: BudgetRecurringItem;
+  candidates?: Transaction[];
+  onLinkCharge?: (subId: string, hint: string) => Promise<void>;
+}) {
   const isAnnual = item.cadence === "annual";
   const seenCount =
     item.expectedThisMonth > 0
       ? Math.min(item.matchedCount, item.expectedThisMonth)
       : item.matchedCount;
+  const [linking, setLinking] = useState(false);
+
+  async function link(t: Transaction) {
+    if (!onLinkCharge || linking) return;
+    const label = cleanMerchantName(t.category || t.notes || "").toLowerCase();
+    const hint = label || (t.category || t.notes || "").trim().toLowerCase().slice(0, 24);
+    if (!hint) return;
+    setLinking(true);
+    try {
+      await onLinkCharge(item.id, hint);
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  const showCandidates =
+    !item.seenThisMonth && !!onLinkCharge && !!candidates && candidates.length > 0;
   return (
-    <li className="flex items-center justify-between gap-3 py-2 text-sm">
-      <div className="flex min-w-0 flex-1 items-start gap-2">
-        {item.seenThisMonth ? (
-          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
-        ) : (
-          <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/50" />
-        )}
-        <div className="min-w-0">
-          <div className="truncate">{cleanMerchantName(item.name)}</div>
-          {item.seenThisMonth && item.matchedTxn ? (
-            <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-emerald-700 dark:text-emerald-400">
-              <span>
-                {item.expectedThisMonth > 1
-                  ? `${seenCount} of ${item.expectedThisMonth} seen; latest`
-                  : "Paid"}
-              </span>
-              <span className="tabular-nums">{fmtDate(item.matchedTxn.timestamp)}</span>
-              <span aria-hidden>·</span>
-              <span className="tabular-nums">{fmtMoney(Math.abs(item.matchedTxn.amount))}</span>
-              {item.matchedTxn.account ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span className="truncate">{item.matchedTxn.account}</span>
-                </>
-              ) : null}
-            </div>
+    <li className="py-2 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          {item.seenThisMonth ? (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
           ) : (
-            <div className="text-xs text-muted-foreground">
-              {isAnnual
-                ? "Annual - excluded from monthly check"
-                : item.expectedThisMonth > 1
-                  ? `0 of ${item.expectedThisMonth} weekly charges seen this month`
-                  : "Not seen in statements this month"}
-            </div>
+            <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/50" />
           )}
+          <div className="min-w-0">
+            <div className="truncate">{cleanMerchantName(item.name)}</div>
+            {item.seenThisMonth && item.matchedTxn ? (
+              <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                <span>
+                  {item.expectedThisMonth > 1
+                    ? `${seenCount} of ${item.expectedThisMonth} seen; latest`
+                    : "Paid"}
+                </span>
+                <span className="tabular-nums">{fmtDate(item.matchedTxn.timestamp)}</span>
+                <span aria-hidden>·</span>
+                <span className="tabular-nums">{fmtMoney(Math.abs(item.matchedTxn.amount))}</span>
+                {item.matchedTxn.account ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="truncate">{item.matchedTxn.account}</span>
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                {isAnnual
+                  ? "Annual - excluded from monthly check"
+                  : item.expectedThisMonth > 1
+                    ? `0 of ${item.expectedThisMonth} weekly charges seen this month`
+                    : "Not seen in statements this month"}
+              </div>
+            )}
+          </div>
         </div>
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          ~{fmtMoney(item.monthlyAmount)}/mo
+        </span>
       </div>
-      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-        ~{fmtMoney(item.monthlyAmount)}/mo
-      </span>
+      {showCandidates && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-6">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Link charge
+          </span>
+          {candidates!.map((t) => (
+            <Button
+              key={t.id}
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              disabled={linking}
+              onClick={() => link(t)}
+              aria-label={`Link ${cleanMerchantName(item.name)} to ${cleanMerchantName(
+                t.category || t.notes || "",
+              )}`}
+            >
+              <Link2 className="size-3 shrink-0" />
+              <span className="max-w-32 truncate">
+                {cleanMerchantName(t.category || t.notes || "")}
+              </span>
+              <span aria-hidden>·</span>
+              <span className="tabular-nums">{fmtMoney(Math.abs(t.amount))}</span>
+              <span aria-hidden>·</span>
+              <span className="tabular-nums">{fmtDate(t.timestamp)}</span>
+            </Button>
+          ))}
+        </div>
+      )}
     </li>
   );
 }
@@ -2707,9 +2818,11 @@ function PaymentCheckRow({ item }: { item: BudgetRecurringItem }) {
 function MonthlyPaymentCheckCard({
   subscriptions,
   transactions,
+  onLinkCharge,
 }: {
   subscriptions: Subscription[];
   transactions: Transaction[];
+  onLinkCharge: (subId: string, hint: string) => Promise<void>;
 }) {
   const currentMonth = todayISO().slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
@@ -2756,6 +2869,26 @@ function MonthlyPaymentCheckCard({
   const matchedItems = ordered.filter(
     (item) => !(item.expectedThisMonth > 0 && item.matchedCount < item.expectedThisMonth),
   );
+
+  // Charges a pending item could be linked to: outflows near its raw per-charge
+  // amount that no active recurring item already claims. Closest amount, then
+  // most recent; at most three so the row stays scannable.
+  const activeSubs = subscriptions.filter((s) => s.status === "active");
+  function candidatesFor(item: BudgetRecurringItem): Transaction[] {
+    const sub = subscriptions.find((s) => s.id === item.id);
+    if (!sub) return [];
+    const tolerance = Math.max(1, sub.amount * 0.05);
+    return monthTxns
+      .filter((t) => t.amount < 0 && Math.abs(Math.abs(t.amount) - sub.amount) <= tolerance)
+      .filter((t) => !activeSubs.some((a) => recurringMatchesTransaction(a, t)))
+      .sort((a, b) => {
+        const da = Math.abs(Math.abs(a.amount) - sub.amount);
+        const db = Math.abs(Math.abs(b.amount) - sub.amount);
+        if (da !== db) return da - db;
+        return b.timestamp - a.timestamp;
+      })
+      .slice(0, 3);
+  }
 
   return (
     <Card>
@@ -2845,7 +2978,12 @@ function MonthlyPaymentCheckCard({
                     </div>
                     <ul className="divide-y divide-border rounded-lg bg-muted/20 px-2 ring-1 ring-foreground/10">
                       {pendingItems.map((item) => (
-                        <PaymentCheckRow key={item.id} item={item} />
+                        <PaymentCheckRow
+                          key={item.id}
+                          item={item}
+                          candidates={candidatesFor(item)}
+                          onLinkCharge={onLinkCharge}
+                        />
                       ))}
                     </ul>
                   </section>
@@ -3135,6 +3273,14 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     await persist(next);
   }
 
+  // Hard delete: drop the row from the collection entirely. Cancel keeps a
+  // paused record (and stops it counting); delete is for entries that should
+  // never have existed — e.g. a manual bill now fully covered by bank sync.
+  async function deleteSubscription(s: Subscription) {
+    await persist(hub.subscriptions.filter((x) => x.id !== s.id));
+    flash(`Deleted ${cleanMerchantName(s.name)}.`);
+  }
+
   // Reclassifying keeps the budget bucket where it still makes sense. Loans are
   // always Needs; bills keep Need/Want; subscriptions keep Want/Save.
   async function changeKind(s: Subscription, nextKind: RecurringKind) {
@@ -3163,6 +3309,20 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   async function saveEdit(s: Subscription, patch: Partial<Subscription>) {
     await persist(hub.subscriptions.map((x) => (x.id === s.id ? { ...x, ...patch } : x)));
     flash(`Updated ${cleanMerchantName(patch.name ?? s.name)}.`);
+  }
+
+  // Confirming a candidate charge teaches the matcher a descriptor substring so
+  // the friendly-named item stops double-counting from next refetch on.
+  async function linkCharge(subId: string, hint: string) {
+    const normalized = hint.trim().toLowerCase();
+    if (!normalized) return;
+    const sub = hub.subscriptions.find((x) => x.id === subId);
+    if (!sub) return;
+    const nextHints = Array.from(new Set([...(sub.matchHints ?? []), normalized]));
+    await persist(
+      hub.subscriptions.map((x) => (x.id === subId ? { ...x, matchHints: nextHints } : x)),
+    );
+    flash(`Linked ${cleanMerchantName(sub.name)} to that charge.`);
   }
 
   async function changeGroup(s: Subscription, next: SpendGroup) {
@@ -3263,7 +3423,11 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
         Wants; recurring savings is money kept, not spend.
       </p>
 
-      <MonthlyPaymentCheckCard subscriptions={hub.subscriptions} transactions={hub.transactions} />
+      <MonthlyPaymentCheckCard
+        subscriptions={hub.subscriptions}
+        transactions={hub.transactions}
+        onLinkCharge={linkCharge}
+      />
 
       {activeLoans.length > 0 && <DebtPayoffComparisonCard loans={activeLoans} />}
 
@@ -3317,6 +3481,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                             onChangeGroup={changeGroup}
                             onToggleCancel={toggleCancel}
                             onSaveEdit={saveEdit}
+                            onDelete={deleteSubscription}
                           />
                         ))}
                       </ul>
@@ -4314,7 +4479,10 @@ function BudgetBar({
     (sum, item) => sum + item.remainingMonthlyAmount,
     0,
   );
-  const expandable = (txns.length > 0 && !!onToggleExclude) || recurringItems.length > 0;
+  // Only list recurring items that still add planned dollars to the bucket.
+  // Fully-matched items are already represented by their transaction row.
+  const plannedItems = recurringItems.filter((i) => i.remainingMonthlyAmount > 0);
+  const expandable = (txns.length > 0 && !!onToggleExclude) || plannedItems.length > 0;
   return (
     <div>
       <button
@@ -4368,19 +4536,17 @@ function BudgetBar({
       </button>
       {open && expandable && (
         <ul className="mt-2 divide-y divide-border rounded-md border border-border/60 bg-muted/20">
-          {recurringItems.length > 0 && (
+          {plannedItems.length > 0 && (
             <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs font-medium">
               <div className="min-w-0 flex-1">
                 <div className="truncate">Monthly recurring plan</div>
                 <div className="text-muted-foreground">
-                  {recurringEstimate > 0
-                    ? `${fmtMoney(recurringEstimate)} not seen in statements yet`
-                    : "All planned items already appear in statements"}
+                  {fmtMoney(recurringEstimate)} not seen in statements yet
                 </div>
               </div>
             </li>
           )}
-          {recurringItems.map((item) => (
+          {plannedItems.map((item) => (
             <li
               key={item.id}
               className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
@@ -4390,9 +4556,7 @@ function BudgetBar({
                 <div className="truncate text-muted-foreground">
                   {recurringKindLabel(item.kind)} · {CADENCE_ABBR[item.cadence]}
                   {item.account ? ` · ${item.account}` : ""}
-                  {item.remainingMonthlyAmount > 0
-                    ? ` · ${fmtMoney(item.remainingMonthlyAmount)} planned`
-                    : " · covered by statements"}
+                  {` · ${fmtMoney(item.remainingMonthlyAmount)} planned`}
                 </div>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground">

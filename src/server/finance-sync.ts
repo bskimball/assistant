@@ -423,6 +423,28 @@ async function resolveAccessUrl(
   }
 }
 
+/**
+ * SimpleFIN's Bridge re-pulls from the member's banks on demand, so the first
+ * fetch of the day (the 6am cron) is often cold and slow. A snappy 12s abort is
+ * right for the manual "Sync now" button (a user is waiting), but it makes the
+ * scheduled sync fail with "The operation was aborted" nearly every morning.
+ * For scheduled runs — where nothing is blocking on the response — allow a much
+ * longer budget and one retry so a cold Bridge still completes.
+ */
+async function fetchAccountsResilient(
+  accessUrl: string,
+  opts: { startDate?: number; manual: boolean },
+): Promise<Awaited<ReturnType<typeof fetchAccounts>>> {
+  const timeoutMs = opts.manual ? 12_000 : 45_000;
+  const attempts = opts.manual ? 1 : 2;
+  let last: Awaited<ReturnType<typeof fetchAccounts>> | null = null;
+  for (let i = 0; i < attempts; i++) {
+    last = await fetchAccounts(accessUrl, { startDate: opts.startDate, timeoutMs });
+    if (last.payload) return last;
+  }
+  return last!;
+}
+
 export async function runSimplefinSyncImpl(args: {
   manual: boolean;
   force?: boolean;
@@ -464,8 +486,9 @@ export async function runSimplefinSyncImpl(args: {
   const accessUrl = resolved.accessUrl;
 
   const effectiveCutover = state.cutoverDate ?? todayISO();
-  const fetchResult = await fetchAccounts(accessUrl, {
+  const fetchResult = await fetchAccountsResilient(accessUrl, {
     startDate: syncStartDate({ ...state, cutoverDate: effectiveCutover }),
+    manual: args.manual,
   });
   if (!fetchResult.payload) {
     const message = fetchResult.error || "SimpleFIN sync failed.";

@@ -25,7 +25,7 @@ A compact, **US-customary-units** text block — today's dashboard numbers + the
 The original intent was TanStack AI's `chat()` + official OpenAI adapter (pointed at xAI's OpenAI-compatible API). **This is not installable on our pinned alpha stack:** the `@tanstack/ai*` family is interlocked with exact (minor-locked) peers — `@tanstack/ai-event-client@0.6.3` ⇄ `ai@0.32.0` — so the adapter (which needs `ai@^0.38`) forces a disruptive full-family upgrade, and a custom `BaseTextAdapter` would mean hand-emitting TanStack AI's internal AG-UI event protocol against undocumented alpha internals (no reference adapter ships). We chose the **pragmatic, robust path**: own the SSE transport, reusing the proven Grok integration.
 
 - `streamChat()` (`src/server/adapters/ai.ts`) POSTs to `https://api.x.ai/v1/chat/completions` with `stream: true` and yields text deltas + accumulates `tool_calls` deltas — the **standard OpenAI-compatible wire format**, stable on xAI, independent of TanStack AI alpha internals. (`completeJSON` is unchanged, still used for the one-shot JSON tasks.)
-- The chat model is env-overridable (`GROK_CHAT_MODEL`, default `grok-3`) and tool-capable — distinct from the cheap `grok-3-mini` used elsewhere.
+- The chat model is env-overridable (`GROK_CHAT_MODEL`, default `grok-4.5` via `GROK_MODELS.default` in `adapters/ai.ts`) and tool-capable — same flagship line as one-shot JSON coaching (`GROK_JSON_MODEL` / `getGrokJsonModel`).
 
 ### Server endpoint is a **server function**, not an `/api` route
 

@@ -38,7 +38,7 @@ import {
   todayISO,
   type Macros,
 } from "@/lib/domain";
-import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
+import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import { getDomainStore } from "@/server/store";
 import type { SoftDeleteRecord } from "@/server/adapters/r2";
 import { loadTodosImpl, saveTodosImpl } from "@/server/todos";
@@ -805,7 +805,7 @@ async function extractVoiceIntentImpl(
 
   try {
     const parsed = await completeJSON<any>(apiKey, {
-      model: "grok-4.3",
+      model: await getGrokJsonModel(),
       messages: [
         {
           role: "system",

@@ -176,7 +176,12 @@ export function recurringMatchesTransaction(sub: Subscription, t: Transaction): 
     !!sub.account &&
     !!t.account &&
     sub.account.trim().toLowerCase() === t.account.trim().toLowerCase();
-  return nameMatches || accountMatches;
+  const rawTxnDescriptor = [t.category, t.notes].filter(Boolean).join(" ").toLowerCase();
+  const hintMatches = (sub.matchHints ?? []).some((hint) => {
+    const normalizedHint = hint.trim().toLowerCase();
+    return !!normalizedHint && rawTxnDescriptor.includes(normalizedHint);
+  });
+  return amountMatches && (nameMatches || accountMatches || hintMatches);
 }
 
 export function transactionsForMonth(transactions: Transaction[], month: string): Transaction[] {

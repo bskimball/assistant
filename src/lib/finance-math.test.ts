@@ -47,6 +47,7 @@ function sub(partial: Partial<Subscription>): Subscription {
     lastSeen: partial.lastSeen,
     balance: partial.balance,
     apr: partial.apr,
+    matchHints: partial.matchHints,
   };
 }
 
@@ -68,6 +69,39 @@ describe("finance math", () => {
       recurringMatchesTransaction(
         sub({ name: "Netflix", amount: 15 }),
         txn({ amount: -25, category: "NETFLIX.COM" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("matches recurring subscriptions by raw descriptor match hints plus amount", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Jeep payment", amount: 418, account: "Manual", matchHints: ["truist"] }),
+        txn({ amount: -418.5, category: "TRUIST IL PYMT", account: "Checking" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match recurring subscriptions by hint when the amount is outside tolerance", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Jeep payment", amount: 418, matchHints: ["truist"] }),
+        txn({ amount: -500, category: "TRUIST IL PYMT" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps existing recurring match behavior when match hints are undefined", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Gym", amount: 20, account: "Checking" }),
+        txn({ amount: -20, category: "Unknown charge", account: "checking" }),
+      ),
+    ).toBe(true);
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Gym", amount: 20 }),
+        txn({ amount: -20, category: "Unknown charge", account: "checking" }),
       ),
     ).toBe(false);
   });

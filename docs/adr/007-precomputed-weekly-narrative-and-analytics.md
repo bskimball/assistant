@@ -36,7 +36,7 @@ Each `narrative.json` contains a richer synthesis than the daily reflection:
 {
   "weekKey": "2026-W25",
   "generatedAt": "2026-06-22T23:32:10Z",
-  "modelVersion": "grok-4.3@2026-06",
+  "modelVersion": "grok-4.5@2026-07",
   "headline": "Your most consistent nutrition week yet — focus now shifts to deep-work blocks",
   "narrative": "This week you hit 94 % of your protein target on average, with Tuesday and Thursday as standout days (142 g and 138 g). Task completion stayed strong at 78 %, but focus minutes dipped mid-week. The pattern is clear: your best deep-work sessions happen on days you log breakfast before 8 a.m. Your micro-experiments for next week: (1) protect a 90-minute deep-work block immediately after morning protein, (2) batch all admin tasks into a single 45-minute Friday afternoon window, (3) try a 10-minute evening walk after dinner to improve sleep consistency.",
   "experiments": [

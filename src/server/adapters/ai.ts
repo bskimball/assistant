@@ -12,14 +12,40 @@ export interface JSONChatRequest {
 
 import { getServerEnvVar } from "@/server/env";
 
+/**
+ * Canonical Grok model IDs for this app.
+ *
+ * xAI recommends Grok 4.5 for chat/code/agentic work (flagship as of 2026-07).
+ * Use the bare name (`grok-4.5`) so we track the stable alias for that line;
+ * pin a dated id only if a workflow needs bit-for-bit reproducibility.
+ * Override paths via env (see getGrokChatModel / getGrokJsonModel).
+ */
+export const GROK_MODELS = {
+  /** Flagship: coaching, chat, finance advice, voice intent, nutrition parse. */
+  default: "grok-4.5",
+  /** Grok Imagine — exercise silhouettes and other image gen. */
+  image: "grok-imagine-image",
+} as const;
+
 export async function getGrokApiKey(): Promise<string | undefined> {
   return getServerEnvVar("GROK_API_KEY");
 }
 
-/** Resolve the Grok model used for conversational chat (tool-capable).
- *  Override with `GROK_CHAT_MODEL` (Cloudflare var / env / .dev.vars). */
+/** Conversational chat (tool-capable). Override with `GROK_CHAT_MODEL`. */
 export async function getGrokChatModel(): Promise<string> {
-  return (await getServerEnvVar("GROK_CHAT_MODEL")) || "grok-4.3";
+  return (await getServerEnvVar("GROK_CHAT_MODEL")) || GROK_MODELS.default;
+}
+
+/**
+ * One-shot JSON completions (coach, finance, voice intent, meal macros).
+ * Override with `GROK_JSON_MODEL` — falls back to the chat model, then default.
+ */
+export async function getGrokJsonModel(): Promise<string> {
+  return (
+    (await getServerEnvVar("GROK_JSON_MODEL")) ||
+    (await getServerEnvVar("GROK_CHAT_MODEL")) ||
+    GROK_MODELS.default
+  );
 }
 
 /* ============================================================
@@ -83,7 +109,7 @@ export async function* streamChat(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: request.model ?? "grok-4.3",
+      model: request.model ?? GROK_MODELS.default,
       messages: request.messages,
       temperature: request.temperature ?? 0.6,
       max_tokens: request.maxTokens ?? 1200,
@@ -170,7 +196,7 @@ export async function completeJSON<T>(apiKey: string, request: JSONChatRequest):
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: request.model ?? "grok-4.3",
+      model: request.model ?? GROK_MODELS.default,
       messages: request.messages,
       temperature: request.temperature ?? 0.1,
       max_tokens: request.maxTokens ?? 400,

@@ -34,7 +34,7 @@ Each `reflection.json` contains:
 ```json
 {
   "generatedAt": "2026-06-22T23:31:05Z",
-  "modelVersion": "grok-4.3-lite@2026-06",
+  "modelVersion": "grok-4.5@2026-07",
   "headline": "Strong nutrition day, solid task momentum",
   "body": "You hit 142 g protein (95 % of target) and completed 7 of 9 tasks. Focus score was 48 minutes — a good base but room to grow deep-work blocks.",
   "microSuggestion": "Block two 25-minute Pomodoros for the highest-priority task before lunch tomorrow.",

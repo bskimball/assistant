@@ -52,7 +52,7 @@ import {
   estimateMacrosFromText,
 } from "@/server/domain-impl";
 import { requireAuthSession } from "@/lib/auth";
-import { completeJSON, getGrokApiKey } from "@/server/adapters/ai";
+import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import { memoriesBlock } from "@/server/context";
 
 export type CoachDomain = "focus" | "fitness" | "nutrition" | "finance" | "family" | "general";
@@ -899,7 +899,7 @@ async function aiCoaching(
   memories: CoachMemory[],
 ): Promise<CoachingResult> {
   const parsed = await completeJSON<any>(apiKey, {
-    model: "grok-4.3",
+    model: await getGrokJsonModel(),
     messages: [
       { role: "system", content: "Return strictly valid minified JSON only. No prose." },
       {
@@ -1193,7 +1193,7 @@ Each array has 2-4 specific, actionable items referencing the numbers. Use US cu
 
     try {
       const parsed = await completeJSON<any>(apiKey, {
-        model: "grok-4.3",
+        model: await getGrokJsonModel(),
         messages: [
           { role: "system", content: "Return strictly valid minified JSON only. No prose." },
           { role: "user", content: prompt },
@@ -1287,7 +1287,7 @@ Rules:
 
     try {
       const parsed = await completeJSON<any>(apiKey, {
-        model: "grok-4.3",
+        model: await getGrokJsonModel(),
         messages: [
           { role: "system", content: "Return strictly valid minified JSON only. No prose." },
           { role: "user", content: prompt },
