@@ -250,19 +250,28 @@ export function normalizedFinanceLabel(raw?: string): string {
 
 /** Same-day multi-membership noise; gaps shorter than this are ignored for cadence. */
 const MIN_RECURRING_INTERVAL_DAYS = 3;
-/** Charges within this fraction of a cluster's median amount share a stream. */
-const RECURRING_AMOUNT_CLUSTER_TOLERANCE = 0.15;
 /**
- * When a stored item shares a name token with a cluster but amounts drifted
- * (price hike), still suppress re-detection within this band.
+ * Charges within this fraction of a cluster's median amount share one stream.
+ * Tight on purpose: Progressive Auto vs Boat (or two gyms) often land within a
+ * looser 15% band but must stay separate — merging them mixes pay days and
+ * kills monthly cadence inference.
  */
-const RECURRING_STORED_DRIFT_TOLERANCE = 0.25;
+const RECURRING_AMOUNT_CLUSTER_TOLERANCE = 0.05;
+/**
+ * Upward-only price-hike band for detect suppression. A lower amount at the
+ * same merchant is treated as a different stream (second policy/membership),
+ * not a "discounted" version of the stored item.
+ */
+const RECURRING_STORED_HIKE_TOLERANCE = 0.15;
+/** Within-stream amount noise allowed after clustering (fees, rounding). */
+const RECURRING_CLUSTER_STABILITY = 0.15;
 
 /**
  * Detect new recurring outflows from the ledger. Groups by merchant, then by
- * amount band (so three gym memberships at different prices become three
- * candidates), infers cadence from median inter-charge gap after dropping
- * same-day noise, and suppresses clusters that already match a stored item.
+ * amount band (so Progressive Auto vs Boat, or three gym memberships, become
+ * separate candidates), infers cadence from median inter-charge gap after
+ * dropping same-day noise, and suppresses clusters that already match a
+ * stored item at a compatible amount.
  *
  * Pure: no I/O. Caller assigns `id`/`createdAt` before persisting.
  */
@@ -290,8 +299,8 @@ export function detectRecurringCandidates(input: {
     groups.set(key, arr);
   }
 
-  const candidates: Array<Omit<Subscription, "id" | "createdAt">> = [];
-  for (const charges of groups.values()) {
+  const candidates: Array<Omit<Subscription, "id" | "createdAt"> & { merchantKey: string }> = [];
+  for (const [merchantKey, charges] of groups) {
     for (const cluster of clusterTransactionsByAmount(charges)) {
       if (cluster.length < 2) continue;
       if (isRecurringClusterAlreadyTracked(cluster, stored)) continue;
@@ -310,12 +319,13 @@ export function detectRecurringCandidates(input: {
       const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
       if (avgAmount <= 0) continue;
       const stable = amounts.every(
-        (a) => Math.abs(a - avgAmount) <= avgAmount * RECURRING_AMOUNT_CLUSTER_TOLERANCE,
+        (a) => Math.abs(a - avgAmount) <= avgAmount * RECURRING_CLUSTER_STABILITY,
       );
       if (!stable) continue;
 
       const last = sorted[sorted.length - 1];
       candidates.push({
+        merchantKey,
         name: cleanMerchantName(last.category || last.notes || "Unknown"),
         amount: dollars(avgAmount),
         cadence,
@@ -326,11 +336,33 @@ export function detectRecurringCandidates(input: {
     }
   }
 
-  candidates.sort((a, b) => subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a));
-  return candidates;
+  // Same bank descriptor for two policies (Prog Northern Auto + Boat) → append
+  // amount so the Detect list is distinguishable before the user renames them.
+  const keyCounts = new Map<string, number>();
+  for (const c of candidates) {
+    keyCounts.set(c.merchantKey, (keyCounts.get(c.merchantKey) ?? 0) + 1);
+  }
+  const disambiguated = candidates.map(({ merchantKey, ...c }) => {
+    if ((keyCounts.get(merchantKey) ?? 0) > 1) {
+      return {
+        ...c,
+        name: `${c.name} · $${c.amount.toFixed(2)}`,
+      };
+    }
+    return c;
+  });
+
+  disambiguated.sort((a, b) => subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a));
+  return disambiguated;
 }
 
-/** Greedy amount bands: sort by abs amount, open a new cluster when >15% off median. */
+/** True when two amounts belong to the same payment stream (~5% band). */
+function amountsAreSameStream(a: number, b: number): boolean {
+  const basis = Math.max(Math.abs(a), Math.abs(b), 1);
+  return Math.abs(Math.abs(a) - Math.abs(b)) <= basis * RECURRING_AMOUNT_CLUSTER_TOLERANCE;
+}
+
+/** Greedy amount bands: sort by abs amount, open a new cluster when >5% off median. */
 function clusterTransactionsByAmount(txns: Transaction[]): Transaction[][] {
   const sorted = [...txns].sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
   const clusters: Transaction[][] = [];
@@ -352,10 +384,10 @@ function clusterTransactionsByAmount(txns: Transaction[]): Transaction[][] {
 }
 
 /**
- * Suppress a candidate cluster when it already corresponds to a tracked item:
- * heuristic match on the latest charge, or name-token + amount within drift.
- * Does NOT bare-match on merchant name alone — that would hide a second gym
- * membership at a different price once the first is saved.
+ * Suppress a candidate cluster when it already corresponds to a tracked item
+ * at a compatible amount. Amount is gated first so a stored Progressive Auto
+ * bill (wide bill tolerance) cannot swallow a Boat premium at a different
+ * price, and a second gym membership is not treated as a "price cut".
  */
 function isRecurringClusterAlreadyTracked(
   cluster: Transaction[],
@@ -363,20 +395,28 @@ function isRecurringClusterAlreadyTracked(
 ): boolean {
   if (!stored.length) return false;
   const latest = [...cluster].sort((a, b) => b.timestamp - a.timestamp)[0];
-  if (stored.some((sub) => recurringMatchesTransaction(sub, latest))) return true;
-
   const clusterAvg =
     cluster.reduce((sum, t) => sum + Math.abs(t.amount), 0) / Math.max(cluster.length, 1);
   const descriptor = latest.category || latest.notes || "";
+
   for (const sub of stored) {
+    const sameStream = amountsAreSameStream(clusterAvg, sub.amount);
+    const modestHike =
+      clusterAvg > sub.amount &&
+      (clusterAvg - sub.amount) / Math.max(sub.amount, 1) <= RECURRING_STORED_HIKE_TOLERANCE;
+    if (!sameStream && !modestHike) continue;
+
+    if (recurringMatchesTransaction(sub, latest)) return true;
+
     const nameClose =
       normalizeMerchant(sub.name) === normalizeMerchant(descriptor) ||
       recurringNamesShareToken(sub.name, descriptor);
-    if (!nameClose) continue;
-    const basis = Math.max(sub.amount, clusterAvg, 1);
-    if (Math.abs(clusterAvg - sub.amount) <= basis * RECURRING_STORED_DRIFT_TOLERANCE) {
-      return true;
-    }
+    const rawDescriptor = [latest.category, latest.notes].filter(Boolean).join(" ").toLowerCase();
+    const hintClose = (sub.matchHints ?? []).some((hint) => {
+      const normalizedHint = hint.trim().toLowerCase();
+      return !!normalizedHint && rawDescriptor.includes(normalizedHint);
+    });
+    if (nameClose || hintClose) return true;
   }
   return false;
 }

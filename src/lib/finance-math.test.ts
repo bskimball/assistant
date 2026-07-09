@@ -225,7 +225,7 @@ describe("finance math", () => {
   it("detects three differently-priced gym memberships as separate candidates", () => {
     const now = Date.UTC(2026, 3, 1);
     const months = [Date.UTC(2026, 0, 5), Date.UTC(2026, 1, 5), Date.UTC(2026, 2, 5)];
-    const prices = [45, 35, 25]; // Me / Sophia / Theo — >15% apart
+    const prices = [45, 35, 25]; // Me / Sophia / Theo — well apart
     const charges = months.flatMap((ts, monthIdx) =>
       prices.map((price, member) =>
         txn({
@@ -246,6 +246,65 @@ describe("finance math", () => {
     expect(candidates).toHaveLength(3);
     expect(candidates.map((c) => c.amount).sort((a, b) => b - a)).toEqual([45, 35, 25]);
     expect(candidates.every((c) => c.cadence === "monthly")).toBe(true);
+    // Same merchant, multiple streams → amount disambiguates the Detect labels.
+    expect(candidates.every((c) => c.name.includes("$"))).toBe(true);
+  });
+
+  it("detects Progressive Auto and Boat as separate Prog Northern streams", () => {
+    // Real-world pattern: same ACH descriptor, premiums within a loose 15% band
+    // but on different days of the month. Merging them yields ~15-day gaps and
+    // kills monthly cadence — they must cluster by amount first.
+    const now = Date.UTC(2026, 3, 1);
+    const autoDays = [Date.UTC(2026, 0, 3), Date.UTC(2026, 1, 3), Date.UTC(2026, 2, 3)];
+    const boatDays = [Date.UTC(2026, 0, 17), Date.UTC(2026, 1, 17), Date.UTC(2026, 2, 17)];
+    const charges = [
+      ...autoDays.map((ts, i) =>
+        txn({
+          id: `auto-${i}`,
+          timestamp: ts,
+          amount: -198.4,
+          category: "PROG NORTHERN",
+          categoryGroup: "needs",
+        }),
+      ),
+      ...boatDays.map((ts, i) =>
+        txn({
+          id: `boat-${i}`,
+          timestamp: ts,
+          amount: -176.2,
+          category: "PROG NORTHERN",
+          categoryGroup: "needs",
+        }),
+      ),
+    ];
+    const candidates = detectRecurringCandidates({
+      transactions: charges,
+      subscriptions: [],
+      now,
+      lookbackDays: 120,
+    });
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((c) => c.amount).sort((a, b) => b - a)).toEqual([198.4, 176.2]);
+    expect(candidates.every((c) => c.cadence === "monthly")).toBe(true);
+    expect(candidates.every((c) => /prog northern/i.test(c.name))).toBe(true);
+    expect(candidates.every((c) => c.name.includes("$"))).toBe(true);
+
+    // Storing Auto as a bill must not swallow Boat (wide bill amount tolerance).
+    const storedAuto = sub({
+      id: "prog-auto",
+      name: "Prog Northern · $198.40",
+      amount: 198.4,
+      kind: "bill",
+      group: "needs",
+    });
+    const afterAuto = detectRecurringCandidates({
+      transactions: charges,
+      subscriptions: [storedAuto],
+      now,
+      lookbackDays: 120,
+    });
+    expect(afterAuto).toHaveLength(1);
+    expect(afterAuto[0].amount).toBe(176.2);
   });
 
   it("does not re-detect a stored recurring item (match or linked charges)", () => {
@@ -327,12 +386,12 @@ describe("finance math", () => {
     expect(candidates[0].cadence).toBe("monthly");
   });
 
-  it("suppresses a stored item after a modest price hike", () => {
+  it("suppresses a stored item after a modest upward price hike", () => {
     const now = Date.UTC(2026, 3, 1);
     const months = [Date.UTC(2026, 0, 12), Date.UTC(2026, 1, 12), Date.UTC(2026, 2, 12)];
     const stored = sub({ id: "netflix", name: "Netflix", amount: 15.99 });
-    // ~12% hike — outside the 5% subscription match tolerance, but within
-    // the 25% detect-suppression drift band so it doesn't reappear as "new".
+    // ~12% hike — outside the 5% match/stream band, but still an upward hike
+    // so detect should not re-propose it as a brand-new recurring item.
     const hiked = months.map((ts, i) =>
       txn({
         id: `nf-${i}`,
