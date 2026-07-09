@@ -9,6 +9,7 @@ import {
   parseCsv,
   parseDate,
   parseMoney,
+  ruleGroupFor,
 } from "@/server/finance-parse";
 
 describe("parseCsv", () => {
@@ -115,6 +116,12 @@ describe("categorize", () => {
   it("lets learned rules win over built-in keywords", () => {
     const rules = { "planet fitness": "needs" as const };
     expect(categorize("PLANET FITNESS 123", -10, rules)).toBe("needs");
+  });
+
+  it("returns learned rule groups or null without keyword fallback", () => {
+    const rules = { "planet fitness": "needs" as const };
+    expect(ruleGroupFor("PLANET FITNESS 123", rules)).toBe("needs");
+    expect(ruleGroupFor("NETFLIX.COM", rules)).toBeNull();
   });
 
   it("defaults unknowns by sign: positive income, negative wants", () => {

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Reveal, revealDelay } from "@/components/motion";
 import {
@@ -25,7 +25,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  GripVertical,
   Target,
   BriefcaseBusiness,
   CalendarCheck,
@@ -42,12 +41,15 @@ import {
   CheckCircle2,
   ListChecks,
   Link2,
+  Info,
+  type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -64,8 +66,13 @@ import {
   saveSubscriptions,
   recategorizeTransaction,
   recategorizeAllTransactions,
+  rescanRecurringMatches,
+  linkRecurringCharge,
+  unlinkRecurringCharge,
   setTransactionExcluded,
+  dismissOneTimeSuggestion,
   acceptFinanceActions,
+  applyRecurringInsight,
   refreshQuotes,
   backfillSimplefinHistory,
   undoSimplefinHistory,
@@ -97,15 +104,21 @@ import {
 } from "@/lib/domain";
 import {
   buildCashFlowProjection,
+  buildBudgetInsight,
   calculateEmergencyFund,
+  detectOneTimeCandidates,
   recurringAdditionsForMonth,
   recurringAdditionsFromItems,
+  amountWithinRecurringTolerance,
   recurringItemsForMonth,
   recurringMatchesTransaction,
+  recurringNamesShareToken,
   simulateDebtPayoff,
   transactionsForMonth,
   type BudgetBucket,
+  type OneTimeCandidate,
   type BudgetRecurringItem,
+  type RecurringInsight,
 } from "@/lib/finance-math";
 
 type TabKey = "overview" | "budget" | "recurring" | "investments" | "grow";
@@ -144,6 +157,94 @@ export const Route = createFileRoute("/finance")({
 
 function fmtMoney(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
+}
+
+function CollapsibleCard({
+  id,
+  title,
+  icon: Icon,
+  summary,
+  badge,
+  defaultOpen = false,
+  forceOpen = false,
+  children,
+  className,
+}: {
+  id: string;
+  title: string;
+  icon?: LucideIcon;
+  summary: ReactNode;
+  badge?: number;
+  defaultOpen?: boolean;
+  forceOpen?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  const storageKey = `finance:card:${id}`;
+  const [storedOpen, setStoredOpen] = useState(() => {
+    if (typeof window === "undefined") return defaultOpen;
+    const saved = window.localStorage.getItem(storageKey);
+    return saved === null ? defaultOpen : saved === "true";
+  });
+  const open = forceOpen || storedOpen;
+
+  function toggle() {
+    const next = !open;
+    setStoredOpen(next);
+    if (typeof window !== "undefined") window.localStorage.setItem(storageKey, String(next));
+  }
+
+  return (
+    <Card className={className}>
+      <CardHeader className="pb-3">
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex w-full items-center justify-between gap-3 text-left"
+          aria-expanded={open}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            {Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
+            <span className="truncate text-base font-semibold leading-none tracking-tight">
+              {title}
+            </span>
+            {typeof badge === "number" && badge > 0 && (
+              <Badge variant="secondary" className="shrink-0 text-[10px] tabular-nums">
+                {badge}
+              </Badge>
+            )}
+          </span>
+          <span className="flex min-w-0 shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
+            <span className="hidden max-w-[12rem] truncate sm:inline">{summary}</span>
+            <ChevronDown className={`size-4 transition-transform ${open ? "" : "-rotate-90"}`} />
+          </span>
+        </button>
+        <div className="mt-2 text-xs text-muted-foreground sm:hidden">{summary}</div>
+      </CardHeader>
+      {open && <CardContent>{children}</CardContent>}
+    </Card>
+  );
+}
+
+function InfoHint({ children, label = "More info" }: { children: ReactNode; label?: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7 text-muted-foreground hover:text-foreground"
+          aria-label={label}
+        >
+          <Info className="size-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="max-w-xs text-sm text-muted-foreground">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function moneyInputValue(n: number | undefined): string {
@@ -338,7 +439,7 @@ function FinancePage() {
 type TabProps = {
   hub: FinanceHubPayload;
   onChange: () => Promise<void>;
-  flash: (msg: string) => void;
+  flash: (msg: string, ms?: number) => void;
 };
 
 /* ---------------- Overview ---------------- */
@@ -359,6 +460,7 @@ function OverviewTab({
   const [editName, setEditName] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editCurrency, setEditCurrency] = useState("USD");
+  const [showAddAccount, setShowAddAccount] = useState(false);
   const accounts = hub.snapshot.accounts || [];
   const importedAccounts = summarizeImportedAccounts(hub.transactions);
   const savedBalanceNames = new Set(accounts.map((a) => a.account.toLowerCase()));
@@ -650,104 +752,120 @@ function OverviewTab({
         <Stat label="Known outflow (mo)" value={fmtMoney(knownOutflow)} />
       </div>
 
-      <OverviewAISuggestionsCard items={adviceItems} today={today} flash={flash} />
-
       {plannedRecurring > 0 && (
-        <p className="-mt-1 text-xs text-muted-foreground">
-          Includes {fmtMoney(plannedRecurring)} of active recurring commitments not seen in imported
-          statements yet.
+        <p className="-mt-2 text-xs text-muted-foreground">
+          Known outflow includes {fmtMoney(plannedRecurring)} of active recurring commitments not
+          seen in imported statements yet.
         </p>
       )}
 
+      <CoachSuggestions items={adviceItems} today={today} flash={flash} />
+
       <DataQualityCard hub={hub} today={today} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between gap-2 text-base">
-            <span>Accounts</span>
-            {balanceSourceDate && (
-              <span className="text-xs font-normal text-muted-foreground">
-                Balances from {fmtISODate(balanceSourceDate)}
-              </span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {accounts.length ? (
-            <>
-              <div className="mb-3 space-y-3 text-sm">
-                {accountGroups.map(({ type, label, Icon, rows, subtotal }) => (
-                  <section key={type}>
-                    <div className="mb-0.5 flex items-center justify-between gap-2 border-b border-border/60 pb-1">
-                      <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        <Icon className="size-3.5" />
-                        {label}
-                      </h3>
-                      <span
-                        className={`text-xs tabular-nums ${subtotal < 0 ? "text-destructive" : "text-muted-foreground"}`}
-                      >
-                        {fmtMoney(subtotal)}
-                      </span>
-                    </div>
-                    <ul className="space-y-1">{rows.map(renderAccountRow)}</ul>
-                  </section>
-                ))}
-                <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm font-medium">
-                  <span>Accounts total</span>
-                  <span className={`tabular-nums ${accountsTotal < 0 ? "text-destructive" : ""}`}>
-                    {fmtMoney(accountsTotal)}
-                  </span>
-                </div>
-                {Math.round(hub.snapshot.netWorth) !== Math.round(accountsTotal) && (
-                  <p className="mt-1! text-[11px] text-muted-foreground">
-                    Net worth {fmtMoney(hub.snapshot.netWorth)} also counts{" "}
-                    {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of holdings tracked on the
-                    Investments tab.
-                  </p>
-                )}
-              </div>
-              {importedWithoutBalance.length > 0 && (
-                <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                  <div className="text-xs font-medium text-foreground">
-                    Imported statements without balances
-                  </div>
-                  <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-                    {importedWithoutBalance.map((a) => (
-                      <li key={a.account} className="flex items-center justify-between gap-2">
-                        <span>{a.account}</span>
-                        <span className="shrink-0 tabular-nums">
-                          {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          ) : importedAccounts.length ? (
-            <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-              <div className="text-sm font-medium text-foreground">Imported statement accounts</div>
-              <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-                {importedAccounts.map((a) => (
-                  <li key={a.account} className="flex items-center justify-between gap-2">
-                    <span>{a.account}</span>
-                    <span className="shrink-0 tabular-nums">
-                      {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Add current balances below to turn imported statement accounts into a net-worth
-                baseline.
-              </p>
-            </div>
-          ) : (
-            <div className="mb-3 text-sm text-muted-foreground">
-              No accounts yet. Add your BoA, M&T, Capital One, Robinhood, and ADP 401k balances.
-            </div>
+      <CollapsibleCard
+        id="overview-accounts"
+        title="Accounts"
+        icon={Wallet2}
+        defaultOpen
+        summary={fmtMoney(accountsTotal)}
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">Net-worth balances</span>
+          {balanceSourceDate && (
+            <span className="text-xs font-normal text-muted-foreground">
+              Balances from {fmtISODate(balanceSourceDate)}
+            </span>
           )}
-          <form onSubmit={addAccount} className="flex items-center gap-2">
+        </div>
+        {accounts.length ? (
+          <>
+            <div className="mb-3 space-y-3 text-sm">
+              {accountGroups.map(({ type, label, Icon, rows, subtotal }) => (
+                <section key={type}>
+                  <div className="mb-0.5 flex items-center justify-between gap-2 border-b border-border/60 pb-1">
+                    <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <Icon className="size-3.5" />
+                      {label}
+                    </h3>
+                    <span
+                      className={`text-xs tabular-nums ${subtotal < 0 ? "text-destructive" : "text-muted-foreground"}`}
+                    >
+                      {fmtMoney(subtotal)}
+                    </span>
+                  </div>
+                  <ul className="space-y-1">{rows.map(renderAccountRow)}</ul>
+                </section>
+              ))}
+              <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm font-medium">
+                <span>Accounts total</span>
+                <span className={`tabular-nums ${accountsTotal < 0 ? "text-destructive" : ""}`}>
+                  {fmtMoney(accountsTotal)}
+                </span>
+              </div>
+              {Math.round(hub.snapshot.netWorth) !== Math.round(accountsTotal) && (
+                <p className="mt-1! text-[11px] text-muted-foreground">
+                  Net worth {fmtMoney(hub.snapshot.netWorth)} also counts{" "}
+                  {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of holdings tracked on the
+                  Investments tab.
+                </p>
+              )}
+            </div>
+            {importedWithoutBalance.length > 0 && (
+              <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                <div className="text-xs font-medium text-foreground">
+                  Imported statements without balances
+                </div>
+                <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                  {importedWithoutBalance.map((a) => (
+                    <li key={a.account} className="flex items-center justify-between gap-2">
+                      <span>{a.account}</span>
+                      <span className="shrink-0 tabular-nums">
+                        {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : importedAccounts.length ? (
+          <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+            <div className="text-sm font-medium text-foreground">Imported statement accounts</div>
+            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+              {importedAccounts.map((a) => (
+                <li key={a.account} className="flex items-center justify-between gap-2">
+                  <span>{a.account}</span>
+                  <span className="shrink-0 tabular-nums">
+                    {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Add current balances below to turn imported statement accounts into a net-worth
+              baseline.
+            </p>
+          </div>
+        ) : (
+          <div className="mb-3 text-sm text-muted-foreground">
+            No accounts yet. Add your BoA, M&T, Capital One, Robinhood, and ADP 401k balances.
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-muted-foreground"
+            onClick={() => setShowAddAccount((v) => !v)}
+            aria-expanded={showAddAccount}
+          >
+            <Plus className="size-3.5" /> Add account
+          </Button>
+        </div>
+        {showAddAccount && (
+          <form onSubmit={addAccount} className="mt-2 flex items-center gap-2">
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -773,12 +891,14 @@ function OverviewTab({
               <Plus className="size-4" /> Save
             </Button>
           </form>
+        )}
+        {showAddAccount && (
           <p className="mt-2 text-[11px] text-muted-foreground">
             Add new balances below, or edit a saved row to rename an account, update its balance, or
             change its currency.
           </p>
-        </CardContent>
-      </Card>
+        )}
+      </CollapsibleCard>
 
       <EmergencyFundProgressCard fund={emergencyFund} monthlyContribution={emergencyContribution} />
 
@@ -794,7 +914,10 @@ function OverviewTab({
   );
 }
 
-function OverviewAISuggestionsCard({
+// Coach's "next moves" — always visible when suggestions exist (never
+// collapsed), compact and scannable. This is the single home for finance coach
+// suggestions; the Budget tab intentionally has none. Shows the top 3.
+function CoachSuggestions({
   items,
   today,
   flash,
@@ -803,7 +926,7 @@ function OverviewAISuggestionsCard({
   today: string;
   flash: (msg: string) => void;
 }) {
-  const topItems = items.slice(0, 2);
+  const topItems = items.slice(0, 3);
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const [acceptedItems, setAcceptedItems] = useState<Set<number>>(new Set());
 
@@ -829,62 +952,129 @@ function OverviewAISuggestionsCard({
   }
 
   return (
-    <Card className="overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-          <span className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Sparkles className="size-4" />
-            </span>
-            AI suggestions
+    <Card className="overflow-hidden border-primary/25 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between gap-2 text-sm">
+          <span className="flex items-center gap-2 font-semibold tracking-tight">
+            <Sparkles className="size-4 text-primary" />
+            Next moves
           </span>
-          <Badge
-            variant="secondary"
-            className="bg-primary/10 text-[10px] uppercase tracking-wide text-primary"
-          >
-            Top moves
-          </Badge>
+          <span className="text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
+            Coach
+          </span>
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-3 md:grid-cols-2">
+      <CardContent className="pt-0">
+        <ul className="divide-y divide-border/50">
           {topItems.map((item, index) => {
             const meta = ADVICE_META[item.category];
             const accepted = acceptedItems.has(index);
             return (
-              <div
+              <li
                 key={`${item.category}-${index}`}
-                className="rounded-lg bg-background/70 p-3 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+                className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
               >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                  <div className="flex min-w-0 flex-1 gap-3">
-                    <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                      <meta.Icon className="size-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {meta.label}
-                      </div>
-                      <p className="mt-1 text-pretty text-sm leading-6">
-                        {renderHighlightedAdvice(item.text)}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={accepted ? "secondary" : "outline"}
-                    onClick={() => acceptOne(item, index)}
-                    disabled={busyIndex !== null || accepted}
-                    className="h-9 shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
-                  >
-                    <Check className="size-3.5" />
-                    {accepted ? "Added" : "Add to tasks"}
-                  </Button>
+                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <meta.Icon className="size-4" />
                 </div>
-              </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {meta.label}
+                  </div>
+                  <p className="mt-0.5 text-pretty text-sm leading-6">
+                    {renderHighlightedAdvice(item.text)}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={accepted ? "secondary" : "outline"}
+                  onClick={() => acceptOne(item, index)}
+                  disabled={busyIndex !== null || accepted}
+                  className="mt-0.5 h-8 shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+                >
+                  <Check className="size-3.5" />
+                  <span className="hidden sm:inline">{accepted ? "Added" : "Add to tasks"}</span>
+                  <span className="sm:hidden">{accepted ? "Added" : "Add"}</span>
+                </Button>
+              </li>
             );
           })}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OneTimeCandidatesCard({
+  candidates,
+  onMark,
+  onDismiss,
+}: {
+  candidates: OneTimeCandidate[];
+  onMark: (id: string) => void | Promise<void>;
+  onDismiss: (id: string) => void | Promise<void>;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  if (!candidates.length) return null;
+  const visible = showAll ? candidates : candidates.slice(0, 3);
+
+  return (
+    <Card className="border-amber-500/25 bg-linear-to-br from-amber-500/8 to-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Receipt className="size-4 text-amber-600 dark:text-amber-400" />
+          Possible one-time charges
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {visible.map((candidate) => (
+            <div
+              key={candidate.transactionId}
+              className="flex flex-col gap-2 rounded-lg bg-background/70 p-3 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  <span className="truncate">{candidate.merchant}</span>
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  >
+                    {fmtMoney(candidate.amount)}
+                  </Badge>
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {fmtDate(candidate.timestamp)} · {candidate.reason}
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onMark(candidate.transactionId)}
+                  className="h-8"
+                >
+                  Mark one-time
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onDismiss(candidate.transactionId)}
+                  className="h-8 text-muted-foreground"
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          ))}
+          {candidates.length > 3 && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? "Show fewer" : `Show all (${candidates.length})`}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -1046,77 +1236,73 @@ function TransactionsCard({ transactions }: { transactions: Transaction[] }) {
   const shown = filtered.slice(0, visible);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Activity className="size-4 text-muted-foreground" />
-          Transactions
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {transactions.length ? (
-          <>
-            <div className="mb-3 flex flex-wrap gap-1.5">
+    <CollapsibleCard
+      id="overview-transactions"
+      title="Transactions"
+      icon={Activity}
+      summary={`${transactions.length.toLocaleString()} transactions`}
+    >
+      {transactions.length ? (
+        <>
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            <FilterChip
+              label="All"
+              count={transactions.length}
+              active={account === null}
+              onClick={() => selectAccount(null)}
+            />
+            {accountChips.map((a) => (
               <FilterChip
-                label="All"
-                count={transactions.length}
-                active={account === null}
-                onClick={() => selectAccount(null)}
+                key={a.account}
+                label={a.account}
+                count={a.count}
+                active={account?.toLowerCase() === a.account.toLowerCase()}
+                onClick={() => selectAccount(a.account)}
               />
-              {accountChips.map((a) => (
-                <FilterChip
-                  key={a.account}
-                  label={a.account}
-                  count={a.count}
-                  active={account?.toLowerCase() === a.account.toLowerCase()}
-                  onClick={() => selectAccount(a.account)}
-                />
-              ))}
-            </div>
+            ))}
+          </div>
 
-            {selectedSummary && (
-              <p className="mb-2 text-xs text-muted-foreground">
-                <span className="tabular-nums">{selectedSummary.count}</span> transaction
-                {selectedSummary.count === 1 ? "" : "s"} · first{" "}
-                <span className="tabular-nums">{fmtDate(selectedSummary.first)}</span> · last{" "}
-                <span className="tabular-nums">{fmtDate(selectedSummary.last)}</span>
-              </p>
-            )}
-
-            <ul className="divide-y divide-border">
-              {shown.map((t) => (
-                <TxnRow key={t.id} t={t} hideAccount={account !== null} />
-              ))}
-            </ul>
-
-            {visible < filtered.length && (
-              <div className="mt-3 flex justify-center">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setVisible((v) => v + TXN_PAGE_STEP)}
-                >
-                  Show more
-                  <span className="ml-1 text-muted-foreground tabular-nums">
-                    ({filtered.length - visible} left)
-                  </span>
-                </Button>
-              </div>
-            )}
-
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Pulled automatically from your bank sync and statement imports. Categorize and manage
-              every transaction on the Budget tab.
+          {selectedSummary && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              <span className="tabular-nums">{selectedSummary.count}</span> transaction
+              {selectedSummary.count === 1 ? "" : "s"} · first{" "}
+              <span className="tabular-nums">{fmtDate(selectedSummary.first)}</span> · last{" "}
+              <span className="tabular-nums">{fmtDate(selectedSummary.last)}</span>
             </p>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No transactions yet. Connect your bank below or import a CSV statement on the Budget
-            tab.
+          )}
+
+          <ul className="divide-y divide-border">
+            {shown.map((t) => (
+              <TxnRow key={t.id} t={t} hideAccount={account !== null} />
+            ))}
+          </ul>
+
+          {visible < filtered.length && (
+            <div className="mt-3 flex justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setVisible((v) => v + TXN_PAGE_STEP)}
+              >
+                Show more
+                <span className="ml-1 text-muted-foreground tabular-nums">
+                  ({filtered.length - visible} left)
+                </span>
+              </Button>
+            </div>
+          )}
+
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Pulled automatically from your bank sync and statement imports. Categorize and manage
+            every transaction on the Budget tab.
           </p>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          No transactions yet. Connect your bank below or import a CSV statement on the Budget tab.
+        </p>
+      )}
+    </CollapsibleCard>
   );
 }
 
@@ -1282,18 +1468,22 @@ function SimplefinConnectionsCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2 text-base">
-          <span>Bank connections</span>
-          {connected && status?.lastSync && (
-            <span className="text-xs font-normal text-muted-foreground">
-              Last sync {fmtDate(status.lastSync.at)}
-            </span>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <CollapsibleCard
+      id="simplefin-connections"
+      title="Bank connections"
+      icon={Link2}
+      summary={
+        connected
+          ? status?.lastSync
+            ? `Last sync ${fmtDate(status.lastSync.at)}`
+            : "Connected"
+          : loading
+            ? "Checking sync status"
+            : "Not connected"
+      }
+      forceOpen={!!status?.missingSealKey || status?.lastSync?.ok === false}
+    >
+      <div className="space-y-3">
         {status?.missingSealKey && (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
             SIMPLEFIN_SEAL_KEY is missing. Add a 32-byte base64 Workers secret before connecting.
@@ -1492,8 +1682,8 @@ function SimplefinConnectionsCard({
             )}
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -1547,8 +1737,10 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
   const issues = confidenceChecks.filter((c) => !c.ok);
   const dotColor = score === 4 ? "bg-green-500" : score >= 2 ? "bg-amber-500" : "bg-destructive";
 
+  if (issues.length === 0) return null;
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5 font-medium text-foreground">
         <span className={`size-1.5 rounded-full ${dotColor}`} />
         Data confidence {score}/4
@@ -1567,7 +1759,7 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
 function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }) {
   const [takeHome, setTakeHome] = useState(moneyInputValue(hub.budget?.monthlyTakeHome));
   const [busy, setBusy] = useState(false);
-  const [showStatements, setShowStatements] = useState(false);
+  const [showAllInsightLines, setShowAllInsightLines] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [institution, setInstitution] = useState(INSTITUTIONS[0]);
   // Which month the plan + expense sorter show. Defaults to the current month;
@@ -1587,8 +1779,8 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
 
   const monthTxns = transactionsForMonth(hub.transactions, selectedMonth);
   // Per-bucket totals + the transactions behind each bar. One-time charges the
-  // user has marked (excludeFromBudget) are kept in the lists but greyed out and
-  // left out of the totals, so a single big legal/medical bill doesn't blow the
+  // user has marked (excludeFromBudget) are kept in the lists and tracked as real
+  // money, but left out of plan totals so a single big bill doesn't blow the
   // monthly 50/30/20 comparison.
   const buckets: Record<BudgetBucket, number> = { needs: 0, wants: 0, savings: 0 };
   const bucketTxns: Record<BudgetBucket, Transaction[]> = {
@@ -1596,23 +1788,25 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
     wants: [],
     savings: [],
   };
-  let excludedTotal = 0;
   for (const t of monthTxns) {
     const b = moveOverrides[t.id] ?? spendBucketOf(t.categoryGroup);
     if (!b) continue;
     bucketTxns[b].push(t);
-    if (t.excludeFromBudget) excludedTotal += Math.abs(t.amount);
-    else buckets[b] += Math.abs(t.amount);
+    if (!t.excludeFromBudget) buckets[b] += Math.abs(t.amount);
   }
   for (const b of ["needs", "wants", "savings"] as const) {
     bucketTxns[b].sort((a, c) => Math.abs(c.amount) - Math.abs(a.amount));
   }
-  const statementBuckets = { ...buckets };
-
   async function toggleExclude(id: string, excluded: boolean) {
     await setTransactionExcluded({ data: { id, excluded } });
     await onChange();
     flash(excluded ? "Marked as one-time — left out of the plan." : "Back in the plan.");
+  }
+
+  async function dismissOneTime(id: string) {
+    await dismissOneTimeSuggestion({ data: { id } });
+    await onChange();
+    flash("Suggestion dismissed.");
   }
 
   // Drag/tap an expense into a different 50/30/20 bucket. Optimistic: the card
@@ -1649,23 +1843,21 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   }
   const plannedRecurring =
     recurringAdditions.needs + recurringAdditions.wants + recurringAdditions.savings;
-  const statementActivity =
-    statementBuckets.needs + statementBuckets.wants + statementBuckets.savings;
-  const plannedActivity = statementActivity + plannedRecurring;
-  const needsDelta = buckets.needs - th * targets.needs;
-  const wantsDelta = buckets.wants - th * targets.wants;
-  const savingsDelta = th * targets.savings - buckets.savings;
-  const budgetAction =
-    th <= 0
-      ? null
-      : needsDelta > 0
-        ? `Needs are ${fmtMoney(needsDelta)} over plan. Open Needs first and verify bills, loan payments, and anything that should be marked one-time.`
-        : wantsDelta > 0
-          ? `Wants are ${fmtMoney(wantsDelta)} over plan. Open Wants and move miscategorized essentials or mark true one-time charges.`
-          : savingsDelta > 0
-            ? `Savings is ${fmtMoney(savingsDelta)} short of the monthly target. Add or verify an automatic transfer on the Recurring tab.`
-            : "This month is on plan so far. Use the Recurring tab to verify every expected payment landed.";
-
+  const budgetInsight = buildBudgetInsight({
+    transactions: hub.transactions,
+    subscriptions: hub.subscriptions,
+    month: selectedMonth,
+    takeHome: th,
+    targets,
+  });
+  const oneTimeCandidates = isCurrentMonth
+    ? detectOneTimeCandidates({
+        transactions: hub.transactions,
+        subscriptions: hub.subscriptions,
+        month: selectedMonth,
+        monthlyTakeHome: th,
+      })
+    : [];
   async function saveTakeHome() {
     const v = Number(takeHome);
     if (!Number.isFinite(v) || v <= 0) return;
@@ -1752,81 +1944,134 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
                 onNext={() => setSelectedMonth((m) => shiftMonth(m, 1))}
                 canGoNext={!isCurrentMonth}
               />
-              <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10">
-                <Label htmlFor="th" className="sr-only">
-                  After-tax pay per month
-                </Label>
-                <Input
-                  id="th"
-                  type="number"
-                  step="0.01"
-                  value={takeHome}
-                  onChange={(e) => setTakeHome(e.target.value)}
-                  placeholder="Take-home"
-                  className="h-8 w-32 border-0 bg-background text-sm tabular-nums shadow-sm"
-                  disabled={busy}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={saveTakeHome}
-                  disabled={busy || !takeHome}
-                  className="gap-1 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
-                >
-                  <Check className="size-3.5" /> Save
-                </Button>
-              </div>
+              {th > 0 ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="ghost" size="sm" className="gap-1.5">
+                      <Pencil className="size-3.5" /> Edit take-home
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-72">
+                    <TakeHomeEditor
+                      value={takeHome}
+                      onChange={setTakeHome}
+                      onSave={saveTakeHome}
+                      busy={busy}
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10">
+                  <Label htmlFor="th" className="sr-only">
+                    After-tax pay per month
+                  </Label>
+                  <Input
+                    id="th"
+                    type="number"
+                    step="0.01"
+                    value={takeHome}
+                    onChange={(e) => setTakeHome(e.target.value)}
+                    placeholder="Take-home"
+                    className="h-8 w-32 border-0 bg-background text-sm tabular-nums shadow-sm"
+                    disabled={busy}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={saveTakeHome}
+                    disabled={busy || !takeHome}
+                    className="gap-1 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+                  >
+                    <Check className="size-3.5" /> Save
+                  </Button>
+                </div>
+              )}
             </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="-mt-1 text-xs text-muted-foreground">
-            Spending here comes from your imported and synced transactions for{" "}
-            {formatMonthLabel(selectedMonth)}, plus active recurring commitments from the Recurring
-            tab that haven’t shown up in statements yet. Targets are 50/30/20 of the take-home
-            baseline in this header.
-          </p>
+          <div className="-mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <span>Imported + synced spend for {formatMonthLabel(selectedMonth)}.</span>
+            <InfoHint>
+              Spending here comes from your imported and synced transactions, plus active recurring
+              commitments from the Recurring tab that haven’t shown up in statements yet. Targets
+              are 50/30/20 of the take-home baseline in this header.
+            </InfoHint>
+          </div>
           {th > 0 ? (
             <>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <MiniStat label="Statement activity" value={fmtMoney(statementActivity)} />
-                <MiniStat label="Planned recurring left" value={fmtMoney(plannedRecurring)} />
-                <MiniStat
-                  label="Plan total"
-                  value={`${fmtMoney(plannedActivity)} / ${fmtMoney(th)}`}
-                />
-              </div>
-              {budgetAction && (
-                <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  {budgetAction}
+              {/* Hero: the one number that matters, with three secondary tiles. */}
+              <div className="rounded-lg bg-muted/20 p-3 ring-1 ring-foreground/10">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Left of take-home
                 </div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
+                  {fmtMoney(budgetInsight.remainingCash)}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <MiniStat label="Plan spend" value={fmtMoney(budgetInsight.planSpend)} />
+                  <MiniStat
+                    label="One-time"
+                    value={`${fmtMoney(budgetInsight.oneTimeSpend)} · ${budgetInsight.oneTimeCount}`}
+                  />
+                  <MiniStat label="Recurring" value={fmtMoney(budgetInsight.plannedRecurring)} />
+                </div>
+              </div>
+
+              {/* The story: 50/30/20 immediately under the hero. */}
+              <div className="space-y-3">
+                {(["needs", "wants", "savings"] as const).map((b) => (
+                  <BudgetBar
+                    key={b}
+                    label={b}
+                    actual={buckets[b]}
+                    recurringPlanned={recurringAdditions[b]}
+                    target={th * targets[b]}
+                    targetPct={Math.round(targets[b] * 100)}
+                    goal={b === "savings" ? "save" : "spend"}
+                    txns={bucketTxns[b]}
+                    recurringItems={recurringItems[b]}
+                    onToggleExclude={toggleExclude}
+                  />
+                ))}
+              </div>
+
+              {/* Insight: first line, expand for the rest. */}
+              {budgetInsight.lines.length > 0 && (
+                <ul className="space-y-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  {(showAllInsightLines
+                    ? budgetInsight.lines
+                    : budgetInsight.lines.slice(0, 1)
+                  ).map((line) => (
+                    <li key={line} className="flex gap-2">
+                      <span aria-hidden>•</span>
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                  {budgetInsight.lines.length > 1 && (
+                    <li>
+                      <button
+                        type="button"
+                        className="font-medium text-foreground hover:underline"
+                        onClick={() => setShowAllInsightLines((v) => !v)}
+                      >
+                        {showAllInsightLines
+                          ? "Show fewer"
+                          : `+${budgetInsight.lines.length - 1} more`}
+                      </button>
+                    </li>
+                  )}
+                </ul>
               )}
-              {(["needs", "wants", "savings"] as const).map((b) => (
-                <BudgetBar
-                  key={b}
-                  label={b}
-                  actual={buckets[b]}
-                  recurringPlanned={recurringAdditions[b]}
-                  target={th * targets[b]}
-                  targetPct={Math.round(targets[b] * 100)}
-                  goal={b === "savings" ? "save" : "spend"}
-                  txns={bucketTxns[b]}
-                  recurringItems={recurringItems[b]}
-                  onToggleExclude={toggleExclude}
-                />
-              ))}
               {plannedRecurring > 0 && (
-                <p className="text-[11px] text-muted-foreground">
-                  Includes {fmtMoney(plannedRecurring)} of active recurring commitments not seen in
-                  imported statements yet ({recurringAdditionsSummary(recurringAdditions)}). Manage
-                  them on the Recurring tab.
-                </p>
-              )}
-              {excludedTotal > 0 && (
-                <p className="text-[11px] text-muted-foreground">
-                  Excludes {fmtMoney(excludedTotal)} of one-time charges you’ve marked. Tap a bar to
-                  see what’s in it.
-                </p>
+                <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <span>Recurring commitments counted in the plan</span>
+                  <InfoHint>
+                    Includes active recurring commitments not seen in imported statements yet (
+                    {recurringAdditionsSummary(recurringAdditions)}). Manage them on the Recurring
+                    tab.
+                  </InfoHint>
+                </div>
               )}
             </>
           ) : (
@@ -1837,6 +2082,12 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
         </CardContent>
       </Card>
 
+      <OneTimeCandidatesCard
+        candidates={oneTimeCandidates}
+        onMark={(id) => toggleExclude(id, true)}
+        onDismiss={dismissOneTime}
+      />
+
       <ExpenseSorter
         monthLabel={formatMonthLabel(selectedMonth)}
         bucketTxns={bucketTxns}
@@ -1844,78 +2095,103 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
         onToggleExclude={toggleExclude}
       />
 
-      <button
-        type="button"
-        onClick={() => setShowStatements((v) => !v)}
-        className="flex w-full items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
-        aria-expanded={showStatements}
+      <CollapsibleCard
+        id="budget-import"
+        title="Import & transactions"
+        icon={Upload}
+        summary={`${monthTxns.length} txn${monthTxns.length === 1 ? "" : "s"} this month`}
       >
-        <span>Import statement &amp; recent transactions</span>
-        <ChevronDown
-          className={`size-4 transition-transform ${showStatements ? "" : "-rotate-90"}`}
-        />
-      </button>
-
-      {showStatements && (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Import statement</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="mb-3 text-sm text-muted-foreground">
-                Export a CSV from your bank and drop it here — we parse, categorize, and de-dupe. No
-                bank login or credentials are ever stored.
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Select value={institution} onValueChange={setInstitution} disabled={busy}>
-                  <SelectTrigger aria-label="Institution" className="w-auto">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {INSTITUTIONS.map((i) => (
-                        <SelectItem key={i} value={i}>
-                          {i}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={onFile}
-                  className="hidden"
-                />
-                <Button
-                  variant="outline"
-                  className="gap-1.5"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={busy}
-                >
-                  <Upload className="size-4" /> Upload CSV
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="gap-1.5"
-                  onClick={recategorizeAll}
-                  disabled={busy}
-                >
-                  <RefreshCw className="size-4" /> Re-categorize all
-                </Button>
-              </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Re-applies the latest rules to past transactions (e.g. tagging credit-card payments
-                as transfers). Your manual changes are kept.
-              </p>
-            </CardContent>
-          </Card>
+        <div className="space-y-5">
+          <div>
+            <div className="text-sm font-semibold tracking-tight">Import statement</div>
+            <p className="mb-3 mt-1 text-sm text-muted-foreground">
+              Export a CSV from your bank and drop it here — we parse, categorize, and de-dupe. No
+              bank login or credentials are ever stored.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={institution} onValueChange={setInstitution} disabled={busy}>
+                <SelectTrigger aria-label="Institution" className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {INSTITUTIONS.map((i) => (
+                      <SelectItem key={i} value={i}>
+                        {i}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={onFile}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => fileRef.current?.click()}
+                disabled={busy}
+              >
+                <Upload className="size-4" /> Upload CSV
+              </Button>
+              <Button variant="ghost" className="gap-1.5" onClick={recategorizeAll} disabled={busy}>
+                <RefreshCw className="size-4" /> Re-categorize all
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Re-applies the latest rules to past transactions (e.g. tagging credit-card payments as
+              transfers). Your manual changes are kept.
+            </p>
+          </div>
 
           <RecentTransactions transactions={monthTxns} onChange={onChange} />
-        </>
-      )}
+        </div>
+      </CollapsibleCard>
+    </div>
+  );
+}
+
+function TakeHomeEditor({
+  value,
+  onChange,
+  onSave,
+  busy,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="th-popover" className="text-xs">
+        After-tax pay per month
+      </Label>
+      <div className="flex items-center gap-2">
+        <Input
+          id="th-popover"
+          type="number"
+          step="0.01"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Take-home"
+          className="tabular-nums"
+          disabled={busy}
+        />
+        <Button
+          type="button"
+          size="sm"
+          onClick={onSave}
+          disabled={busy || !value}
+          className="gap-1"
+        >
+          <Check className="size-3.5" /> Save
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1994,160 +2270,151 @@ function ExpenseSorter({
   onMove: (id: string, group: BudgetBucket) => void | Promise<void>;
   onToggleExclude: (id: string, excluded: boolean) => void | Promise<void>;
 }) {
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [dragFrom, setDragFrom] = useState<BudgetBucket | null>(null);
-  const [overBucket, setOverBucket] = useState<BudgetBucket | null>(null);
+  const [filter, setFilter] = useState<BudgetBucket | "all">("all");
   const total = bucketTxns.needs.length + bucketTxns.wants.length + bucketTxns.savings.length;
-
-  function handleDrop(target: BudgetBucket, e: React.DragEvent) {
-    e.preventDefault();
-    const id = e.dataTransfer.getData("text/plain") || dragId;
-    setOverBucket(null);
-    setDragId(null);
-    setDragFrom(null);
-    if (id && dragFrom !== target) onMove(id, target);
-  }
+  const rows = (
+    filter === "all"
+      ? SORTER_BUCKETS.flatMap(({ key }) => bucketTxns[key].map((t) => ({ t, bucket: key })))
+      : bucketTxns[filter].map((t) => ({ t, bucket: filter }))
+  ).sort((a, b) => Math.abs(b.t.amount) - Math.abs(a.t.amount));
+  const filters: { key: BudgetBucket | "all"; label: string; count: number; sum: number }[] = [
+    {
+      key: "all",
+      label: "All",
+      count: total,
+      sum: SORTER_BUCKETS.reduce((sum, { key }) => sum + bucketSum(bucketTxns[key]), 0),
+    },
+    ...SORTER_BUCKETS.map(({ key, label }) => ({
+      key,
+      label,
+      count: bucketTxns[key].length,
+      sum: bucketSum(bucketTxns[key]),
+    })),
+  ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-          <span>Categorize imported expenses</span>
-          <span className="text-xs font-normal text-muted-foreground">
-            Drag a card between buckets, or tap its Need / Want / Save chips
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <CollapsibleCard
+      id="budget-sorter"
+      title="Sort expenses"
+      icon={ListChecks}
+      summary={`${total} this month · ${fmtMoney(filters[0].sum)}`}
+    >
+      <div className="space-y-3">
+        <p className="-mt-2 text-sm text-muted-foreground">
+          Tap Need / Want / Save — mark one-time charges that shouldn’t count toward the plan.
+        </p>
         {total === 0 ? (
           <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
             No categorized expenses for {monthLabel}. Step back with the arrows above to a month
             with imported statements, or import one below.
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-3">
-            {SORTER_BUCKETS.map(({ key, label, accent }) => {
-              const txns = bucketTxns[key];
-              const isOver = overBucket === key;
-              return (
+          <>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {SORTER_BUCKETS.map(({ key, label }) => (
                 <div
                   key={key}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    if (overBucket !== key) setOverBucket(key);
-                  }}
-                  onDragLeave={(e) => {
-                    // Ignore leaves into child nodes; only clear when truly exiting.
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      setOverBucket((b) => (b === key ? null : b));
-                    }
-                  }}
-                  onDrop={(e) => handleDrop(key, e)}
-                  className={`flex flex-col rounded-lg border p-2 transition-colors ${
-                    isOver ? "border-primary bg-primary/5" : "border-border/60 bg-muted/10"
+                  className="rounded-lg bg-muted/20 px-3 py-2 ring-1 ring-foreground/10"
+                >
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {label}
+                  </div>
+                  <div className="text-sm font-semibold tabular-nums">
+                    {fmtMoney(bucketSum(bucketTxns[key]))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {filters.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFilter(f.key)}
+                  className={`rounded-full px-3 py-1 text-xs ring-1 transition-colors ${
+                    filter === f.key
+                      ? "bg-primary text-primary-foreground ring-primary/20"
+                      : "bg-muted/40 text-muted-foreground ring-foreground/10 hover:text-foreground"
                   }`}
                 >
-                  <div className="mb-2 flex items-center justify-between px-1">
-                    <span className={`text-xs font-semibold uppercase tracking-wide ${accent}`}>
-                      {label}
-                    </span>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {fmtMoney(bucketSum(txns))} imported
-                    </span>
-                  </div>
-                  {txns.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-border/50 px-2 py-6 text-center text-[11px] text-muted-foreground">
-                      Drop expenses here
-                    </div>
-                  ) : (
-                    <ul className="max-h-96 space-y-1.5 overflow-y-auto pr-0.5">
-                      {txns.map((t) => (
-                        <ExpenseCard
-                          key={t.id}
-                          t={t}
-                          bucket={key}
-                          dragging={dragId === t.id}
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData("text/plain", t.id);
-                            e.dataTransfer.effectAllowed = "move";
-                            setDragId(t.id);
-                            setDragFrom(key);
-                          }}
-                          onDragEnd={() => {
-                            setDragId(null);
-                            setDragFrom(null);
-                            setOverBucket(null);
-                          }}
-                          onMove={onMove}
-                          onToggleExclude={onToggleExclude}
-                        />
-                      ))}
-                    </ul>
+                  {f.label} <span className="tabular-nums">{f.count}</span>
+                  {f.sum > 0 && (
+                    <span className="ml-1 tabular-nums text-current/75">{fmtMoney(f.sum)}</span>
                   )}
-                </div>
-              );
-            })}
-          </div>
+                </button>
+              ))}
+            </div>
+            {rows.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                No {filter === "all" ? "" : GROUP_LABELS[filter].toLowerCase()} expenses for{" "}
+                {monthLabel}.
+              </div>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border/60 bg-background">
+                {rows.map(({ t, bucket }) => (
+                  <ExpenseCard
+                    key={t.id}
+                    t={t}
+                    bucket={bucket}
+                    onMove={onMove}
+                    onToggleExclude={onToggleExclude}
+                  />
+                ))}
+              </ul>
+            )}
+          </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
 function ExpenseCard({
   t,
   bucket,
-  dragging,
-  onDragStart,
-  onDragEnd,
   onMove,
   onToggleExclude,
 }: {
   t: Transaction;
   bucket: BudgetBucket;
-  dragging: boolean;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragEnd: (e: React.DragEvent) => void;
   onMove: (id: string, group: BudgetBucket) => void | Promise<void>;
   onToggleExclude: (id: string, excluded: boolean) => void | Promise<void>;
 }) {
   const excluded = !!t.excludeFromBudget;
   return (
-    <li
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      className={`cursor-grab rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs active:cursor-grabbing ${
-        dragging ? "opacity-40" : ""
-      }`}
-    >
-      <div className="flex items-center gap-1.5">
-        <GripVertical className="size-3.5 shrink-0 text-muted-foreground" />
-        <div className={`min-w-0 flex-1 ${excluded ? "opacity-50" : ""}`}>
-          <div className={`truncate ${excluded ? "line-through" : ""}`}>
-            {t.category ? cleanMerchantName(t.category) : "—"}
+    <li className="px-3 py-2 text-xs">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="truncate">{t.category ? cleanMerchantName(t.category) : "—"}</span>
+            {excluded && (
+              <Badge
+                variant="outline"
+                className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              >
+                One-time
+              </Badge>
+            )}
+            {!excluded && t.recurringId && <Badge variant="secondary">Recurring</Badge>}
           </div>
           <TxnSubline t={t} />
         </div>
-        <span
-          className={`shrink-0 tabular-nums ${excluded ? "text-muted-foreground line-through" : ""}`}
-        >
-          {fmtMoney(Math.abs(t.amount))}
-        </span>
-      </div>
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <GroupPicker value={bucket} onChange={(g) => onMove(t.id, g)} />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onToggleExclude(t.id, !excluded)}
-          className="h-auto shrink-0 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-          title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
-        >
-          {excluded ? "Include" : "One-time"}
-        </Button>
+        <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
+          <span className="w-20 text-right text-sm tabular-nums">
+            {fmtMoney(Math.abs(t.amount))}
+          </span>
+          <GroupPicker value={bucket} onChange={(g) => onMove(t.id, g)} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onToggleExclude(t.id, !excluded)}
+            className="h-7 shrink-0 px-2 text-[11px] text-muted-foreground"
+            title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
+          >
+            {excluded ? "Include in plan" : "Mark one-time"}
+          </Button>
+        </div>
       </div>
     </li>
   );
@@ -2434,9 +2701,110 @@ function formatPayoff(months: number): string {
   return `~${years} yr left`;
 }
 
+function recurringInsightKey(insight: RecurringInsight): string {
+  return `${insight.subscriptionId}:${insight.kind}:${insight.suggestedAmount ?? ""}:${insight.lastChargeAt ?? ""}`;
+}
+
+function RecurringUpdatesCard({
+  insights,
+  subscriptions,
+  onAccept,
+  onDismiss,
+}: {
+  insights: RecurringInsight[];
+  subscriptions: Subscription[];
+  onAccept: (insight: RecurringInsight) => Promise<void>;
+  onDismiss: (insight: RecurringInsight) => void;
+}) {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  async function accept(insight: RecurringInsight) {
+    const key = recurringInsightKey(insight);
+    setBusyKey(key);
+    try {
+      await onAccept(insight);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  return (
+    <Card className="border-amber-200/70 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" /> Recurring updates
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-3">
+          {insights.map((insight) => {
+            const sub = subscriptions.find((s) => s.id === insight.subscriptionId);
+            if (!sub) return null;
+            const key = recurringInsightKey(insight);
+            const busy = busyKey === key;
+            return (
+              <li
+                key={key}
+                className="rounded-lg bg-background/80 p-3 text-sm ring-1 ring-foreground/10"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{cleanMerchantName(sub.name)}</span>
+                      <Badge variant={insight.kind === "amount-change" ? "secondary" : "outline"}>
+                        {insight.kind === "amount-change" ? "Amount changed" : "Likely canceled"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{insight.reason}</p>
+                    {insight.kind === "amount-change" && insight.suggestedAmount && (
+                      <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                        {fmtMoney(sub.amount)} → {fmtMoney(insight.suggestedAmount)} per{" "}
+                        {sub.cadence}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      className="h-7 gap-1 text-xs"
+                      onClick={() => accept(insight)}
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <RefreshCw className="size-3.5 animate-spin" />
+                      ) : (
+                        <Check className="size-3.5" />
+                      )}
+                      {insight.kind === "amount-change"
+                        ? `Update to ${fmtMoney(insight.suggestedAmount ?? sub.amount)}`
+                        : "Mark canceled"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground"
+                      onClick={() => onDismiss(insight)}
+                      disabled={busy}
+                    >
+                      {insight.kind === "amount-change" ? "Dismiss" : "Keep active"}
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+type RecurringChargeStatus = { label: string; tone: "paid" | "unpaid" };
+
 function RecurringRow({
   s,
   chargeStatus,
+  amountChangeInsight,
   onChangeKind,
   onChangeGroup,
   onToggleCancel,
@@ -2444,7 +2812,8 @@ function RecurringRow({
   onDelete,
 }: {
   s: Subscription;
-  chargeStatus?: string;
+  chargeStatus?: RecurringChargeStatus;
+  amountChangeInsight?: RecurringInsight;
   onChangeKind: (s: Subscription, k: RecurringKind) => void;
   onChangeGroup: (s: Subscription, g: SpendGroup) => void;
   onToggleCancel: (s: Subscription) => void;
@@ -2461,6 +2830,10 @@ function RecurringRow({
   const kind = recurringKindOf(s);
   const canceled = s.status === "canceled";
   const monthly = subscriptionMonthlyCost(s);
+  const chargeStatusClass =
+    chargeStatus?.tone === "paid"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-amber-700 dark:text-amber-400";
 
   function startEdit() {
     setEditName(s.name);
@@ -2608,12 +2981,18 @@ function RecurringRow({
             {s.cadence !== "monthly" ? `${fmtMoney(s.amount)}/${CADENCE_ABBR[s.cadence]} · ` : ""}
             {s.source === "detected" ? "Detected from statements" : "Added manually"}
             {chargeStatus && !canceled && (
-              <span className="text-emerald-600 dark:text-emerald-400"> · {chargeStatus}</span>
+              <span className={chargeStatusClass}> · {chargeStatus.label}</span>
             )}
           </div>
           {loanMeta.length > 0 && (
             <div className="text-[11px] tabular-nums text-muted-foreground">
               {loanMeta.join(" · ")}
+            </div>
+          )}
+          {amountChangeInsight?.suggestedAmount != null && !canceled && (
+            <div className="text-[11px] tabular-nums text-amber-700 dark:text-amber-400">
+              Statement shows {fmtMoney(amountChangeInsight.suggestedAmount)} — tracked amount may
+              be stale
             </div>
           )}
         </div>
@@ -2708,10 +3087,12 @@ function PaymentCheckRow({
   item,
   candidates,
   onLinkCharge,
+  onUnlinkCharge,
 }: {
   item: BudgetRecurringItem;
   candidates?: Transaction[];
-  onLinkCharge?: (subId: string, hint: string) => Promise<void>;
+  onLinkCharge?: (subId: string, txnId: string) => Promise<void>;
+  onUnlinkCharge?: (txnId: string) => Promise<void>;
 }) {
   const isAnnual = item.cadence === "annual";
   const seenCount =
@@ -2719,22 +3100,31 @@ function PaymentCheckRow({
       ? Math.min(item.matchedCount, item.expectedThisMonth)
       : item.matchedCount;
   const [linking, setLinking] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
 
   async function link(t: Transaction) {
     if (!onLinkCharge || linking) return;
-    const label = cleanMerchantName(t.category || t.notes || "").toLowerCase();
-    const hint = label || (t.category || t.notes || "").trim().toLowerCase().slice(0, 24);
-    if (!hint) return;
     setLinking(true);
     try {
-      await onLinkCharge(item.id, hint);
+      await onLinkCharge(item.id, t.id);
     } finally {
       setLinking(false);
     }
   }
 
+  async function unlink() {
+    if (!onUnlinkCharge || !item.matchedTxn || unlinking) return;
+    setUnlinking(true);
+    try {
+      await onUnlinkCharge(item.matchedTxn.id);
+    } finally {
+      setUnlinking(false);
+    }
+  }
+
   const showCandidates =
     !item.seenThisMonth && !!onLinkCharge && !!candidates && candidates.length > 0;
+  const aiLinked = item.matchedTxn?.matchSource === "ai";
   return (
     <li className="py-2 text-sm">
       <div className="flex items-center justify-between gap-3">
@@ -2762,6 +3152,30 @@ function PaymentCheckRow({
                     <span className="truncate">{item.matchedTxn.account}</span>
                   </>
                 ) : null}
+                {aiLinked && (
+                  <>
+                    <Badge
+                      variant="secondary"
+                      className="h-5 gap-1 rounded-md px-1.5 text-[10px] text-primary"
+                    >
+                      <Sparkles className="size-3" />
+                      AI-linked
+                    </Badge>
+                    {onUnlinkCharge && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 gap-1 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                        onClick={unlink}
+                        disabled={unlinking}
+                      >
+                        <X className="size-3" />
+                        Unlink
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
             ) : (
               <div className="text-xs text-muted-foreground">
@@ -2819,10 +3233,14 @@ function MonthlyPaymentCheckCard({
   subscriptions,
   transactions,
   onLinkCharge,
+  onUnlinkCharge,
+  onRescanAiMatches,
 }: {
   subscriptions: Subscription[];
   transactions: Transaction[];
-  onLinkCharge: (subId: string, hint: string) => Promise<void>;
+  onLinkCharge: (subId: string, txnId: string) => Promise<void>;
+  onUnlinkCharge: (txnId: string) => Promise<void>;
+  onRescanAiMatches: () => Promise<void>;
 }) {
   const currentMonth = todayISO().slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
@@ -2862,6 +3280,7 @@ function MonthlyPaymentCheckCard({
   // All-clear collapses the (all-matched) list; otherwise the checklist is
   // open. A manual toggle only overrides until the month changes.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const [rescanning, setRescanning] = useState(false);
   const open = userOpen ?? !allClear;
   const pendingItems = ordered.filter(
     (item) => item.expectedThisMonth > 0 && item.matchedCount < item.expectedThisMonth,
@@ -2870,164 +3289,220 @@ function MonthlyPaymentCheckCard({
     (item) => !(item.expectedThisMonth > 0 && item.matchedCount < item.expectedThisMonth),
   );
 
-  // Charges a pending item could be linked to: outflows near its raw per-charge
-  // amount that no active recurring item already claims. Closest amount, then
-  // most recent; at most three so the row stays scannable.
+  // Charges a pending item could be linked to: persisted AI suggestions first,
+  // then the deterministic floor - charges in the amount band whose cleaned bank
+  // descriptor shares a real word with the item name. Amount alone is never
+  // enough to suggest: a wrong-but-plausible guess is worse than silence.
   const activeSubs = subscriptions.filter((s) => s.status === "active");
+  const merchantLabel = (t: Transaction) =>
+    cleanMerchantName(t.category || t.notes || "").toLowerCase();
   function candidatesFor(item: BudgetRecurringItem): Transaction[] {
     const sub = subscriptions.find((s) => s.id === item.id);
     if (!sub) return [];
-    const tolerance = Math.max(1, sub.amount * 0.05);
-    return monthTxns
-      .filter((t) => t.amount < 0 && Math.abs(Math.abs(t.amount) - sub.amount) <= tolerance)
-      .filter((t) => !activeSubs.some((a) => recurringMatchesTransaction(a, t)))
-      .sort((a, b) => {
-        const da = Math.abs(Math.abs(a.amount) - sub.amount);
-        const db = Math.abs(Math.abs(b.amount) - sub.amount);
-        if (da !== db) return da - db;
-        return b.timestamp - a.timestamp;
-      })
-      .slice(0, 3);
+    const unclaimed = (t: Transaction) =>
+      !activeSubs.some((a) => recurringMatchesTransaction(a, t));
+    const byCloseness = (a: Transaction, b: Transaction) => {
+      const da = Math.abs(Math.abs(a.amount) - sub.amount);
+      const db = Math.abs(Math.abs(b.amount) - sub.amount);
+      if (da !== db) return da - db;
+      return b.timestamp - a.timestamp;
+    };
+
+    const suggested = monthTxns.filter(
+      (t) => t.amount < 0 && t.recurringSuggestedId === item.id && unclaimed(t),
+    );
+
+    const related = monthTxns
+      .filter(
+        (t) =>
+          t.amount < 0 &&
+          t.categoryGroup !== "income" &&
+          t.categoryGroup !== "transfer" &&
+          amountWithinRecurringTolerance(sub, t.amount) &&
+          unclaimed(t) &&
+          recurringNamesShareToken(sub.name, merchantLabel(t)),
+      )
+      .sort(byCloseness);
+
+    const seen = new Set(suggested.map((t) => t.id));
+    return [...suggested, ...related.filter((t) => !seen.has(t.id))].slice(0, 3);
+  }
+
+  async function rescan() {
+    if (rescanning) return;
+    setRescanning(true);
+    try {
+      await onRescanAiMatches();
+    } finally {
+      setRescanning(false);
+    }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-          <span className="flex items-center gap-2">
-            <ListChecks className="size-4 text-muted-foreground" />
-            Monthly payment check
-          </span>
-          <MonthNav
-            month={selectedMonth}
-            onPrev={() => {
-              setSelectedMonth((m) => shiftMonth(m, -1));
-              setUserOpen(null);
-            }}
-            onNext={() => {
-              setSelectedMonth((m) => shiftMonth(m, 1));
-              setUserOpen(null);
-            }}
-            canGoNext={!isCurrentMonth}
-          />
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {total === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No monthly or weekly bill payments to verify yet. Add loans, bills, or subscriptions
-            below; recurring savings stays in Budget but does not count as a missing payment.
-          </p>
-        ) : (
-          <>
-            <div className="mb-3">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span
-                  className={
-                    allClear
-                      ? "flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400"
-                      : "font-medium"
-                  }
-                >
-                  {allClear && <CheckCircle2 className="size-4" />}
-                  {allClear
-                    ? `All ${total} monthly payment${total === 1 ? "" : "s"} accounted for`
-                    : `${seen} of ${total} payments seen in ${monthLabel} statements`}
-                </span>
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {seen}/{total}
-                  {!allClear && pendingAmount > 0
-                    ? ` · ~${fmtMoney(pendingAmount)} still to post`
-                    : ""}
-                </span>
-              </div>
-              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              {earlyInMonth && !allClear && (
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  It’s early in {monthLabel} — most payments haven’t posted yet. Step back a month
-                  to verify a completed month.
-                </p>
+    <CollapsibleCard
+      id="monthly-payment-check"
+      title="Monthly payment check"
+      icon={ListChecks}
+      summary={
+        <span
+          className={
+            allClear
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-amber-600 dark:text-amber-400"
+          }
+        >
+          {seen} of {total} paid
+        </span>
+      }
+      defaultOpen={!allClear}
+      forceOpen={!allClear && total > 0}
+    >
+      <div className="mb-3 flex justify-end">
+        <MonthNav
+          month={selectedMonth}
+          onPrev={() => {
+            setSelectedMonth((m) => shiftMonth(m, -1));
+            setUserOpen(null);
+          }}
+          onNext={() => {
+            setSelectedMonth((m) => shiftMonth(m, 1));
+            setUserOpen(null);
+          }}
+          canGoNext={!isCurrentMonth}
+        />
+      </div>
+      {total === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No monthly or weekly bill payments to verify yet. Add loans, bills, or subscriptions
+          below; recurring savings stays in Budget but does not count as a missing payment.
+        </p>
+      ) : (
+        <>
+          <div className="mb-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span
+                className={
+                  allClear
+                    ? "flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400"
+                    : "font-medium"
+                }
+              >
+                {allClear && <CheckCircle2 className="size-4" />}
+                {allClear
+                  ? `All ${total} monthly payment${total === 1 ? "" : "s"} accounted for`
+                  : `${seen} of ${total} payments seen in ${monthLabel} statements`}
+              </span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {seen}/{total}
+                {!allClear && pendingAmount > 0
+                  ? ` · ~${fmtMoney(pendingAmount)} still to post`
+                  : ""}
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            {earlyInMonth && !allClear && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                It’s early in {monthLabel} — most payments haven’t posted yet. Step back a month to
+                verify a completed month.
+              </p>
+            )}
+          </div>
+
+          {allClear && (
+            <button
+              type="button"
+              onClick={() => setUserOpen(!open)}
+              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={open}
+            >
+              <ChevronDown
+                className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+              />
+              {open ? "Hide" : "Show"} matched payments
+            </button>
+          )}
+
+          {open && (
+            <div className="mt-2 space-y-3">
+              {pendingItems.length > 0 && (
+                <section>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Still expected
+                  </div>
+                  <ul className="divide-y divide-border rounded-lg bg-muted/20 px-2 ring-1 ring-foreground/10">
+                    {pendingItems.map((item) => (
+                      <PaymentCheckRow
+                        key={item.id}
+                        item={item}
+                        candidates={candidatesFor(item)}
+                        onLinkCharge={onLinkCharge}
+                        onUnlinkCharge={onUnlinkCharge}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {matchedItems.length > 0 && (
+                <section>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Matched
+                  </div>
+                  <ul className="divide-y divide-border/60 rounded-lg px-2 ring-1 ring-foreground/10">
+                    {matchedItems.map((item) => (
+                      <PaymentCheckRow key={item.id} item={item} onUnlinkCharge={onUnlinkCharge} />
+                    ))}
+                  </ul>
+                </section>
               )}
             </div>
+          )}
+        </>
+      )}
 
-            {allClear && (
-              <button
-                type="button"
-                onClick={() => setUserOpen(!open)}
-                className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                aria-expanded={open}
-              >
-                <ChevronDown
-                  className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
-                />
-                {open ? "Hide" : "Show"} matched payments
-              </button>
-            )}
+      {savingsItems.length > 0 && (
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Recurring savings and investing transfers are tracked in the Budget savings bucket, but
+          they are excluded from this bill-payment count.
+        </p>
+      )}
 
-            {open && (
-              <div className="mt-2 space-y-3">
-                {pendingItems.length > 0 && (
-                  <section>
-                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Still expected
-                    </div>
-                    <ul className="divide-y divide-border rounded-lg bg-muted/20 px-2 ring-1 ring-foreground/10">
-                      {pendingItems.map((item) => (
-                        <PaymentCheckRow
-                          key={item.id}
-                          item={item}
-                          candidates={candidatesFor(item)}
-                          onLinkCharge={onLinkCharge}
-                        />
-                      ))}
-                    </ul>
-                  </section>
-                )}
-                {matchedItems.length > 0 && (
-                  <section>
-                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Matched
-                    </div>
-                    <ul className="divide-y divide-border/60 rounded-lg px-2 ring-1 ring-foreground/10">
-                      {matchedItems.map((item) => (
-                        <PaymentCheckRow key={item.id} item={item} />
-                      ))}
-                    </ul>
-                  </section>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {savingsItems.length > 0 && (
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            Recurring savings and investing transfers are tracked in the Budget savings bucket, but
-            they are excluded from this bill-payment count.
-          </p>
-        )}
-
-        {!hasMonthTxns ? (
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            No transactions imported for {monthLabel} yet — verification needs statement data. Sync
-            your bank on the Overview tab or import a statement on the Budget tab.
-          </p>
-        ) : (
-          seen < total && (
-            <p className="mt-3 text-[11px] text-muted-foreground">
+      {!hasMonthTxns ? (
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          No transactions imported for {monthLabel} yet — verification needs statement data. Sync
+          your bank on the Overview tab or import a statement on the Budget tab.
+        </p>
+      ) : (
+        seen < total && (
+          <div className="mt-3 flex flex-col gap-2 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-pretty">
               Matching compares each item’s name and approximate amount to statement lines. If a
               payment was made but shows unmatched, edit the item so its name matches how it appears
               on your statement (e.g. “Delmarva Power”, not “Electric”) or update its amount.
             </p>
-          )
-        )}
-      </CardContent>
-    </Card>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={rescan}
+              disabled={rescanning}
+              className="h-8 shrink-0 gap-1.5 text-xs"
+            >
+              {rescanning ? (
+                <RefreshCw className="size-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="size-3.5" />
+              )}
+              Re-scan for AI matches
+            </Button>
+          </div>
+        )
+      )}
+    </CollapsibleCard>
   );
 }
 
@@ -3068,33 +3543,32 @@ function DebtPayoffComparisonCard({ loans }: { loans: Subscription[] }) {
       : 0;
 
   return (
-    <Card className="border-amber-500/20 bg-linear-to-br from-amber-500/6 to-card">
-      <CardHeader>
-        <CardTitle className="flex flex-col gap-3 text-base sm:flex-row sm:items-center sm:justify-between">
-          <span className="flex items-center gap-2">
-            <Landmark className="size-4 text-amber-600 dark:text-amber-400" />
-            Debt payoff comparison
-          </span>
-          <div className="flex items-center gap-2">
-            <Label
-              htmlFor="extra-debt-payment"
-              className="text-xs font-normal text-muted-foreground"
-            >
-              Extra monthly
-            </Label>
-            <Input
-              id="extra-debt-payment"
-              type="number"
-              min="0"
-              step="25"
-              value={extraPayment}
-              onChange={(e) => setExtraPayment(e.target.value)}
-              className="h-9 w-28 text-right tabular-nums"
-            />
-          </div>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <CollapsibleCard
+      id="debt-payoff"
+      title="Debt payoff comparison"
+      icon={Landmark}
+      summary={
+        interestDelta > 0 ? `Avalanche saves ${fmtMoney(interestDelta)}` : `${debts.length} debts`
+      }
+      className="border-amber-500/20 bg-linear-to-br from-amber-500/6 to-card"
+    >
+      <div className="mb-3 flex justify-end">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="extra-debt-payment" className="text-xs font-normal text-muted-foreground">
+            Extra monthly
+          </Label>
+          <Input
+            id="extra-debt-payment"
+            type="number"
+            min="0"
+            step="25"
+            value={extraPayment}
+            onChange={(e) => setExtraPayment(e.target.value)}
+            className="h-9 w-28 text-right tabular-nums"
+          />
+        </div>
+      </div>
+      <div className="space-y-4">
         {debts.length ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -3137,8 +3611,8 @@ function DebtPayoffComparisonCard({ loans }: { loans: Subscription[] }) {
             data were left out of the simulation.
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -3192,6 +3666,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   const [group, setGroup] = useState<SpendGroup>("needs");
   const [balance, setBalance] = useState("");
   const [apr, setApr] = useState("");
+  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set());
 
   // One list of every recurring commitment; a row's kind decides its section, so
   // reclassifying it re-sorts in place. Active first, then biggest monthly first.
@@ -3215,22 +3690,42 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
   const recurringSavingsMonthly = active
     .filter((s) => recurringBudgetBucket(s) === "savings")
     .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
+  const visibleInsights = hub.recurringInsights.filter(
+    (insight) => !dismissedInsights.has(recurringInsightKey(insight)),
+  );
+  const amountChangeInsightById = new Map(
+    visibleInsights
+      .filter((insight) => insight.kind === "amount-change")
+      .map((insight) => [insight.subscriptionId, insight]),
+  );
 
-  // Which items already matched a charge in this month's transactions, so rows
-  // can say "charged this month" (same reconciliation the Budget tab uses).
+  // Which items matched this month's transactions, so rows answer whether the
+  // expected charge has been seen without making the user open the checklist.
   const currentMonthTxns = transactionsForMonth(hub.transactions, todayISO().slice(0, 7));
   const monthItems = recurringItemsForMonth(hub.subscriptions, currentMonthTxns);
   const chargeStatusById = new Map(
     (["needs", "wants", "savings"] as const)
       .flatMap((bucket) => monthItems[bucket])
-      .filter((item) => item.seenThisMonth)
+      .filter((item) => item.cadence !== "annual" && item.expectedThisMonth > 0)
       .map((item) => [
         item.id,
-        item.expectedThisMonth > 1
-          ? `${Math.min(item.matchedCount, item.expectedThisMonth)} of ${
-              item.expectedThisMonth
-            } charges seen this month`
-          : "charged this month",
+        item.seenThisMonth
+          ? {
+              label:
+                item.expectedThisMonth > 1
+                  ? `${Math.min(item.matchedCount, item.expectedThisMonth)} of ${
+                      item.expectedThisMonth
+                    } charges seen this month`
+                  : "charged this month",
+              tone: "paid" as const,
+            }
+          : {
+              label:
+                item.expectedThisMonth > 1
+                  ? `0 of ${item.expectedThisMonth} charges seen this month`
+                  : "not seen this month",
+              tone: "unpaid" as const,
+            },
       ]),
   );
 
@@ -3311,18 +3806,64 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     flash(`Updated ${cleanMerchantName(patch.name ?? s.name)}.`);
   }
 
-  // Confirming a candidate charge teaches the matcher a descriptor substring so
-  // the friendly-named item stops double-counting from next refetch on.
-  async function linkCharge(subId: string, hint: string) {
-    const normalized = hint.trim().toLowerCase();
-    if (!normalized) return;
+  async function linkCharge(subId: string, txnId: string) {
     const sub = hub.subscriptions.find((x) => x.id === subId);
     if (!sub) return;
-    const nextHints = Array.from(new Set([...(sub.matchHints ?? []), normalized]));
-    await persist(
-      hub.subscriptions.map((x) => (x.id === subId ? { ...x, matchHints: nextHints } : x)),
-    );
+    await linkRecurringCharge({ data: { subId, txnId } });
+    await onChange();
     flash(`Linked ${cleanMerchantName(sub.name)} to that charge.`);
+  }
+
+  async function unlinkCharge(txnId: string) {
+    await unlinkRecurringCharge({ data: { txnId } });
+    await onChange();
+    flash("Unlinked that charge.");
+  }
+
+  async function rescanAiMatches() {
+    flash("Re-scanning unmatched charges…");
+    try {
+      const res = await rescanRecurringMatches({ data: {} });
+      await onChange();
+      const summary =
+        `Linked ${res.linked}, suggested ${res.suggested} across ${res.merchantsScanned} merchant${
+          res.merchantsScanned === 1 ? "" : "s"
+        }` +
+        (res.merchantsRemaining > 0
+          ? `. ${res.merchantsRemaining} merchant${
+              res.merchantsRemaining === 1 ? "" : "s"
+            } remain — run again.`
+          : ".");
+      flash(summary, 6000);
+    } catch (err) {
+      console.error(err);
+      flash("Couldn’t re-scan unmatched charges.");
+    }
+  }
+
+  function dismissInsight(insight: RecurringInsight) {
+    setDismissedInsights((current) => new Set(current).add(recurringInsightKey(insight)));
+  }
+
+  async function acceptInsight(insight: RecurringInsight) {
+    const sub = hub.subscriptions.find((s) => s.id === insight.subscriptionId);
+    if (!sub) return;
+    if (insight.kind === "amount-change" && !insight.suggestedAmount) return;
+    await applyRecurringInsight({
+      data: {
+        subscriptionId: insight.subscriptionId,
+        action: insight.kind === "amount-change" ? "update-amount" : "cancel",
+        amount: insight.suggestedAmount,
+        lastSeen: insight.lastChargeAt,
+      },
+    });
+    dismissInsight(insight);
+    await onChange();
+    flash(
+      insight.kind === "amount-change"
+        ? `Updated ${cleanMerchantName(sub.name)} to ${fmtMoney(insight.suggestedAmount ?? sub.amount)}.`
+        : `Marked ${cleanMerchantName(sub.name)} canceled.`,
+    );
   }
 
   async function changeGroup(s: Subscription, next: SpendGroup) {
@@ -3418,15 +3959,29 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
           tone={recurringSavingsMonthly > 0 ? undefined : "warn"}
         />
       </div>
-      <p className="-mt-1 text-xs text-muted-foreground">
-        Loans &amp; bills are fixed Needs that flow into your Budget; subscriptions are cuttable
-        Wants; recurring savings is money kept, not spend.
-      </p>
+      <div className="-mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+        <span>Fixed obligations, subscriptions, and recurring savings.</span>
+        <InfoHint>
+          Loans & bills are fixed Needs that flow into your Budget; subscriptions are cuttable
+          Wants; recurring savings is money kept, not spend.
+        </InfoHint>
+      </div>
+
+      {visibleInsights.length > 0 && (
+        <RecurringUpdatesCard
+          insights={visibleInsights}
+          subscriptions={hub.subscriptions}
+          onAccept={acceptInsight}
+          onDismiss={dismissInsight}
+        />
+      )}
 
       <MonthlyPaymentCheckCard
         subscriptions={hub.subscriptions}
         transactions={hub.transactions}
         onLinkCharge={linkCharge}
+        onUnlinkCharge={unlinkCharge}
+        onRescanAiMatches={rescanAiMatches}
       />
 
       {activeLoans.length > 0 && <DebtPayoffComparisonCard loans={activeLoans} />}
@@ -3477,6 +4032,7 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                             key={s.id}
                             s={s}
                             chargeStatus={chargeStatusById.get(s.id)}
+                            amountChangeInsight={amountChangeInsightById.get(s.id)}
                             onChangeKind={changeKind}
                             onChangeGroup={changeGroup}
                             onToggleCancel={toggleCancel}
@@ -3542,90 +4098,87 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Add manually</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={addManual} className="space-y-2">
+      <CollapsibleCard
+        id="recurring-add"
+        title="Add manually"
+        icon={Plus}
+        summary="Loan / bill / subscription"
+      >
+        <form onSubmit={addManual} className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <KindPicker value={kind} onChange={changeManualKind} />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={namePlaceholder}
+              className="min-w-35 flex-1"
+            />
+            <Input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder={amountLabel}
+              aria-label={amountLabel}
+              className="w-28"
+            />
+            <Select value={cadence} onValueChange={(v) => setCadence(v as Subscription["cadence"])}>
+              <SelectTrigger aria-label="Cadence" className="w-auto">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="annual">Annual</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {kind === "bill" && (
+              <NeedWantPicker value={group === "wants" ? "wants" : "needs"} onChange={setGroup} />
+            )}
+            {kind === "subscription" && (
+              <SaveWantPicker
+                value={group === "savings" ? "savings" : "wants"}
+                onChange={setGroup}
+              />
+            )}
+            <Button type="submit" size="sm" className="gap-1" disabled={!name.trim() || !amount}>
+              <Plus className="size-4" /> Add
+            </Button>
+          </div>
+          {kind === "loan" && (
             <div className="flex flex-wrap items-center gap-2">
-              <KindPicker value={kind} onChange={changeManualKind} />
               <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={namePlaceholder}
-                className="min-w-35 flex-1"
+                type="number"
+                step="0.01"
+                value={balance}
+                onChange={(e) => setBalance(e.target.value)}
+                placeholder="Balance (optional)"
+                aria-label="Loan balance"
+                className="w-40"
               />
               <Input
                 type="number"
                 step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder={amountLabel}
-                aria-label={amountLabel}
-                className="w-28"
+                value={apr}
+                onChange={(e) => setApr(e.target.value)}
+                placeholder="APR % (optional)"
+                aria-label="Loan APR"
+                className="w-36"
               />
-              <Select
-                value={cadence}
-                onValueChange={(v) => setCadence(v as Subscription["cadence"])}
-              >
-                <SelectTrigger aria-label="Cadence" className="w-auto">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="annual">Annual</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {kind === "bill" && (
-                <NeedWantPicker value={group === "wants" ? "wants" : "needs"} onChange={setGroup} />
-              )}
-              {kind === "subscription" && (
-                <SaveWantPicker
-                  value={group === "savings" ? "savings" : "wants"}
-                  onChange={setGroup}
-                />
-              )}
-              <Button type="submit" size="sm" className="gap-1" disabled={!name.trim() || !amount}>
-                <Plus className="size-4" /> Add
-              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                Balance + APR give a payoff estimate.
+              </span>
             </div>
-            {kind === "loan" && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={balance}
-                  onChange={(e) => setBalance(e.target.value)}
-                  placeholder="Balance (optional)"
-                  aria-label="Loan balance"
-                  className="w-40"
-                />
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={apr}
-                  onChange={(e) => setApr(e.target.value)}
-                  placeholder="APR % (optional)"
-                  aria-label="Loan APR"
-                  className="w-36"
-                />
-                <span className="text-[11px] text-muted-foreground">
-                  Balance + APR give a payoff estimate.
-                </span>
-              </div>
-            )}
-          </form>
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Loans &amp; Bills are essential Needs and flow into your Budget automatically each
-            month. Subscriptions are discretionary (Want) or a recurring Save. Switch a row's type
-            anytime to move it between sections.
-          </p>
-        </CardContent>
-      </Card>
+          )}
+        </form>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Loans &amp; Bills are essential Needs and flow into your Budget automatically each month.
+          Subscriptions are discretionary (Want) or a recurring Save. Switch a row's type anytime to
+          move it between sections.
+        </p>
+      </CollapsibleCard>
     </div>
   );
 }
@@ -3638,12 +4191,15 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAddPosition, setShowAddPosition] = useState(false);
+  const [showAllPositions, setShowAllPositions] = useState(false);
   const [asOf, setAsOf] = useState<number | null>(null);
   const [liveSymbols, setLiveSymbols] = useState<Set<string>>(new Set());
 
   const positions = hub.snapshot.positions || [];
   const total = positions.reduce((s, p) => s + (p.value || 0), 0);
   const sortedPositions = [...positions].sort((a, b) => (b.value || 0) - (a.value || 0));
+  const visiblePositions = showAllPositions ? sortedPositions : sortedPositions.slice(0, 5);
   const topHolding = sortedPositions[0];
   const allocationPct = (p: Position) =>
     total > 0 ? Math.round(((p.value || 0) / total) * 100) : 0;
@@ -3732,13 +4288,20 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Stat label="Holdings value" value={fmtMoney(total)} hero />
-        <Stat label="Positions" value={String(positions.length)} />
-        <Stat
-          label="Top holding"
-          value={topHolding ? `${topHolding.symbol} · ${allocationPct(topHolding)}%` : "—"}
-        />
+      <div className="rounded-xl bg-card px-4 py-4 ring-1 ring-foreground/10">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Holdings total value
+        </div>
+        <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
+          {fmtMoney(total)}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <MiniStat label="Positions" value={String(positions.length)} />
+          <MiniStat
+            label="Top holding"
+            value={topHolding ? `${topHolding.symbol} · ${allocationPct(topHolding)}%` : "—"}
+          />
+        </div>
       </div>
 
       <Card>
@@ -3751,17 +4314,28 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
               </p>
             )}
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="shrink-0 gap-1 whitespace-nowrap transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
-            disabled={refreshing || !positions.length}
-            onClick={refreshPrices}
-          >
-            <RefreshCw className={`size-4${refreshing ? " animate-spin" : ""}`} />
-            {refreshing ? "Refreshing…" : "Refresh prices"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="shrink-0 gap-1 whitespace-nowrap transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+              onClick={() => setShowAddPosition((open) => !open)}
+            >
+              <Plus className="size-4" /> {showAddPosition ? "Hide form" : "Add position"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0 gap-1 whitespace-nowrap transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+              disabled={refreshing || !positions.length}
+              onClick={refreshPrices}
+            >
+              <RefreshCw className={`size-4${refreshing ? " animate-spin" : ""}`} />
+              {refreshing ? "Refreshing…" : "Refresh prices"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {positions.length ? (
@@ -3777,7 +4351,7 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {sortedPositions.map((p) => {
+                  {visiblePositions.map((p) => {
                     const pct = allocationPct(p);
                     const isLive = liveSymbols.has(p.symbol.toUpperCase());
                     return (
@@ -3822,6 +4396,17 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
                   })}
                 </tbody>
               </table>
+              {sortedPositions.length > 5 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => setShowAllPositions((show) => !show)}
+                >
+                  {showAllPositions ? "Show top 5" : `Show all ${sortedPositions.length}`}
+                </Button>
+              )}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">
@@ -3830,40 +4415,44 @@ function InvestmentsTab({ hub, today, onChange, flash }: TabProps & { today: str
               “401K”).
             </div>
           )}
-          <form onSubmit={addPosition} className="mt-4 flex flex-wrap items-center gap-2">
-            <Input
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              placeholder="Symbol"
-              className="w-28"
-              disabled={busy}
-            />
-            <Input
-              type="number"
-              step="any"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              placeholder="Qty"
-              className="w-24"
-              disabled={busy}
-            />
-            <Input
-              type="number"
-              step="any"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="Price"
-              className="w-28"
-              disabled={busy}
-            />
-            <Button type="submit" size="sm" className="gap-1" disabled={busy || !symbol.trim()}>
-              <Plus className="size-4" /> Save
-            </Button>
-          </form>
+          {showAddPosition && (
+            <form onSubmit={addPosition} className="mt-4 flex flex-wrap items-center gap-2">
+              <Input
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                placeholder="Symbol"
+                className="w-28"
+                disabled={busy}
+              />
+              <Input
+                type="number"
+                step="any"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                placeholder="Qty"
+                className="w-24"
+                disabled={busy}
+              />
+              <Input
+                type="number"
+                step="any"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="Price"
+                className="w-28"
+                disabled={busy}
+              />
+              <Button type="submit" size="sm" className="gap-1" disabled={busy || !symbol.trim()}>
+                <Plus className="size-4" /> Save
+              </Button>
+            </form>
+          )}
         </CardContent>
       </Card>
 
-      <Disclaimer />
+      <p className="text-xs text-muted-foreground">
+        Educational guidance only. This app never moves money or executes trades.
+      </p>
     </div>
   );
 }
@@ -3922,6 +4511,11 @@ function GrowTab({
   const [busy, setBusy] = useState(false);
   const [acceptedItems, setAcceptedItems] = useState<Set<number>>(new Set());
   const allAccepted = !!items?.length && acceptedItems.size >= items.length;
+  const adviceSummary = items?.length
+    ? items.length === 1
+      ? items[0]?.text
+      : `${items.length} moves · ${items[0]?.text}`
+    : "Generate personalized moves";
 
   useEffect(() => {
     if (!items && adviceQuery.data) {
@@ -3971,8 +4565,8 @@ function GrowTab({
 
   return (
     <div className="space-y-4">
-      <RevenueGrowthCard hub={hub} today={today} />
       <CashFlowProjectionCard hub={hub} today={today} />
+      <RevenueGrowthCard hub={hub} today={today} />
 
       <div className="flex flex-col gap-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-pretty text-sm text-muted-foreground">
@@ -3989,72 +4583,95 @@ function GrowTab({
         </Button>
       </div>
 
-      {items && (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Sparkles className="size-4 text-primary" /> Recommended moves
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="divide-y divide-border/60">
-                {items.map((it, i) => {
-                  const meta = ADVICE_META[it.category];
-                  const accepted = acceptedItems.has(i);
-                  return (
-                    <Reveal as="div" key={`${it.category}-${i}`} delay={revealDelay(i)}>
-                      <div className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="flex min-w-0 gap-3">
-                          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <meta.Icon className="size-4" />
+      <CollapsibleCard
+        id="grow-advice"
+        title="Recommended moves"
+        icon={Sparkles}
+        summary={adviceSummary}
+        badge={items?.length ?? 0}
+        defaultOpen={false}
+        forceOpen={!!items?.length}
+      >
+        {items?.length ? (
+          <div className="space-y-3">
+            <div className="divide-y divide-border/60">
+              {items.map((it, i) => {
+                const meta = ADVICE_META[it.category];
+                const accepted = acceptedItems.has(i);
+                return (
+                  <Reveal as="div" key={`${it.category}-${i}`} delay={revealDelay(i)}>
+                    <div className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <meta.Icon className="size-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {meta.label}
                           </div>
-                          <div className="min-w-0">
-                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                              {meta.label}
-                            </div>
-                            <div className="text-pretty text-sm leading-6">
-                              {renderHighlightedAdvice(it.text)}
-                            </div>
+                          <div className="text-pretty text-sm leading-6">
+                            {renderHighlightedAdvice(it.text)}
                           </div>
                         </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={accepted ? "secondary" : "outline"}
-                          onClick={() => acceptOne(it, i)}
-                          disabled={busy || accepted}
-                          className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
-                        >
-                          <Check className="size-3.5" />
-                          {accepted ? "Added" : "Add to tasks"}
-                        </Button>
                       </div>
-                    </Reveal>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={acceptAll}
-              disabled={busy || allAccepted}
-              variant="outline"
-              className="gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
-            >
-              <Check className="size-4" /> {allAccepted ? "Added to tasks" : "Add all to tasks"}
-            </Button>
-            {generatedBy === "fallback" && (
-              <span className="text-xs text-muted-foreground">
-                Rule-based (no AI key) — still grounded in your data.
-              </span>
-            )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={accepted ? "secondary" : "outline"}
+                        onClick={() => acceptOne(it, i)}
+                        disabled={busy || accepted}
+                        className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+                      >
+                        <Check className="size-3.5" />
+                        {accepted ? "Added" : "Add to tasks"}
+                      </Button>
+                    </div>
+                  </Reveal>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                onClick={acceptAll}
+                disabled={busy || allAccepted}
+                variant="outline"
+                className="gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+              >
+                <Check className="size-4" /> {allAccepted ? "Added to tasks" : "Add all to tasks"}
+              </Button>
+              {generatedBy === "fallback" && (
+                <span className="text-xs text-muted-foreground">
+                  Rule-based (no AI key) — still grounded in your data.
+                </span>
+              )}
+            </div>
           </div>
-        </>
-      )}
+        ) : (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Generate moves when you want the coach to turn your budget, recurring charges, and
+              investments into tasks.
+            </p>
+            <Button
+              onClick={generate}
+              disabled={busy}
+              variant="outline"
+              className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
+            >
+              {busy ? (
+                <RefreshCw className="size-4 animate-spin" />
+              ) : (
+                <Sparkles className="size-4" />
+              )}
+              Generate advice
+            </Button>
+          </div>
+        )}
+      </CollapsibleCard>
 
-      <Disclaimer />
+      <p className="text-xs text-muted-foreground">
+        Educational guidance only. This app never moves money or executes trades.
+      </p>
     </div>
   );
 }
@@ -4123,13 +4740,23 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-3 rounded-lg bg-background/55 px-3 py-3 ring-1 ring-foreground/10 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Projected ending cash
+            </div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
+              {fmtMoney(projection.endingCash)}
+            </div>
+          </div>
+          <div className={`text-sm font-medium tabular-nums ${netTone}`}>
+            {projection.totalNetCashFlow < 0 ? "-" : "+"}
+            {fmtMoney(Math.abs(projection.totalNetCashFlow))} projected net
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
           <MiniStat label="Starting cash" value={fmtMoney(cashOnHand)} />
-          <MiniStat
-            label="Projected net"
-            value={`${projection.totalNetCashFlow < 0 ? "-" : "+"}${fmtMoney(Math.abs(projection.totalNetCashFlow))}`}
-          />
-          <MiniStat label="Ending cash" value={fmtMoney(projection.endingCash)} />
+          <MiniStat label="Lowest projected cash" value={fmtMoney(lowPoint)} />
         </div>
         <div className="rounded-lg bg-muted/25 px-3 py-2 ring-1 ring-foreground/10">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -4165,11 +4792,16 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
             ))}
           </div>
         </div>
-        <p className="text-pretty text-xs text-muted-foreground">
-          Projection uses the current take-home baseline when set, the higher of budget targets or
-          current run-rate buckets, and active recurring commitments already folded into those
-          buckets.
-        </p>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>
+            Projection uses take-home, budget targets, current run-rate, and recurring commitments.
+          </span>
+          <InfoHint label="Projection assumptions">
+            Projection uses the current take-home baseline when set, the higher of budget targets or
+            current run-rate buckets, and active recurring commitments already folded into those
+            buckets.
+          </InfoHint>
+        </div>
       </CardContent>
     </Card>
   );
@@ -4223,13 +4855,14 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Target className="size-4 text-primary" /> Revenue growth target
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <CollapsibleCard
+      id="grow-revenue-growth"
+      title="Revenue growth target"
+      icon={Target}
+      summary={`Side income ${fmtMoney(sideIncome)} · target ${fmtMoney(experimentTarget)}`}
+      defaultOpen={false}
+    >
+      <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <MiniStat label="Take-home baseline" value={takeHome ? fmtMoney(takeHome) : "Missing"} />
           <MiniStat label="Side income MTD" value={fmtMoney(sideIncome)} />
@@ -4260,12 +4893,17 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
             </button>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">
-          The target is based on the current savings gap when available; otherwise it starts with a
-          small monthly income experiment so the plan has a number to beat.
-        </p>
-      </CardContent>
-    </Card>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>
+            Target follows the savings gap, or starts with a small monthly income experiment.
+          </span>
+          <InfoHint label="Revenue target details">
+            The target is based on the current savings gap when available; otherwise it starts with
+            a small monthly income experiment so the plan has a number to beat.
+          </InfoHint>
+        </div>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -4571,17 +5209,24 @@ function BudgetBar({
                 key={t.id}
                 className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
               >
-                <div className={`min-w-0 flex-1 ${excluded ? "opacity-50" : ""}`}>
-                  <div className={`truncate ${excluded ? "line-through" : ""}`}>
-                    {t.category ? cleanMerchantName(t.category) : "—"}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate">
+                      {t.category ? cleanMerchantName(t.category) : "—"}
+                    </span>
+                    {excluded && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                      >
+                        One-time
+                      </Badge>
+                    )}
+                    {!excluded && t.recurringId && <Badge variant="secondary">Recurring</Badge>}
                   </div>
                   <TxnSubline t={t} />
                 </div>
-                <span
-                  className={`shrink-0 tabular-nums ${excluded ? "text-muted-foreground line-through" : ""}`}
-                >
-                  {fmtMoney(Math.abs(t.amount))}
-                </span>
+                <span className="shrink-0 tabular-nums">{fmtMoney(Math.abs(t.amount))}</span>
                 <Button
                   type="button"
                   variant="outline"
@@ -4590,25 +5235,13 @@ function BudgetBar({
                   className="h-auto shrink-0 px-1.5 py-0.5 text-[10px] text-muted-foreground"
                   title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
                 >
-                  {excluded ? "Include" : "One-time"}
+                  {excluded ? "Include in plan" : "Mark one-time"}
                 </Button>
               </li>
             );
           })}
         </ul>
       )}
-    </div>
-  );
-}
-
-function Disclaimer() {
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-      <span>
-        Educational guidance, not licensed financial advice. This app never moves money or executes
-        trades on your behalf.
-      </span>
     </div>
   );
 }

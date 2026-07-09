@@ -903,7 +903,9 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
           protein: Number(
             intent.payload.protein ?? intent.payload.proteinG ?? intent.payload.proteinGrams ?? 0,
           ),
-          carbs: Number(intent.payload.carbs ?? intent.payload.carbsG ?? intent.payload.carbGrams ?? 0),
+          carbs: Number(
+            intent.payload.carbs ?? intent.payload.carbsG ?? intent.payload.carbGrams ?? 0,
+          ),
           fat: Number(intent.payload.fat ?? intent.payload.fatG ?? intent.payload.fatGrams ?? 0),
         };
         // Models often return { proteinGrams: 40 } without a description.

@@ -8,6 +8,7 @@ export interface JSONChatRequest {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  timeoutMs?: number;
 }
 
 import { getServerEnvVar } from "@/server/env";
@@ -191,6 +192,7 @@ export function stripJsonFence(raw: string): string {
 export async function completeJSON<T>(apiKey: string, request: JSONChatRequest): Promise<T> {
   const resp = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
+    signal: request.timeoutMs ? AbortSignal.timeout(request.timeoutMs) : undefined,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",

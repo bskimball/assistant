@@ -1,4 +1,10 @@
-import type { FinanceAdviceItem, Subscription, Transaction, UserProfile } from "@/lib/domain";
+import type {
+  CategoryGroup,
+  FinanceAdviceItem,
+  Subscription,
+  Transaction,
+  UserProfile,
+} from "@/lib/domain";
 import {
   cleanMerchantName,
   DEFAULT_BUDGET_TARGETS,
@@ -130,7 +136,57 @@ export type BudgetRecurringItem = {
    * several match). Its presence is what defines `seenThisMonth`. `amount` is
    * the raw signed transaction amount (negative for a charge).
    */
-  matchedTxn?: { timestamp: number; amount: number; account?: string };
+  matchedTxn?: {
+    id: string;
+    timestamp: number;
+    amount: number;
+    account?: string;
+    matchSource?: "ai" | "user";
+  };
+};
+
+export type RecurringInsightKind = "amount-change" | "likely-canceled";
+
+export type RecurringInsight = {
+  subscriptionId: string;
+  kind: RecurringInsightKind;
+  /** Human-readable reason for the card. */
+  reason: string;
+  /** Suggested patch when accepting amount-change. */
+  suggestedAmount?: number;
+  /** Most recent matching charge amount, if any. */
+  lastChargeAmount?: number;
+  lastChargeAt?: number;
+  /** How many matching charges found in lookback. */
+  matchCount: number;
+  /** Days since last matching charge (null if never). */
+  daysSinceLastCharge: number | null;
+  /** Confidence 0–1 for UI ordering. */
+  confidence: number;
+};
+
+export type OneTimeCandidate = {
+  transactionId: string;
+  amount: number;
+  timestamp: number;
+  merchant: string;
+  categoryGroup?: CategoryGroup;
+  reason: string;
+  confidence: number;
+};
+
+export type BudgetInsight = {
+  planSpend: number;
+  committedPlan: number;
+  variablePlanSpend: number;
+  oneTimeSpend: number;
+  oneTimeCount: number;
+  plannedRecurring: number;
+  totalSpent: number;
+  remainingCash: number;
+  bucketDeltas: { needs: number; wants: number; savings: number };
+  projectedPlanSpend: number | null;
+  lines: string[];
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -142,6 +198,13 @@ type BudgetLike = {
 
 function dollars(n: number): number {
   return Math.round((Number.isFinite(n) ? n : 0) * 100) / 100;
+}
+
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 function positive(n: number | undefined): number {
@@ -162,16 +225,43 @@ export function normalizedFinanceLabel(raw?: string): string {
   return cleanMerchantName(raw || "").toLowerCase();
 }
 
+export function recurringAmountTolerance(sub: Subscription): number {
+  const kind = recurringKindOf(sub);
+  return kind === "bill" ? Math.max(25, sub.amount * 0.2) : Math.max(1, sub.amount * 0.05);
+}
+
+export function amountWithinRecurringTolerance(sub: Subscription, txnAmount: number): boolean {
+  return Math.abs(Math.abs(txnAmount) - sub.amount) <= recurringAmountTolerance(sub);
+}
+
+export function recurringNameTokens(raw?: string): Set<string> {
+  return new Set(
+    normalizedFinanceLabel(raw)
+      .split(/[^a-z0-9]+/i)
+      .filter((token) => token.length >= 3),
+  );
+}
+
+export function recurringNamesShareToken(a?: string, b?: string): boolean {
+  const aTokens = recurringNameTokens(a);
+  if (aTokens.size === 0) return false;
+  return [...recurringNameTokens(b)].some((token) => aTokens.has(token));
+}
+
 export function recurringMatchesTransaction(sub: Subscription, t: Transaction): boolean {
   if (t.amount >= 0) return false;
-  const amount = Math.abs(t.amount);
-  const amountMatches = Math.abs(amount - sub.amount) <= Math.max(1, sub.amount * 0.05);
-  if (!amountMatches) return false;
+  if (t.recurringId) return t.recurringId === sub.id;
+  if (t.recurringMatchSource === "user") return false;
+  if (!amountWithinRecurringTolerance(sub, t.amount)) return false;
 
   const subName = normalizedFinanceLabel(sub.name);
   const txnName = normalizedFinanceLabel(t.category || t.notes || "");
   const nameMatches =
-    !!subName && !!txnName && (txnName.includes(subName) || subName.includes(txnName));
+    !!subName &&
+    !!txnName &&
+    (txnName.includes(subName) ||
+      subName.includes(txnName) ||
+      recurringNamesShareToken(subName, txnName));
   const accountMatches =
     !!sub.account &&
     !!t.account &&
@@ -181,11 +271,361 @@ export function recurringMatchesTransaction(sub: Subscription, t: Transaction): 
     const normalizedHint = hint.trim().toLowerCase();
     return !!normalizedHint && rawTxnDescriptor.includes(normalizedHint);
   });
-  return amountMatches && (nameMatches || accountMatches || hintMatches);
+  return nameMatches || accountMatches || hintMatches;
+}
+
+function cadenceGraceDays(sub: Subscription): number {
+  if (sub.cadence === "weekly") return 21;
+  if (sub.cadence === "annual") return 400;
+  return recurringKindOf(sub) === "loan" ? 60 : 45;
+}
+
+function shortDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function cadenceLabel(cadence: Subscription["cadence"]): string {
+  return cadence === "weekly" ? "weekly" : cadence === "annual" ? "annual" : "monthly";
+}
+
+function formatMonthKey(ym: string): string {
+  const [year, month] = ym.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function recurringInsightMonthlyImpact(sub: Subscription, insight: RecurringInsight): number {
+  if (insight.kind === "amount-change" && insight.suggestedAmount) {
+    return Math.abs(subscriptionMonthlyCost({ ...sub, amount: insight.suggestedAmount }));
+  }
+  return Math.abs(subscriptionMonthlyCost(sub));
+}
+
+export function analyzeRecurringHealth(input: {
+  subscriptions: Subscription[];
+  transactions: Transaction[];
+  /** default Date.now() */
+  now?: number;
+  /** default 180 */
+  lookbackDays?: number;
+}): RecurringInsight[] {
+  const now = input.now ?? Date.now();
+  const lookbackDays = input.lookbackDays ?? 180;
+  const lookbackStart = now - lookbackDays * DAY;
+  const transactions = input.transactions.filter(
+    (t) => !t.deletedAt && t.timestamp >= lookbackStart,
+  );
+  const insights: RecurringInsight[] = [];
+  const subById = new Map(input.subscriptions.map((sub) => [sub.id, sub]));
+
+  for (const sub of input.subscriptions) {
+    if (sub.deletedAt || sub.status !== "active") continue;
+    const matches = transactions
+      .filter((t) => recurringMatchesTransaction(sub, t))
+      .sort((a, b) => b.timestamp - a.timestamp);
+    const latest = matches[0];
+    const lastChargeAt = latest?.timestamp ?? sub.lastSeen;
+    const lastChargeAmount = latest ? dollars(Math.abs(latest.amount)) : undefined;
+    const daysSinceLastCharge = lastChargeAt ? Math.floor((now - lastChargeAt) / DAY) : null;
+
+    if (latest && sub.amount > 0) {
+      const latestAmount = dollars(Math.abs(latest.amount));
+      const delta = Math.abs(latestAmount - sub.amount);
+      const relativeDelta = delta / sub.amount;
+      const meaningfulDelta =
+        relativeDelta >= 0.08 || delta >= Math.max(5, recurringAmountTolerance(sub) * 0.5);
+      if (meaningfulDelta) {
+        insights.push({
+          subscriptionId: sub.id,
+          kind: "amount-change",
+          reason: `Last charge was $${latestAmount.toLocaleString()} on ${shortDate(latest.timestamp)} (tracked as $${dollars(sub.amount).toLocaleString()}).`,
+          suggestedAmount: latestAmount,
+          lastChargeAmount,
+          lastChargeAt,
+          matchCount: matches.length,
+          daysSinceLastCharge,
+          confidence: Math.min(
+            0.98,
+            (matches.length > 1 ? 0.9 : 0.78) +
+              (daysSinceLastCharge !== null && daysSinceLastCharge <= cadenceGraceDays(sub)
+                ? 0.05
+                : 0),
+          ),
+        });
+        continue;
+      }
+    }
+
+    // Loans are critical and can be manually managed; do not suggest canceling
+    // them based only on missing statement charges. Amount-change still applies.
+    if (recurringKindOf(sub) === "loan") continue;
+
+    const grace = cadenceGraceDays(sub);
+    const ageDays = Math.floor((now - sub.createdAt) / DAY);
+
+    if (sub.cadence === "monthly") {
+      const currentMonth = monthKey(now);
+      const prevMonth = addMonthsKey(currentMonth, -1);
+      const monthsWithCharges = new Set(matches.map((match) => monthKey(match.timestamp)));
+      const hasChargeBeforePrevMonth = [...monthsWithCharges].some((month) => month < prevMonth);
+      const lastSeenBeforePrevMonth = sub.lastSeen != null && monthKey(sub.lastSeen) < prevMonth;
+      const hadHistoryBeforePrevMonth = hasChargeBeforePrevMonth || lastSeenBeforePrevMonth;
+      const missedPrevMonth = !monthsWithCharges.has(prevMonth);
+
+      if (hadHistoryBeforePrevMonth && missedPrevMonth) {
+        const kind = recurringKindOf(sub);
+        insights.push({
+          subscriptionId: sub.id,
+          kind: "likely-canceled",
+          reason: `No charge in ${formatMonthKey(prevMonth)} after earlier activity (expected monthly).`,
+          lastChargeAmount,
+          lastChargeAt,
+          matchCount: matches.length,
+          daysSinceLastCharge,
+          confidence: kind === "subscription" ? 0.85 : 0.7,
+        });
+        continue;
+      }
+    }
+
+    const oldEnough = ageDays > grace || (sub.lastSeen != null && now - sub.lastSeen > grace * DAY);
+    const missedExpectedCharge = daysSinceLastCharge === null || daysSinceLastCharge > grace;
+    if (!oldEnough || !missedExpectedCharge) continue;
+
+    const staleDays = daysSinceLastCharge ?? ageDays;
+    const kind = recurringKindOf(sub);
+    const baseConfidence =
+      (kind === "subscription" ? 0.78 : 0.62) - (daysSinceLastCharge === null ? 0.05 : 0);
+    const staleBoost = Math.min(0.15, Math.max(0, staleDays - grace) / 120);
+    insights.push({
+      subscriptionId: sub.id,
+      kind: "likely-canceled",
+      reason:
+        daysSinceLastCharge === null
+          ? `No matching charge found in ${lookbackDays} days (expected ${cadenceLabel(sub.cadence)}).`
+          : `No matching charge in ${staleDays} days (expected ${cadenceLabel(sub.cadence)}).`,
+      lastChargeAmount,
+      lastChargeAt,
+      matchCount: matches.length,
+      daysSinceLastCharge,
+      confidence: Math.min(0.95, baseConfidence + staleBoost + (sub.lastSeen ? 0.05 : 0)),
+    });
+  }
+
+  return insights.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "amount-change" ? -1 : 1;
+    const confidenceDelta = b.confidence - a.confidence;
+    if (Math.abs(confidenceDelta) > 0.001) return confidenceDelta;
+    const aSub = subById.get(a.subscriptionId);
+    const bSub = subById.get(b.subscriptionId);
+    return (
+      (bSub ? recurringInsightMonthlyImpact(bSub, b) : 0) -
+      (aSub ? recurringInsightMonthlyImpact(aSub, a) : 0)
+    );
+  });
 }
 
 export function transactionsForMonth(transactions: Transaction[], month: string): Transaction[] {
   return transactions.filter((t) => monthKey(t.timestamp) === month);
+}
+
+export function detectOneTimeCandidates(input: {
+  transactions: Transaction[];
+  subscriptions: Subscription[];
+  month: string;
+  monthlyTakeHome?: number;
+  lookbackDays?: number;
+  now?: number;
+}): OneTimeCandidate[] {
+  const now = input.now ?? Date.now();
+  const lookbackStart = now - (input.lookbackDays ?? 180) * DAY;
+  const activeSubscriptions = input.subscriptions.filter(
+    (sub) => !sub.deletedAt && sub.status === "active",
+  );
+  const monthTxns = transactionsForMonth(input.transactions, input.month).filter(
+    (t) => !t.deletedAt,
+  );
+  const expenseAbs = monthTxns
+    .filter((t) => t.amount < 0 && !t.excludeFromBudget && !!spendBucketOf(t.categoryGroup))
+    .map((t) => Math.abs(t.amount));
+  const fallbackFloor = 3 * median(expenseAbs);
+  const sizeFloor = Math.max(
+    100,
+    input.monthlyTakeHome && input.monthlyTakeHome > 0
+      ? 0.04 * input.monthlyTakeHome
+      : fallbackFloor,
+  );
+  const lookbackTxns = input.transactions.filter(
+    (t) => !t.deletedAt && t.timestamp >= lookbackStart && t.timestamp <= now,
+  );
+
+  return monthTxns
+    .flatMap((t): OneTimeCandidate[] => {
+      const bucket = spendBucketOf(t.categoryGroup);
+      if (!bucket || t.amount >= 0 || t.excludeFromBudget || t.oneTimeSuggestionDismissed)
+        return [];
+      if (t.recurringId || t.recurringSuggestedId) return [];
+      if (activeSubscriptions.some((sub) => recurringMatchesTransaction(sub, t))) return [];
+
+      const merchantKey = normalizedFinanceLabel(t.category);
+      if (!merchantKey) return [];
+      const merchantMatches = lookbackTxns.filter(
+        (candidate) => normalizedFinanceLabel(candidate.category) === merchantKey,
+      );
+      const distinctMonths = new Set(
+        merchantMatches.map((candidate) => monthKey(candidate.timestamp)),
+      );
+      if (distinctMonths.size > 1) return [];
+
+      const amount = Math.abs(t.amount);
+      if (amount < sizeFloor) return [];
+
+      const atLeastDouble = amount >= 2 * sizeFloor;
+      const confidence = Math.min(
+        0.95,
+        0.5 + (atLeastDouble ? 0.2 : 0) + (merchantMatches.length === 1 ? 0.15 : 0),
+      );
+      return [
+        {
+          transactionId: t.id,
+          amount,
+          timestamp: t.timestamp,
+          merchant: cleanMerchantName(t.category || t.notes || "Unknown merchant"),
+          categoryGroup: t.categoryGroup,
+          reason: atLeastDouble
+            ? "New merchant · 2× size threshold"
+            : "New merchant · large charge",
+          confidence,
+        },
+      ];
+    })
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+}
+
+export function buildBudgetInsight(input: {
+  transactions: Transaction[];
+  subscriptions: Subscription[];
+  month: string;
+  takeHome: number;
+  targets: { needs: number; wants: number; savings: number };
+  now?: number;
+}): BudgetInsight {
+  const now = input.now ?? Date.now();
+  const monthTxns = transactionsForMonth(input.transactions, input.month).filter(
+    (t) => !t.deletedAt,
+  );
+  const planBuckets = rollupMonth(monthTxns, input.month);
+  const recurring = recurringAdditionsForMonth(input.subscriptions, monthTxns);
+  const plannedRecurring = dollars(recurring.needs + recurring.wants + recurring.savings);
+  const planSpend = dollars(planBuckets.needs + planBuckets.wants + planBuckets.savings);
+  const activeSubscriptions = input.subscriptions.filter(
+    (sub) => !sub.deletedAt && sub.status === "active",
+  );
+  const variablePlanSpend = dollars(
+    monthTxns
+      .filter((t) => t.amount < 0 && !t.excludeFromBudget && !!spendBucketOf(t.categoryGroup))
+      .filter(
+        (t) =>
+          !t.recurringId && !activeSubscriptions.some((sub) => recurringMatchesTransaction(sub, t)),
+      )
+      .reduce((sum, t) => sum + Math.abs(t.amount), 0),
+  );
+  const fixedPlanSpend = dollars(Math.max(0, planSpend - variablePlanSpend));
+  const committedPlan = dollars(planSpend + plannedRecurring);
+  const oneTimeTxns = monthTxns.filter(
+    (t) => t.amount < 0 && t.excludeFromBudget && !!spendBucketOf(t.categoryGroup),
+  );
+  const oneTimeSpend = dollars(oneTimeTxns.reduce((sum, t) => sum + Math.abs(t.amount), 0));
+  const totalSpent = dollars(planSpend + oneTimeSpend);
+  const takeHome = positive(input.takeHome);
+  const actualNeeds = dollars(planBuckets.needs + recurring.needs);
+  const actualWants = dollars(planBuckets.wants + recurring.wants);
+  const actualSavings = dollars(planBuckets.savings + recurring.savings);
+  const bucketDeltas = {
+    needs: dollars(actualNeeds - takeHome * input.targets.needs),
+    wants: dollars(actualWants - takeHome * input.targets.wants),
+    savings: dollars(takeHome * input.targets.savings - actualSavings),
+  };
+  const currentMonth = monthKey(now);
+  const dayOfMonth = Math.max(1, new Date(now).getUTCDate());
+  const daysInMonth = daysInMonthUTC(now);
+  const projectedVariable = dollars((variablePlanSpend / dayOfMonth) * daysInMonth);
+  const projectedPlanSpend =
+    input.month === currentMonth
+      ? dollars(fixedPlanSpend + plannedRecurring + projectedVariable)
+      : null;
+
+  const lines: string[] = [];
+  if (takeHome > 0) {
+    lines.push(
+      `Committed so far: $${planSpend.toLocaleString()} plan + $${plannedRecurring.toLocaleString()} remaining recurring = $${committedPlan.toLocaleString()} of $${dollars(takeHome).toLocaleString()} take-home.`,
+    );
+  }
+  const projectedVariableExtra = dollars(projectedVariable - variablePlanSpend);
+  if (
+    projectedPlanSpend !== null &&
+    takeHome > 0 &&
+    dayOfMonth >= 5 &&
+    variablePlanSpend > 0 &&
+    projectedVariableExtra > Math.max(50, 0.02 * takeHome)
+  ) {
+    lines.push(
+      projectedPlanSpend > takeHome
+        ? `Variable spending is on track to push plan load over take-home (~$${projectedPlanSpend.toLocaleString()} vs $${dollars(takeHome).toLocaleString()}).`
+        : `At this pace, variable spending projects to $${projectedVariable.toLocaleString()} this month; total plan load ~$${projectedPlanSpend.toLocaleString()} (take-home $${dollars(takeHome).toLocaleString()}).`,
+    );
+  }
+  if (takeHome > 0) {
+    const pressure = [
+      { key: "needs", value: bucketDeltas.needs },
+      { key: "wants", value: bucketDeltas.wants },
+      { key: "savings", value: bucketDeltas.savings },
+    ].sort((a, b) => b.value - a.value)[0];
+    if (pressure.value > 0) {
+      lines.push(
+        pressure.key === "needs"
+          ? `Needs are $${dollars(pressure.value).toLocaleString()} over plan. Verify bills, loan payments, and one-time charges first.`
+          : pressure.key === "wants"
+            ? `Wants are $${dollars(pressure.value).toLocaleString()} over plan. Move essentials or mark true one-time charges.`
+            : `Savings is $${dollars(pressure.value).toLocaleString()} short of the monthly target. Add or verify an automatic transfer.`,
+      );
+    } else {
+      lines.push("This month is on plan so far. Keep verifying recurring payments as they land.");
+    }
+  }
+  const biggestOneTime = oneTimeTxns.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))[0];
+  if (biggestOneTime) {
+    lines.push(
+      `Biggest one-time: ${cleanMerchantName(biggestOneTime.category || biggestOneTime.notes || "Unknown merchant")}, $${dollars(Math.abs(biggestOneTime.amount)).toLocaleString()} — tracked, not counted against the plan.`,
+    );
+  }
+  if (bucketDeltas.savings > 0) {
+    lines.push(
+      `Savings shortfall: $${dollars(bucketDeltas.savings).toLocaleString()} left to hit this month’s target.`,
+    );
+  }
+
+  return {
+    planSpend,
+    committedPlan,
+    variablePlanSpend,
+    oneTimeSpend,
+    oneTimeCount: oneTimeTxns.length,
+    plannedRecurring,
+    totalSpent,
+    remainingCash: dollars(takeHome - totalSpent),
+    bucketDeltas,
+    projectedPlanSpend,
+    lines: lines.slice(0, 4),
+  };
+}
+
+function daysInMonthUTC(timestamp: number): number {
+  const d = new Date(timestamp);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
 }
 
 export function buildCashFlowProjection(input: CashFlowProjectionInput): CashFlowProjection {
@@ -314,7 +754,13 @@ export function recurringItemsForMonth(
         seenThisMonth,
       ),
       matchedTxn: matched
-        ? { timestamp: matched.timestamp, amount: matched.amount, account: matched.account }
+        ? {
+            id: matched.id,
+            timestamp: matched.timestamp,
+            amount: matched.amount,
+            account: matched.account,
+            matchSource: matched.recurringMatchSource,
+          }
         : undefined,
     });
   }

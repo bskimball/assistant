@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { Subscription, Transaction, UserProfile } from "@/lib/domain";
 import {
   addUnseenRecurringToBuckets,
+  buildBudgetInsight,
+  analyzeRecurringHealth,
   buildCashFlowProjection,
   calculateEmergencyFund,
+  detectOneTimeCandidates,
   fallbackFinanceAdvice,
   recurringItemsForMonth,
   recurringMatchesTransaction,
@@ -28,6 +31,11 @@ function txn(partial: Partial<Transaction>): Transaction {
     account: partial.account,
     notes: partial.notes,
     excludeFromBudget: partial.excludeFromBudget,
+    recurringId: partial.recurringId,
+    recurringMatchSource: partial.recurringMatchSource,
+    recurringMatchConfidence: partial.recurringMatchConfidence,
+    recurringSuggestedId: partial.recurringSuggestedId,
+    oneTimeSuggestionDismissed: partial.oneTimeSuggestionDismissed,
     deletedAt: partial.deletedAt,
   };
 }
@@ -82,11 +90,66 @@ describe("finance math", () => {
     ).toBe(true);
   });
 
+  it("matches variable monthly bills inside the wider bill tolerance", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Comcast Xfinity", amount: 186, kind: "bill" }),
+        txn({ amount: -208, category: "Comcast Xfinity" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps loan matching tight when payment amounts drift", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Jeep payment", amount: 418, kind: "loan" }),
+        txn({ amount: -500, category: "Jeep payment" }),
+      ),
+    ).toBe(false);
+  });
+
   it("does not match recurring subscriptions by hint when the amount is outside tolerance", () => {
     expect(
       recurringMatchesTransaction(
         sub({ name: "Jeep payment", amount: 418, matchHints: ["truist"] }),
         txn({ amount: -500, category: "TRUIST IL PYMT" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("lets explicit recurring links win over amount and name heuristics", () => {
+    const subA = sub({ id: "subA", name: "Jeep payment", amount: 418 });
+    const subB = sub({ id: "subB", name: "Netflix", amount: 999 });
+    const linked = txn({
+      amount: -999,
+      category: "TOTALLY UNRELATED",
+      recurringId: "subA",
+      recurringMatchSource: "ai",
+    });
+
+    expect(recurringMatchesTransaction(subA, linked)).toBe(true);
+    expect(recurringMatchesTransaction(subB, linked)).toBe(false);
+  });
+
+  it("honors explicit user unlink veto before heuristic matching", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ name: "Jeep payment", amount: 418, account: "Manual", matchHints: ["truist"] }),
+        txn({
+          amount: -418.5,
+          category: "TRUIST IL PYMT",
+          account: "Checking",
+          recurringMatchSource: "user",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("never matches deposits even with an explicit recurring id", () => {
+    expect(
+      recurringMatchesTransaction(
+        sub({ id: "subA", name: "Payroll", amount: 1000 }),
+        txn({ amount: 1000, category: "Payroll", recurringId: "subA" }),
       ),
     ).toBe(false);
   });
@@ -104,6 +167,303 @@ describe("finance math", () => {
         txn({ amount: -20, category: "Unknown charge", account: "checking" }),
       ),
     ).toBe(false);
+  });
+
+  it("flags a novel large needs charge as a one-time candidate", () => {
+    const now = Date.UTC(2026, 0, 20);
+    const candidates = detectOneTimeCandidates({
+      now,
+      month: "2026-01",
+      monthlyTakeHome: 5000,
+      subscriptions: [],
+      transactions: [
+        txn({
+          id: "legal",
+          timestamp: Date.UTC(2026, 0, 10),
+          amount: -400,
+          category: "Legal Aid",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "grocery",
+          timestamp: Date.UTC(2026, 0, 11),
+          amount: -90,
+          category: "Market",
+          categoryGroup: "needs",
+        }),
+      ],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      transactionId: "legal",
+      amount: 400,
+      merchant: "Legal Aid",
+      reason: "New merchant · 2× size threshold",
+    });
+  });
+
+  it("skips non-candidates for one-time detection", () => {
+    const now = Date.UTC(2026, 0, 20);
+    const netflix = sub({ id: "netflix", name: "Netflix", amount: 15 });
+    const candidates = detectOneTimeCandidates({
+      now,
+      month: "2026-01",
+      monthlyTakeHome: 5000,
+      subscriptions: [netflix],
+      transactions: [
+        txn({ id: "subscription", amount: -15, category: "Netflix", categoryGroup: "wants" }),
+        txn({ id: "small", amount: -40, category: "Small Novel", categoryGroup: "wants" }),
+        txn({
+          id: "dismissed",
+          amount: -500,
+          category: "Dismissed",
+          categoryGroup: "needs",
+          oneTimeSuggestionDismissed: true,
+        }),
+        txn({
+          id: "excluded",
+          amount: -500,
+          category: "Excluded",
+          categoryGroup: "needs",
+          excludeFromBudget: true,
+        }),
+        txn({ id: "income", amount: 500, category: "Payroll", categoryGroup: "income" }),
+        txn({
+          id: "transfer",
+          amount: -500,
+          category: "Credit Card Payment",
+          categoryGroup: "transfer",
+        }),
+      ],
+    });
+
+    expect(candidates).toEqual([]);
+  });
+
+  it("builds budget insight with one-time spend outside plan totals", () => {
+    const insight = buildBudgetInsight({
+      now: Date.UTC(2026, 0, 15),
+      month: "2026-01",
+      takeHome: 5000,
+      targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      subscriptions: [sub({ id: "gym", name: "Gym", amount: 50, group: "wants" })],
+      transactions: [
+        txn({ id: "rent", amount: -2000, category: "Rent", categoryGroup: "needs" }),
+        txn({ id: "dining", amount: -600, category: "Dining", categoryGroup: "wants" }),
+        txn({
+          id: "legal",
+          amount: -400,
+          category: "Legal Aid",
+          categoryGroup: "needs",
+          excludeFromBudget: true,
+        }),
+        txn({ id: "save", amount: -500, category: "Savings", categoryGroup: "savings" }),
+      ],
+    });
+
+    expect(insight.planSpend).toBe(3100);
+    expect(insight.oneTimeSpend).toBe(400);
+    expect(insight.oneTimeCount).toBe(1);
+    expect(insight.plannedRecurring).toBe(50);
+    expect(insight.committedPlan).toBe(3150);
+    expect(insight.variablePlanSpend).toBe(3100);
+    expect(insight.totalSpent).toBe(3500);
+    expect(insight.remainingCash).toBe(1500);
+    expect(insight.bucketDeltas.needs).toBe(-500);
+    expect(insight.bucketDeltas.wants).toBe(-850);
+    expect(insight.bucketDeltas.savings).toBe(500);
+    expect(insight.projectedPlanSpend).toBeCloseTo(6456.67, 2);
+    expect(insight.lines[0]).toContain("Committed so far");
+    expect(insight.lines[0]).toContain("$3,100 plan + $50 remaining recurring = $3,150");
+    expect(insight.lines.length).toBeLessThanOrEqual(4);
+    expect(insight.lines.join(" ")).toContain("Biggest one-time: Legal Aid, $400");
+  });
+
+  it("does not extrapolate fixed early-month bills as variable budget pace", () => {
+    const now = Date.UTC(2026, 0, 3);
+    const insight = buildBudgetInsight({
+      now,
+      month: "2026-01",
+      takeHome: 11000,
+      targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      subscriptions: [
+        sub({ id: "mortgage", name: "Rocket Mortgage", amount: 3275, kind: "loan" }),
+        sub({ id: "other-bills", name: "Other Bills", amount: 2000, kind: "bill" }),
+      ],
+      transactions: [
+        txn({
+          id: "mortgage-charge",
+          timestamp: now,
+          amount: -3275,
+          category: "Rocket Mortgage",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "coffee",
+          timestamp: now,
+          amount: -25,
+          category: "Coffee Shop",
+          categoryGroup: "wants",
+        }),
+      ],
+    });
+
+    expect(insight.planSpend).toBe(3300);
+    expect(insight.plannedRecurring).toBe(2000);
+    expect(insight.committedPlan).toBe(5300);
+    expect(insight.variablePlanSpend).toBe(25);
+    expect(insight.projectedPlanSpend).toBeCloseTo(5533.33, 2);
+    expect(insight.projectedPlanSpend).toBeLessThan(11000 * 1.5);
+    expect(insight.lines[0]).toContain("Committed so far");
+    expect(insight.lines.join(" ")).not.toContain("At this pace");
+  });
+
+  it("surfaces a Comcast-style statement amount change", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({ id: "comcast", name: "Comcast Xfinity", amount: 186, kind: "bill", createdAt: jan }),
+      ],
+      transactions: [
+        txn({ timestamp: Date.UTC(2026, 6, 6), amount: -208, category: "Comcast Xfinity" }),
+      ],
+    });
+
+    expect(insights).toHaveLength(1);
+    expect(insights[0]).toMatchObject({
+      subscriptionId: "comcast",
+      kind: "amount-change",
+      suggestedAmount: 208,
+      lastChargeAmount: 208,
+      matchCount: 1,
+    });
+  });
+
+  it("surfaces a Halo-style likely cancellation when the previous complete month is missed", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const oldCharge = Date.UTC(2026, 4, 15);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({
+          id: "halo",
+          name: "Halocollar Haloco",
+          amount: 21,
+          kind: "subscription",
+          lastSeen: oldCharge,
+        }),
+      ],
+      transactions: [txn({ timestamp: oldCharge, amount: -21, category: "Halocollar Haloco" })],
+    });
+
+    expect(insights).toHaveLength(1);
+    expect(insights[0]).toMatchObject({
+      subscriptionId: "halo",
+      kind: "likely-canceled",
+      matchCount: 1,
+    });
+    expect(insights[0].reason).toContain("No charge in June 2026");
+  });
+
+  it("does not cancel a monthly commitment that charged in the previous complete month", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({
+          id: "halo",
+          name: "Halocollar Haloco",
+          amount: 21,
+          kind: "subscription",
+          createdAt: jan,
+          lastSeen: Date.UTC(2026, 5, 20),
+        }),
+      ],
+      transactions: [
+        txn({ timestamp: Date.UTC(2026, 5, 20), amount: -21, category: "Halocollar Haloco" }),
+      ],
+    });
+
+    expect(insights).toEqual([]);
+  });
+
+  it("surfaces a weekly likely cancellation after the grace window", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const oldCharge = now - 25 * 24 * 60 * 60 * 1000;
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({
+          id: "cleaner",
+          name: "Cleaner",
+          amount: 100,
+          cadence: "weekly",
+          kind: "bill",
+          createdAt: jan,
+          lastSeen: oldCharge,
+        }),
+      ],
+      transactions: [txn({ timestamp: oldCharge, amount: -100, category: "Cleaner" })],
+    });
+
+    expect(insights).toHaveLength(1);
+    expect(insights[0]).toMatchObject({
+      subscriptionId: "cleaner",
+      kind: "likely-canceled",
+      daysSinceLastCharge: 25,
+    });
+  });
+
+  it("does not cancel an active monthly commitment that charged this week", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [sub({ id: "gym", name: "YMCA", amount: 40, kind: "subscription" })],
+      transactions: [txn({ timestamp: Date.UTC(2026, 6, 7), amount: -40, category: "YMCA" })],
+    });
+
+    expect(insights).toEqual([]);
+  });
+
+  it("does not mark loans likely canceled when there is no recent charge", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({ id: "loan", name: "Auto Loan", amount: 418, kind: "loan", createdAt: jan }),
+      ],
+      transactions: [],
+    });
+
+    expect(insights).toEqual([]);
+  });
+
+  it("skips canceled subscriptions", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({ id: "old", name: "Old Streaming", amount: 10, status: "canceled", createdAt: jan }),
+      ],
+      transactions: [],
+    });
+
+    expect(insights).toEqual([]);
+  });
+
+  it("ignores small recurring amount noise", () => {
+    const now = Date.UTC(2026, 6, 10);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [sub({ id: "comcast", name: "Comcast Xfinity", amount: 186, kind: "bill" })],
+      transactions: [
+        txn({ timestamp: Date.UTC(2026, 6, 6), amount: -187, category: "Comcast Xfinity" }),
+      ],
+    });
+
+    expect(insights).toEqual([]);
   });
 
   it("rolls up a month while excluding transfers, deleted rows, and one-time charges", () => {
@@ -193,10 +553,39 @@ describe("finance math", () => {
 
     // Most recent of the two Netflix matches wins (raw signed amount + account).
     expect(netflix?.seenThisMonth).toBe(true);
-    expect(netflix?.matchedTxn).toEqual({ timestamp: late, amount: -14.99, account: "Amex" });
+    expect(netflix?.matchedTxn).toEqual({
+      id: "new",
+      timestamp: late,
+      amount: -14.99,
+      account: "Amex",
+      matchSource: undefined,
+    });
     // Unmatched item carries no matchedTxn and is not seen.
     expect(gym?.seenThisMonth).toBe(false);
     expect(gym?.matchedTxn).toBeUndefined();
+  });
+
+  it("surfaces matched transaction id and AI match source for explicit links", () => {
+    const subscriptions = [sub({ id: "jeep", name: "Jeep payment", amount: 418, kind: "loan" })];
+    const txns = [
+      txn({
+        id: "ai-match",
+        amount: -500,
+        category: "TRUIST IL PYMT",
+        recurringId: "jeep",
+        recurringMatchSource: "ai",
+      }),
+    ];
+
+    const jeep = recurringItemsForMonth(subscriptions, txns).needs[0];
+
+    expect(jeep.seenThisMonth).toBe(true);
+    expect(jeep.remainingMonthlyAmount).toBe(0);
+    expect(jeep.matchedTxn).toMatchObject({
+      id: "ai-match",
+      matchSource: "ai",
+      amount: -500,
+    });
   });
 
   it("filters transactions by stable UTC month key", () => {

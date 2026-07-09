@@ -349,10 +349,29 @@ export interface Transaction extends BaseEntity {
   source?: "manual" | "import" | "sync";
   /**
    * One-off charges (legal fees, a single big purchase) the user has marked so
-   * they don't count against the recurring 50/30/20 monthly plan. Still shown
-   * in lists and totals like spending; only the budget comparison ignores them.
+   * they don't count against the recurring 50/30/20 monthly plan. This is still
+   * tracked money and still shown in lists/totals; only plan comparison ignores it.
    */
   excludeFromBudget?: boolean;
+  /** User dismissed the one-time suggestion; heuristics must not re-propose. */
+  oneTimeSuggestionDismissed?: boolean;
+  /**
+   * Recurring item this charge pays. Set by AI enrichment at ingest or by the
+   * user via "Link charge"; explicit links win over heuristic matching.
+   */
+  recurringId?: string;
+  /**
+   * Who decided the recurring link. "user" without `recurringId` means the
+   * user explicitly unlinked this charge, so heuristics must not reclaim it.
+   */
+  recurringMatchSource?: "ai" | "user";
+  /** Model confidence (0-1) for AI recurring matches. */
+  recurringMatchConfidence?: number;
+  /**
+   * Low-confidence AI match surfaced as a link suggestion, never counted in
+   * budget math until the user confirms it.
+   */
+  recurringSuggestedId?: string;
 }
 
 /* ---------- Budget (50/30/20) — ref object `budget.json` ---------- */

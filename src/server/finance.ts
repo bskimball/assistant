@@ -39,14 +39,26 @@ import {
   parseCsv,
   parseDate,
   parseMoney,
+  ruleGroupFor,
 } from "@/server/finance-parse";
+import {
+  cachedGroupFor,
+  enrichNewTransactions,
+  loadAiMatchCache,
+  rememberUserRecurringLink,
+  rememberUserRecurringUnlink,
+  rescanUnmatchedCharges,
+  type RescanStats,
+} from "@/server/finance-ai-match";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import { fetchQuotes } from "@/server/adapters/quotes";
 import {
   addUnseenRecurringToBuckets,
+  analyzeRecurringHealth,
   fallbackFinanceAdvice,
   monthKey,
   rollupMonth,
+  type RecurringInsight,
   type MonthBuckets,
 } from "@/lib/finance-math";
 import {
@@ -182,6 +194,7 @@ export const importTransactions = createServerFn({ method: "POST" })
 
       return parsed.length ? [...transactions, ...parsed] : transactions;
     });
+    await enrichNewTransactions(parsed, { manual: true });
 
     return {
       added: parsed.length,
@@ -421,6 +434,88 @@ export const setTransactionExcluded = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const dismissOneTimeSuggestion = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const now = Date.now();
+    await updateTransactionsImpl((transactions) =>
+      transactions.map((t) =>
+        t.id === data.id ? { ...t, oneTimeSuggestionDismissed: true, updatedAt: now } : t,
+      ),
+    );
+    return { ok: true };
+  });
+
+export const linkRecurringCharge = createServerFn({ method: "POST" })
+  .validator((data: { subId: string; txnId: string }) => data)
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { subId, txnId } = data as { subId: string; txnId: string };
+    const [{ subscriptions }, { transactions }] = await Promise.all([
+      loadSubscriptionsImpl(),
+      loadTransactionsImpl(),
+    ]);
+    const sub = subscriptions.find((s) => s.id === subId && !s.deletedAt);
+    const txn = transactions.find((t) => t.id === txnId && !t.deletedAt);
+    if (!sub || !txn) throw new Error("Recurring item or transaction not found.");
+
+    const raw = (txn.category || txn.notes || "").trim();
+    const hint = cleanMerchantName(raw).toLowerCase() || raw.toLowerCase().slice(0, 24);
+    if (hint) {
+      const nextHints = Array.from(new Set([...(sub.matchHints ?? []), hint]));
+      await saveSubscriptionsImpl({
+        subscriptions: subscriptions.map((s) =>
+          s.id === subId ? { ...s, matchHints: nextHints, updatedAt: Date.now() } : s,
+        ),
+      });
+    }
+
+    await updateTransactionsImpl((existing) =>
+      existing.map((t) =>
+        t.id === txnId
+          ? {
+              ...t,
+              recurringId: subId,
+              recurringMatchSource: "user",
+              recurringMatchConfidence: undefined,
+              recurringSuggestedId: undefined,
+              updatedAt: Date.now(),
+            }
+          : t,
+      ),
+    );
+    await rememberUserRecurringLink(txn, subId);
+    return { ok: true };
+  });
+
+export const unlinkRecurringCharge = createServerFn({ method: "POST" })
+  .validator((data: { txnId: string }) => data)
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { txnId } = data as { txnId: string };
+    let target: Transaction | undefined;
+    let rejectedSubId: string | undefined;
+    await updateTransactionsImpl((transactions) =>
+      transactions.map((t) => {
+        if (t.id !== txnId) return t;
+        target = t;
+        rejectedSubId = t.recurringId;
+        return {
+          ...t,
+          recurringId: undefined,
+          recurringSuggestedId: undefined,
+          recurringMatchSource: "user",
+          recurringMatchConfidence: undefined,
+          updatedAt: Date.now(),
+        };
+      }),
+    );
+    if (!target) throw new Error("Transaction not found.");
+    await rememberUserRecurringUnlink(target, rejectedSubId);
+    return { ok: true };
+  });
+
 /**
  * Re-apply categorization to every stored transaction using the current
  * keyword map + learned rules. Manual recategorizations are saved as rules
@@ -431,7 +526,7 @@ export const recategorizeAllTransactions = createServerFn({ method: "POST" })
   .validator((data: Record<string, never> | undefined) => data ?? {})
   .handler(async (): Promise<{ changed: number; total: number }> => {
     await requireAuthSession();
-    const rules = (await loadCategoryRulesImpl()).rules;
+    const [{ rules }, aiCache] = await Promise.all([loadCategoryRulesImpl(), loadAiMatchCache()]);
     const now = Date.now();
     let changed = 0;
     let total = 0;
@@ -441,13 +536,24 @@ export const recategorizeAllTransactions = createServerFn({ method: "POST" })
       total = transactions.length;
       return transactions.map((t) => {
         if (t.deletedAt) return t;
-        const group = categorize(t.category || "", t.amount, rules);
+        const desc = t.category || "";
+        const group =
+          ruleGroupFor(desc, rules) ??
+          cachedGroupFor(desc, aiCache) ??
+          categorize(desc, t.amount, rules);
         if (group === t.categoryGroup) return t;
         changed++;
         return { ...t, categoryGroup: group, updatedAt: now };
       });
     });
     return { changed, total };
+  });
+
+export const rescanRecurringMatches = createServerFn({ method: "POST" })
+  .validator((data: Record<string, never> | undefined) => data ?? {})
+  .handler(async (): Promise<RescanStats> => {
+    await requireAuthSession();
+    return rescanUnmatchedCharges({ manual: true });
   });
 
 /* ============================================================
@@ -481,6 +587,7 @@ export interface FinanceHubPayload {
   budget: BudgetPayload | null;
   subscriptions: Subscription[];
   transactions: Transaction[];
+  recurringInsights: RecurringInsight[];
 }
 
 async function loadFinanceSnapshotForHub(
@@ -500,13 +607,59 @@ export const loadFinanceHub = createServerFn({ method: "GET" })
       loadSubscriptionsImpl(),
       loadTransactionsImpl(),
     ]);
+    const subscriptions = subs.subscriptions.filter((s) => !s.deletedAt);
+    const transactions = txns.transactions.filter((t) => !t.deletedAt);
     return {
       snapshot: snapshotInfo.snapshot,
       snapshotSourceDate: snapshotInfo.sourceDate,
       budget,
-      subscriptions: subs.subscriptions.filter((s) => !s.deletedAt),
-      transactions: txns.transactions.filter((t) => !t.deletedAt),
+      subscriptions,
+      transactions,
+      recurringInsights: analyzeRecurringHealth({ subscriptions, transactions }),
     };
+  });
+
+export type ApplyRecurringInsightAction = "update-amount" | "cancel";
+
+export const applyRecurringInsight = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      subscriptionId: string;
+      action: ApplyRecurringInsightAction;
+      amount?: number;
+      lastSeen?: number;
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    await requireAuthSession();
+    const subscriptionId = data.subscriptionId?.trim();
+    if (!subscriptionId) throw new Error("subscriptionId is required");
+
+    const [subsStore, txnStore] = await Promise.all([
+      loadSubscriptionsImpl(),
+      loadTransactionsImpl(),
+    ]);
+    const subscriptions = subsStore.subscriptions.filter((s) => !s.deletedAt);
+    const insight = analyzeRecurringHealth({
+      subscriptions,
+      transactions: txnStore.transactions.filter((t) => !t.deletedAt),
+    }).find((item) => item.subscriptionId === subscriptionId);
+
+    const next = subsStore.subscriptions.map((sub) => {
+      if (sub.id !== subscriptionId) return sub;
+      if (data.action === "cancel") return { ...sub, status: "canceled" as const };
+
+      const amount = Number(data.amount);
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("amount must be positive");
+      return {
+        ...sub,
+        amount: Math.round(amount * 100) / 100,
+        lastSeen: insight?.lastChargeAt ?? data.lastSeen ?? sub.lastSeen,
+      };
+    });
+
+    await saveSubscriptionsImpl({ subscriptions: next });
+    return { ok: true };
   });
 
 /* ============================================================

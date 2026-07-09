@@ -18,6 +18,7 @@ import {
   type SimplefinPayload,
 } from "@/server/adapters/simplefin";
 import { categorize } from "@/server/finance-parse";
+import { enrichNewTransactions } from "@/server/finance-ai-match";
 import {
   loadCategoryRulesImpl,
   loadLatestDailyFinanceImpl,
@@ -361,14 +362,18 @@ async function updateLinkedLoans(
 async function ingestTransactions(
   state: SimplefinState,
   payload: SimplefinPayload,
-): Promise<number> {
-  if (!state.cutoverDate && !Object.keys(state.accountCutovers ?? {}).length) return 0;
+): Promise<{ added: number; newTxns: Transaction[] }> {
+  if (!state.cutoverDate && !Object.keys(state.accountCutovers ?? {}).length) {
+    return { added: 0, newTxns: [] };
+  }
   const rules = (await loadCategoryRulesImpl()).rules;
   const now = Date.now();
   let added = 0;
+  let newTxns: Transaction[] = [];
 
   await updateTransactionsImpl((transactions) => {
     added = 0;
+    newTxns = [];
     const seen = new Set(
       transactions
         .filter((t) => !t.deletedAt)
@@ -389,7 +394,7 @@ async function ingestTransactions(
         const amount = parseSimplefinMoney(sfinTxn.amount);
         if (!amount) continue;
         const description = sfinTxn.description || "SimpleFIN transaction";
-        next.push({
+        const txn: Transaction = {
           id: newId("txn"),
           createdAt: now,
           timestamp: sfinTxn.posted * 1000,
@@ -401,13 +406,15 @@ async function ingestTransactions(
           categoryGroup: categorize(description, amount, rules),
           dedupeKey,
           source: "sync",
-        });
+        };
+        next.push(txn);
+        newTxns.push(txn);
         added++;
       }
     }
     return next;
   });
-  return added;
+  return { added, newTxns };
 }
 
 async function resolveAccessUrl(
@@ -514,7 +521,11 @@ export async function runSimplefinSyncImpl(args: {
   const syncState = { ...state, cutoverDate: effectiveCutover };
   const deadLinks = await updateLinkedLoans(syncState, fetchResult.payload);
   for (const accountId of Object.keys(deadLinks)) delete syncState.loanLinks[accountId];
-  const transactionCount = await ingestTransactions(syncState, fetchResult.payload);
+  const { added: transactionCount, newTxns } = await ingestTransactions(
+    syncState,
+    fetchResult.payload,
+  );
+  await enrichNewTransactions(newTxns, { manual: args.manual });
 
   const today = todayISO();
   const { snapshot: currentSnapshot } = await loadLatestDailyFinanceImpl(today);
@@ -610,10 +621,11 @@ export async function backfillSimplefinHistoryImpl(
     ...state,
     accountCutovers: { ...state.accountCutovers, [accountId]: backfillDay },
   };
-  const added = await ingestTransactions(backfillState, {
+  const { added, newTxns } = await ingestTransactions(backfillState, {
     ...fetchResult.payload,
     accounts: [account],
   });
+  await enrichNewTransactions(newTxns, { manual: true });
 
   // Persist the earlier cutover so daily syncs keep accepting this window and
   // re-running the backfill stays idempotent (sfin-id dedupe absorbs re-pulls).

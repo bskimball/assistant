@@ -272,16 +272,25 @@ export function normalizeMerchant(desc: string): string {
     .trim();
 }
 
+export function ruleGroupFor(
+  description: string,
+  rules: Record<string, CategoryGroup>,
+): CategoryGroup | null {
+  const norm = normalizeMerchant(description);
+  for (const [key, group] of Object.entries(rules)) {
+    if (norm.includes(key)) return group;
+  }
+  return null;
+}
+
 export function categorize(
   description: string,
   amount: number,
   rules: Record<string, CategoryGroup>,
 ): CategoryGroup {
-  const norm = normalizeMerchant(description);
   // Learned overrides win.
-  for (const [key, group] of Object.entries(rules)) {
-    if (norm.includes(key)) return group;
-  }
+  const ruleGroup = ruleGroupFor(description, rules);
+  if (ruleGroup) return ruleGroup;
   const haystack = description.toLowerCase();
   for (const { group, keywords } of KEYWORD_GROUPS) {
     if (keywords.some((k) => haystack.includes(k))) return group;
