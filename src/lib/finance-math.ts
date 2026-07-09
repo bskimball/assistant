@@ -221,8 +221,164 @@ export function monthKey(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 7);
 }
 
+/**
+ * Normalize a bank descriptor for grouping/dedupe: lowercase, strip long numbers
+ * (store ids, phones), drop non-alpha noise. Kept separate from
+ * `normalizedFinanceLabel` (which title-cleans for display matching) so raw
+ * statement variants still collapse to one merchant key.
+ */
+export function normalizeMerchant(desc: string): string {
+  return desc
+    .toLowerCase()
+    .replace(/\b\d{2,}\b/g, "") // strip long numbers (store ids, dates)
+    .replace(/[^a-z& ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Map an average inter-charge gap (days) to a known cadence, or null if irregular. */
+export function inferCadence(intervalDays: number): Subscription["cadence"] | null {
+  if (intervalDays >= 5 && intervalDays <= 9) return "weekly";
+  if (intervalDays >= 26 && intervalDays <= 35) return "monthly";
+  if (intervalDays >= 350 && intervalDays <= 380) return "annual";
+  return null;
+}
+
 export function normalizedFinanceLabel(raw?: string): string {
   return cleanMerchantName(raw || "").toLowerCase();
+}
+
+/** Same-day multi-membership noise; gaps shorter than this are ignored for cadence. */
+const MIN_RECURRING_INTERVAL_DAYS = 3;
+/** Charges within this fraction of a cluster's median amount share a stream. */
+const RECURRING_AMOUNT_CLUSTER_TOLERANCE = 0.15;
+/**
+ * When a stored item shares a name token with a cluster but amounts drifted
+ * (price hike), still suppress re-detection within this band.
+ */
+const RECURRING_STORED_DRIFT_TOLERANCE = 0.25;
+
+/**
+ * Detect new recurring outflows from the ledger. Groups by merchant, then by
+ * amount band (so three gym memberships at different prices become three
+ * candidates), infers cadence from median inter-charge gap after dropping
+ * same-day noise, and suppresses clusters that already match a stored item.
+ *
+ * Pure: no I/O. Caller assigns `id`/`createdAt` before persisting.
+ */
+export function detectRecurringCandidates(input: {
+  transactions: Transaction[];
+  subscriptions: Subscription[];
+  now?: number;
+  lookbackDays?: number;
+}): Array<Omit<Subscription, "id" | "createdAt">> {
+  const now = input.now ?? Date.now();
+  const lookbackDays = input.lookbackDays ?? 180;
+  const cutoff = now - lookbackDays * DAY;
+  const stored = input.subscriptions.filter((s) => !s.deletedAt);
+
+  const groups = new Map<string, Transaction[]>();
+  for (const t of input.transactions) {
+    if (t.deletedAt || t.amount >= 0 || t.timestamp < cutoff) continue;
+    if (t.categoryGroup === "transfer") continue;
+    // Already linked to a tracked item — don't re-propose that stream.
+    if (t.recurringId) continue;
+    const key = normalizeMerchant(t.category || "");
+    if (!key) continue;
+    const arr = groups.get(key) ?? [];
+    arr.push(t);
+    groups.set(key, arr);
+  }
+
+  const candidates: Array<Omit<Subscription, "id" | "createdAt">> = [];
+  for (const charges of groups.values()) {
+    for (const cluster of clusterTransactionsByAmount(charges)) {
+      if (cluster.length < 2) continue;
+      if (isRecurringClusterAlreadyTracked(cluster, stored)) continue;
+
+      const sorted = [...cluster].sort((a, b) => a.timestamp - b.timestamp);
+      const intervals: number[] = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const days = (sorted[i].timestamp - sorted[i - 1].timestamp) / DAY;
+        if (days >= MIN_RECURRING_INTERVAL_DAYS) intervals.push(days);
+      }
+      if (!intervals.length) continue;
+      const cadence = inferCadence(median(intervals));
+      if (!cadence) continue;
+
+      const amounts = sorted.map((c) => Math.abs(c.amount));
+      const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
+      if (avgAmount <= 0) continue;
+      const stable = amounts.every(
+        (a) => Math.abs(a - avgAmount) <= avgAmount * RECURRING_AMOUNT_CLUSTER_TOLERANCE,
+      );
+      if (!stable) continue;
+
+      const last = sorted[sorted.length - 1];
+      candidates.push({
+        name: cleanMerchantName(last.category || last.notes || "Unknown"),
+        amount: dollars(avgAmount),
+        cadence,
+        status: "active",
+        source: "detected",
+        lastSeen: last.timestamp,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a));
+  return candidates;
+}
+
+/** Greedy amount bands: sort by abs amount, open a new cluster when >15% off median. */
+function clusterTransactionsByAmount(txns: Transaction[]): Transaction[][] {
+  const sorted = [...txns].sort((a, b) => Math.abs(a.amount) - Math.abs(b.amount));
+  const clusters: Transaction[][] = [];
+  for (const t of sorted) {
+    const amt = Math.abs(t.amount);
+    const last = clusters[clusters.length - 1];
+    if (!last) {
+      clusters.push([t]);
+      continue;
+    }
+    const med = median(last.map((x) => Math.abs(x.amount)));
+    if (med > 0 && Math.abs(amt - med) <= med * RECURRING_AMOUNT_CLUSTER_TOLERANCE) {
+      last.push(t);
+    } else {
+      clusters.push([t]);
+    }
+  }
+  return clusters;
+}
+
+/**
+ * Suppress a candidate cluster when it already corresponds to a tracked item:
+ * heuristic match on the latest charge, or name-token + amount within drift.
+ * Does NOT bare-match on merchant name alone — that would hide a second gym
+ * membership at a different price once the first is saved.
+ */
+function isRecurringClusterAlreadyTracked(
+  cluster: Transaction[],
+  stored: Subscription[],
+): boolean {
+  if (!stored.length) return false;
+  const latest = [...cluster].sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (stored.some((sub) => recurringMatchesTransaction(sub, latest))) return true;
+
+  const clusterAvg =
+    cluster.reduce((sum, t) => sum + Math.abs(t.amount), 0) / Math.max(cluster.length, 1);
+  const descriptor = latest.category || latest.notes || "";
+  for (const sub of stored) {
+    const nameClose =
+      normalizeMerchant(sub.name) === normalizeMerchant(descriptor) ||
+      recurringNamesShareToken(sub.name, descriptor);
+    if (!nameClose) continue;
+    const basis = Math.max(sub.amount, clusterAvg, 1);
+    if (Math.abs(clusterAvg - sub.amount) <= basis * RECURRING_STORED_DRIFT_TOLERANCE) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function recurringAmountTolerance(sub: Subscription): number {

@@ -7,7 +7,10 @@ import {
   buildCashFlowProjection,
   calculateEmergencyFund,
   detectOneTimeCandidates,
+  detectRecurringCandidates,
   fallbackFinanceAdvice,
+  inferCadence,
+  normalizeMerchant,
   recurringItemsForMonth,
   recurringMatchesTransaction,
   rollupMonth,
@@ -167,6 +170,226 @@ describe("finance math", () => {
         txn({ amount: -20, category: "Unknown charge", account: "checking" }),
       ),
     ).toBe(false);
+  });
+
+  it("classifies weekly/monthly/annual cadences and rejects irregular gaps", () => {
+    expect(inferCadence(7)).toBe("weekly");
+    expect(inferCadence(30)).toBe("monthly");
+    expect(inferCadence(31)).toBe("monthly");
+    expect(inferCadence(365)).toBe("annual");
+    expect(inferCadence(3)).toBeNull();
+    expect(inferCadence(15)).toBeNull();
+    expect(inferCadence(100)).toBeNull();
+  });
+
+  it("normalizes merchant descriptors by stripping store ids and noise", () => {
+    expect(normalizeMerchant("STARBUCKS #1234 SEATTLE")).toBe(
+      normalizeMerchant("STARBUCKS #5678 SEATTLE"),
+    );
+    expect(normalizeMerchant("CPP *PURE FITNESS 98765")).toBe("cpp pure fitness");
+  });
+
+  it("detects three same-amount gym memberships as one monthly candidate", () => {
+    // Three household members billed the same day each month — short gaps
+    // between same-day charges must not poison the monthly cadence.
+    const now = Date.UTC(2026, 3, 1);
+    const day0 = Date.UTC(2026, 0, 5);
+    const day30 = Date.UTC(2026, 1, 5);
+    const day60 = Date.UTC(2026, 2, 5);
+    const charges = [day0, day30, day60].flatMap((ts, monthIdx) =>
+      [0, 1, 2].map((member) =>
+        txn({
+          id: `gym-${monthIdx}-${member}`,
+          timestamp: ts + member * 60_000,
+          amount: -49.99,
+          category: "CPP PURE FITNESS",
+          categoryGroup: "wants",
+        }),
+      ),
+    );
+    const candidates = detectRecurringCandidates({
+      transactions: charges,
+      subscriptions: [],
+      now,
+      lookbackDays: 120,
+    });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      cadence: "monthly",
+      amount: 49.99,
+      source: "detected",
+    });
+    expect(candidates[0].name.toLowerCase()).toContain("pure");
+  });
+
+  it("detects three differently-priced gym memberships as separate candidates", () => {
+    const now = Date.UTC(2026, 3, 1);
+    const months = [Date.UTC(2026, 0, 5), Date.UTC(2026, 1, 5), Date.UTC(2026, 2, 5)];
+    const prices = [45, 35, 25]; // Me / Sophia / Theo — >15% apart
+    const charges = months.flatMap((ts, monthIdx) =>
+      prices.map((price, member) =>
+        txn({
+          id: `gym-${monthIdx}-${member}`,
+          timestamp: ts + member * 60_000,
+          amount: -price,
+          category: "Cpp Pure Fitness",
+          categoryGroup: "wants",
+        }),
+      ),
+    );
+    const candidates = detectRecurringCandidates({
+      transactions: charges,
+      subscriptions: [],
+      now,
+      lookbackDays: 120,
+    });
+    expect(candidates).toHaveLength(3);
+    expect(candidates.map((c) => c.amount).sort((a, b) => b - a)).toEqual([45, 35, 25]);
+    expect(candidates.every((c) => c.cadence === "monthly")).toBe(true);
+  });
+
+  it("does not re-detect a stored recurring item (match or linked charges)", () => {
+    const now = Date.UTC(2026, 3, 1);
+    const months = [Date.UTC(2026, 0, 10), Date.UTC(2026, 1, 10), Date.UTC(2026, 2, 10)];
+    const netflix = sub({ id: "netflix", name: "Netflix", amount: 15.99, kind: "subscription" });
+    const unlinked = months.map((ts, i) =>
+      txn({
+        id: `nf-${i}`,
+        timestamp: ts,
+        amount: -15.99,
+        category: "NETFLIX.COM",
+        categoryGroup: "wants",
+      }),
+    );
+    expect(
+      detectRecurringCandidates({
+        transactions: unlinked,
+        subscriptions: [netflix],
+        now,
+        lookbackDays: 120,
+      }),
+    ).toEqual([]);
+
+    // Linked charges are excluded even if the stored name no longer matches.
+    const linked = months.map((ts, i) =>
+      txn({
+        id: `nf-linked-${i}`,
+        timestamp: ts,
+        amount: -15.99,
+        category: "NETFLIX.COM",
+        categoryGroup: "wants",
+        recurringId: "netflix",
+      }),
+    );
+    expect(
+      detectRecurringCandidates({
+        transactions: linked,
+        subscriptions: [netflix],
+        now,
+        lookbackDays: 120,
+      }),
+    ).toEqual([]);
+  });
+
+  it("still surfaces a second membership price after the first is stored", () => {
+    const now = Date.UTC(2026, 3, 1);
+    const months = [Date.UTC(2026, 0, 5), Date.UTC(2026, 1, 5), Date.UTC(2026, 2, 5)];
+    const stored = sub({
+      id: "gym-me",
+      name: "Cpp Pure Fitness",
+      amount: 45,
+      kind: "subscription",
+    });
+    const charges = months.flatMap((ts, monthIdx) => [
+      txn({
+        id: `me-${monthIdx}`,
+        timestamp: ts,
+        amount: -45,
+        category: "Cpp Pure Fitness",
+        categoryGroup: "wants",
+      }),
+      txn({
+        id: `sophia-${monthIdx}`,
+        timestamp: ts + 60_000,
+        amount: -30,
+        category: "Cpp Pure Fitness",
+        categoryGroup: "wants",
+      }),
+    ]);
+    const candidates = detectRecurringCandidates({
+      transactions: charges,
+      subscriptions: [stored],
+      now,
+      lookbackDays: 120,
+    });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].amount).toBe(30);
+    expect(candidates[0].cadence).toBe("monthly");
+  });
+
+  it("suppresses a stored item after a modest price hike", () => {
+    const now = Date.UTC(2026, 3, 1);
+    const months = [Date.UTC(2026, 0, 12), Date.UTC(2026, 1, 12), Date.UTC(2026, 2, 12)];
+    const stored = sub({ id: "netflix", name: "Netflix", amount: 15.99 });
+    // ~12% hike — outside the 5% subscription match tolerance, but within
+    // the 25% detect-suppression drift band so it doesn't reappear as "new".
+    const hiked = months.map((ts, i) =>
+      txn({
+        id: `nf-${i}`,
+        timestamp: ts,
+        amount: -17.99,
+        category: "NETFLIX.COM",
+        categoryGroup: "wants",
+      }),
+    );
+    expect(
+      detectRecurringCandidates({
+        transactions: hiked,
+        subscriptions: [stored],
+        now,
+        lookbackDays: 120,
+      }),
+    ).toEqual([]);
+  });
+
+  it("skips irregular, one-off, transfer, income, and deleted charges", () => {
+    const now = Date.UTC(2026, 3, 1);
+    const candidates = detectRecurringCandidates({
+      now,
+      lookbackDays: 120,
+      subscriptions: [],
+      transactions: [
+        // only one charge — not enough
+        txn({ id: "once", timestamp: Date.UTC(2026, 2, 1), amount: -40, category: "Once" }),
+        // irregular gaps
+        txn({ id: "a1", timestamp: Date.UTC(2026, 0, 1), amount: -20, category: "Irregular" }),
+        txn({ id: "a2", timestamp: Date.UTC(2026, 0, 20), amount: -20, category: "Irregular" }),
+        txn({ id: "a3", timestamp: Date.UTC(2026, 2, 15), amount: -20, category: "Irregular" }),
+        // transfer / income / deleted
+        txn({
+          id: "xfer",
+          timestamp: Date.UTC(2026, 0, 5),
+          amount: -100,
+          category: "Transfer",
+          categoryGroup: "transfer",
+        }),
+        txn({
+          id: "pay",
+          timestamp: Date.UTC(2026, 0, 5),
+          amount: 2000,
+          category: "Payroll",
+          categoryGroup: "income",
+        }),
+        txn({
+          id: "gone",
+          timestamp: Date.UTC(2026, 0, 5),
+          amount: -50,
+          category: "Gone",
+          deletedAt: Date.UTC(2026, 0, 6),
+        }),
+      ],
+    });
+    expect(candidates).toEqual([]);
   });
 
   it("flags a novel large needs charge as a one-time candidate", () => {

@@ -6,7 +6,7 @@
  * string/number out. `finance.ts` composes these into the import pipeline.
  */
 
-import type { CategoryGroup, Subscription } from "@/lib/domain";
+import type { CategoryGroup } from "@/lib/domain";
 
 /* ============================================================
    CSV PARSING
@@ -263,14 +263,10 @@ export const KEYWORD_GROUPS: { group: CategoryGroup; keywords: string[] }[] = [
   },
 ];
 
-export function normalizeMerchant(desc: string): string {
-  return desc
-    .toLowerCase()
-    .replace(/\b\d{2,}\b/g, "") // strip long numbers (store ids, dates)
-    .replace(/[^a-z& ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// Canonical implementations live in finance-math (shared with client-safe
+// recurring detection). Re-exported here so existing server callers keep working.
+import { normalizeMerchant } from "@/lib/finance-math";
+export { normalizeMerchant, inferCadence } from "@/lib/finance-math";
 
 export function ruleGroupFor(
   description: string,
@@ -310,13 +306,4 @@ export function dedupeKeyFor(t: {
   return `${day}|${t.amount.toFixed(2)}|${normalizeMerchant(t.description)}|${t.account ?? ""}`;
 }
 
-/* ============================================================
-   SUBSCRIPTION CADENCE
-   ============================================================ */
 
-export function inferCadence(intervalDays: number): Subscription["cadence"] | null {
-  if (intervalDays >= 5 && intervalDays <= 9) return "weekly";
-  if (intervalDays >= 26 && intervalDays <= 35) return "monthly";
-  if (intervalDays >= 350 && intervalDays <= 380) return "annual";
-  return null;
-}

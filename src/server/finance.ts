@@ -34,13 +34,13 @@ import {
   dedupeKeyFor,
   detectColumns,
   findHeaderIndex,
-  inferCadence,
   normalizeMerchant,
   parseCsv,
   parseDate,
   parseMoney,
   ruleGroupFor,
 } from "@/server/finance-parse";
+import { detectRecurringCandidates } from "@/lib/finance-math";
 import {
   cachedGroupFor,
   enrichNewTransactions,
@@ -294,8 +294,6 @@ export const undoSimplefinHistory = createServerFn({ method: "POST" })
    Returns candidates merged with stored subscriptions (not persisted).
    ============================================================ */
 
-const DAY = 24 * 60 * 60 * 1000;
-
 export interface DetectResult {
   candidates: Subscription[];
   stored: Subscription[];
@@ -306,64 +304,24 @@ export const detectSubscriptions = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<DetectResult> => {
     await requireAuthSession();
     const lookbackDays = (data?.lookbackDays as number) || 180;
-    const cutoff = Date.now() - lookbackDays * DAY;
+    const now = Date.now();
 
     const [{ transactions }, storedStore] = await Promise.all([
       loadTransactionsImpl(),
       loadSubscriptionsImpl(),
     ]);
     const stored = storedStore.subscriptions.filter((s) => !s.deletedAt);
-    const storedNames = new Set(stored.map((s) => normalizeMerchant(s.name)));
+    const candidates = detectRecurringCandidates({
+      transactions,
+      subscriptions: stored,
+      now,
+      lookbackDays,
+    }).map((c) => ({
+      ...c,
+      id: newId("sub"),
+      createdAt: now,
+    }));
 
-    // Group recurring outflows by merchant.
-    const groups = new Map<string, { ts: number; amount: number; desc: string }[]>();
-    for (const t of transactions) {
-      if (t.deletedAt || t.amount >= 0 || t.timestamp < cutoff) continue;
-      if (t.categoryGroup === "transfer") continue;
-      const key = normalizeMerchant(t.category || "");
-      if (!key) continue;
-      const arr = groups.get(key) ?? [];
-      arr.push({
-        ts: t.timestamp,
-        amount: Math.abs(t.amount),
-        desc: t.category || key,
-      });
-      groups.set(key, arr);
-    }
-
-    const now = Date.now();
-    const candidates: Subscription[] = [];
-    for (const [key, charges] of groups) {
-      if (charges.length < 2 || storedNames.has(key)) continue;
-      charges.sort((a, b) => a.ts - b.ts);
-      const intervals: number[] = [];
-      for (let i = 1; i < charges.length; i++) {
-        intervals.push((charges[i].ts - charges[i - 1].ts) / DAY);
-      }
-      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-      const cadence = inferCadence(avgInterval);
-      if (!cadence) continue;
-
-      // Amounts should be roughly stable (within 15%).
-      const amounts = charges.map((c) => c.amount);
-      const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
-      const stable = amounts.every((a) => Math.abs(a - avgAmount) <= avgAmount * 0.15);
-      if (!stable) continue;
-
-      const last = charges[charges.length - 1];
-      candidates.push({
-        id: newId("sub"),
-        createdAt: now,
-        name: cleanMerchantName(last.desc),
-        amount: Math.round(avgAmount * 100) / 100,
-        cadence,
-        status: "active",
-        source: "detected",
-        lastSeen: last.ts,
-      });
-    }
-
-    candidates.sort((a, b) => subscriptionMonthlyCost(b) - subscriptionMonthlyCost(a));
     return { candidates, stored };
   });
 
