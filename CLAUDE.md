@@ -4,15 +4,15 @@ skills: `.agent/skills/` · project specs: AGENTS.md — this file is orchestrat
 
 You are the orchestrator: route, judge, integrate. Do a subtask in-session only when it's truly small (one file, one edit) or needs the full conversation context. Otherwise route it:
 
-| task looks like...                                            | model     | via                            |
-| ------------------------------------------------------------- | --------- | ------------------------------ |
-| clear-spec implementation, migrations, data analysis, tests   | gpt-5.5   | `codex exec` / codex-\* skills |
-| codebase search, image/screenshot reading, git/CLI runs       | flash-3.5 | `agy -p ...`                   |
-| log/output triage, file summaries, quick lookups & fact-finds | flash-3.5 | `agy -p ...`                   |
-| mechanical edits (renames, formatting, boilerplate, codemods) | flash-3.5 | `agy -p ...`                   |
-| UI implementation, copy, API design (anything user-facing)    | opus-4.8  | Agent model param              |
-| planning / architecture / implementation strategy             | fable-5   | Agent model param              |
-| reviews of plans/implementations                              | gpt-5.5   | `codex review`                 |
+| task looks like...                                            | model         | via                            |
+| ------------------------------------------------------------- | ------------- | ------------------------------ |
+| clear-spec implementation, migrations, data analysis, tests   | gpt-5.6-terra | `codex exec` / codex-\* skills |
+| codebase search, image/screenshot reading, git/CLI runs       | flash-3.5     | `agy -p ...`                   |
+| log/output triage, file summaries, quick lookups & fact-finds | flash-3.5     | `agy -p ...`                   |
+| mechanical edits (renames, formatting, boilerplate, codemods) | flash-3.5     | `agy -p ...`                   |
+| UI implementation, copy, API design (anything user-facing)    | opus-4.8      | Agent model param              |
+| planning / architecture / implementation strategy             | fable-5       | Agent model param              |
+| reviews of plans/implementations                              | gpt-5.6-sol   | `codex review`                 |
 
 Model traits (1–9, higher better; cost = what I actually pay — OpenAI limits are generous):
 

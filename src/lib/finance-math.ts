@@ -389,10 +389,7 @@ function clusterTransactionsByAmount(txns: Transaction[]): Transaction[][] {
  * bill (wide bill tolerance) cannot swallow a Boat premium at a different
  * price, and a second gym membership is not treated as a "price cut".
  */
-function isRecurringClusterAlreadyTracked(
-  cluster: Transaction[],
-  stored: Subscription[],
-): boolean {
+function isRecurringClusterAlreadyTracked(cluster: Transaction[], stored: Subscription[]): boolean {
   if (!stored.length) return false;
   const latest = [...cluster].sort((a, b) => b.timestamp - a.timestamp)[0];
   const clusterAvg =

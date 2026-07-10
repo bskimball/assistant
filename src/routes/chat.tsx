@@ -791,7 +791,7 @@ function MessageBubble({
     >
       <div className={`flex max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
         <div
-          className={`whitespace-pre-wrap px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
+          className={`whitespace-pre-wrap break-words px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
             isUser
               ? "rounded-2xl rounded-br-md bg-linear-to-b from-primary to-primary/90 text-primary-foreground shadow-sm"
               : "rounded-2xl rounded-bl-md bg-card text-card-foreground shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
@@ -844,10 +844,10 @@ function ActionCard({
         initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-        className="flex items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground ring-1 ring-foreground/10"
+        className="flex max-w-full items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground ring-1 ring-foreground/10"
       >
         <Icon className="size-3.5 shrink-0" />
-        <span className="truncate">{describeAction(action.name, action.args)}</span>
+        <span className="min-w-0 truncate">{describeAction(action.name, action.args)}</span>
       </motion.div>
     );
   }
