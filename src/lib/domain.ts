@@ -1001,6 +1001,9 @@ export function resolveVoiceTargetDate(input: unknown, base: ISODate = todayISO(
   if (s === "tomorrow") {
     return addDaysISO(base, 1);
   }
+  if (s === "yesterday") {
+    return addDaysISO(base, -1);
+  }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s as ISODate;
   return base;
 }

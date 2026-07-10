@@ -25,6 +25,7 @@ import type {
   WeeklyReview,
 } from "@/lib/domain";
 import {
+  addDaysISO,
   assertSingleActiveWorkoutPlan,
   assertValidMealLog,
   assertValidWorkoutSessionDate,
@@ -831,6 +832,30 @@ async function extractVoiceIntentImpl(
   }
 }
 
+/**
+ * Human-readable suffix naming the target day when it isn't today, so a
+ * confirmation surfaces the *resolved* date — a mis-parsed "yesterday" is
+ * visible instead of silently landing on the wrong day. Returns "" for today.
+ */
+function describeDay(date: ISODate, today: ISODate): string {
+  if (date === today) return "";
+  const rel =
+    date === addDaysISO(today, -1)
+      ? "yesterday"
+      : date === addDaysISO(today, 1)
+        ? "tomorrow"
+        : new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
+            weekday: "long",
+            timeZone: "UTC",
+          });
+  const md = new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  return ` for ${rel}, ${md}`;
+}
+
 export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
   spokenText: string;
   success: boolean;
@@ -869,7 +894,7 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
         });
 
         return {
-          spokenText: `Task added: ${text}`,
+          spokenText: `Task added: ${text}${describeDay(targetDate, today)}`,
           success: true,
           legacyTodo: legacy,
         };
@@ -890,7 +915,7 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
           } as any,
         });
         return {
-          spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.`,
+          spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.${describeDay(date, today)}`,
           success: true,
         };
       }
@@ -950,7 +975,7 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
             mealLogs: [...(nutrition.mealLogs || []), mealLog],
           } as any,
         });
-        return { spokenText: `Logged meal: ${desc}`, success: true };
+        return { spokenText: `Logged meal: ${desc}${describeDay(date, today)}`, success: true };
       }
 
       case "markTaskDone": {

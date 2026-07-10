@@ -38,6 +38,12 @@ describe("resolveVoiceTargetDate", () => {
     expect(resolveVoiceTargetDate("tomorrow", "2026-06-30")).toBe("2026-07-01");
   });
 
+  it("resolves yesterday relative to the base date", () => {
+    expect(resolveVoiceTargetDate("yesterday", "2026-07-01")).toBe("2026-06-30");
+    expect(resolveVoiceTargetDate("yesterday", "2026-07-01".slice(0, 10))).toBe("2026-06-30");
+    expect(resolveVoiceTargetDate("Yesterday", "2026-01-01")).toBe("2025-12-31");
+  });
+
   it("passes through explicit ISO dates and defaults to base", () => {
     expect(resolveVoiceTargetDate("2026-08-15", "2026-07-01")).toBe("2026-08-15");
     expect(resolveVoiceTargetDate("today", "2026-07-01")).toBe("2026-07-01");

@@ -184,6 +184,7 @@ export type BudgetInsight = {
   plannedRecurring: number;
   totalSpent: number;
   remainingCash: number;
+  remainingAfterCommitted: number;
   bucketDeltas: { needs: number; wants: number; savings: number };
   projectedPlanSpend: number | null;
   lines: string[];
@@ -810,6 +811,7 @@ export function buildBudgetInsight(input: {
     plannedRecurring,
     totalSpent,
     remainingCash: dollars(takeHome - totalSpent),
+    remainingAfterCommitted: dollars(takeHome - committedPlan - oneTimeSpend),
     bucketDeltas,
     projectedPlanSpend,
     lines: lines.slice(0, 4),

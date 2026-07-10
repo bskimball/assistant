@@ -75,13 +75,22 @@ const MAX_CONTENT = 4000;
    shared voice-intent executor. Tool names map 1:1 to ChatActionName.
    ============================================================ */
 
+/**
+ * Shared schema hint for the optional target-day parameter on write actions.
+ * Prefer the relative keywords (resolved deterministically server-side against
+ * the member's local "today"); fall back to an absolute ISO date for anything
+ * else ("last Tuesday", "three days ago"). Omitting it means today.
+ */
+const DATE_PARAM_DESCRIPTION =
+  "Target day. Use 'today', 'yesterday', or 'tomorrow' for relative days; otherwise an absolute ISO date YYYY-MM-DD. Omit for today.";
+
 const ACTION_TOOLS: ChatTool[] = [
   {
     type: "function",
     function: {
       name: "log_meal",
       description:
-        "Record a meal/food the member ate today. Provide macros when the member states them; otherwise omit and they'll be estimated.",
+        "Record a meal/food the member ate. Defaults to today; set `date` when they name another day. Provide macros when the member states them; otherwise omit and they'll be estimated.",
       parameters: {
         type: "object",
         properties: {
@@ -90,6 +99,7 @@ const ACTION_TOOLS: ChatTool[] = [
           protein: { type: "number", description: "grams" },
           carbs: { type: "number", description: "grams" },
           fat: { type: "number", description: "grams" },
+          date: { type: "string", description: DATE_PARAM_DESCRIPTION },
         },
         required: ["description"],
       },
@@ -99,10 +109,14 @@ const ACTION_TOOLS: ChatTool[] = [
     type: "function",
     function: {
       name: "log_water",
-      description: "Record water the member drank today, in US fluid ounces.",
+      description:
+        "Record water the member drank, in US fluid ounces. Defaults to today; set `date` when they name another day.",
       parameters: {
         type: "object",
-        properties: { ounces: { type: "number", description: "fluid ounces" } },
+        properties: {
+          ounces: { type: "number", description: "fluid ounces" },
+          date: { type: "string", description: DATE_PARAM_DESCRIPTION },
+        },
         required: ["ounces"],
       },
     },
@@ -111,12 +125,14 @@ const ACTION_TOOLS: ChatTool[] = [
     type: "function",
     function: {
       name: "add_task",
-      description: "Add a task/to-do for the member.",
+      description:
+        "Add a task/to-do for the member. Defaults to today; set `date` when they name another day.",
       parameters: {
         type: "object",
         properties: {
           text: { type: "string" },
           priority: { type: "number", description: "1 (highest) to 3 (lowest)" },
+          date: { type: "string", description: DATE_PARAM_DESCRIPTION },
         },
         required: ["text"],
       },
@@ -206,9 +222,14 @@ function isLikelyJsonBlob(text: string): boolean {
 }
 
 function systemPrompt(contextBlock: string, date: ISODate): string {
+  // Noon-UTC read is DST-immune and never day-shifts (see addDaysISO).
+  const weekday = new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
+    weekday: "long",
+    timeZone: "UTC",
+  });
   return `You are Compass Coach — the member's personal life coach, certified strength & conditioning coach, and CFP-level financial advisor, all in one warm, direct voice. You converse about their real, recorded data and help them improve their fitness, nutrition, finances, productivity, and family life.
 
-Today is ${date}.
+Today is ${date} (${weekday}). When the member logs something for a past or future day (e.g. "yesterday", "on Monday"), pass the target day in the action's \`date\` field — prefer 'today'/'yesterday'/'tomorrow', otherwise an absolute YYYY-MM-DD you compute from today's date. Omit \`date\` for today.
 
 ${contextBlock}
 
@@ -365,6 +386,7 @@ function actionToIntent(name: VoiceChatActionName, args: Record<string, any>): V
           protein: num(args.protein),
           carbs: num(args.carbs),
           fat: num(args.fat),
+          date: relDate(args.date),
         },
         confidence: 1,
         requiresConfirmation: false,
@@ -372,7 +394,7 @@ function actionToIntent(name: VoiceChatActionName, args: Record<string, any>): V
     case "log_water":
       return {
         action: "logWater",
-        payload: { milliliters: flOzToMl(num(args.ounces)) ?? 250 },
+        payload: { milliliters: flOzToMl(num(args.ounces)) ?? 250, date: relDate(args.date) },
         confidence: 1,
         requiresConfirmation: false,
       };
@@ -382,6 +404,7 @@ function actionToIntent(name: VoiceChatActionName, args: Record<string, any>): V
         payload: {
           text: String(args.text ?? "").trim(),
           priority: num(args.priority) || undefined,
+          date: relDate(args.date),
         },
         confidence: 1,
         requiresConfirmation: false,
@@ -399,6 +422,16 @@ function actionToIntent(name: VoiceChatActionName, args: Record<string, any>): V
 function num(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Pass the model's raw date arg through to the payload untouched (a relative
+ * keyword or ISO string). Resolution to a concrete ISODate happens at execute
+ * time via `resolveVoiceTargetDate`, against the server's member-local "today"
+ * — so chat and voice share one resolution point and can't drift.
+ */
+function relDate(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
 const COACH_MEMORY_CATEGORIES: readonly CoachMemoryCategory[] = [

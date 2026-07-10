@@ -552,6 +552,7 @@ describe("finance math", () => {
     expect(insight.variablePlanSpend).toBe(3100);
     expect(insight.totalSpent).toBe(3500);
     expect(insight.remainingCash).toBe(1500);
+    expect(insight.remainingAfterCommitted).toBe(1450);
     expect(insight.bucketDeltas.needs).toBe(-500);
     expect(insight.bucketDeltas.wants).toBe(-850);
     expect(insight.bucketDeltas.savings).toBe(500);

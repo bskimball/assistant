@@ -51,6 +51,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -326,7 +333,7 @@ function FinancePage() {
   // Primed by the route loader; revisits are served from cache (no refetch
   // flash) with a background refresh.
   const { data: hub = null, isPending: loading } = useQuery(financeHubQuery(today));
-  const { data: advice = null } = useQuery(financeAdviceQuery(today));
+  const { data: advice = null, isPending: adviceLoading } = useQuery(financeAdviceQuery(today));
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<string | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -417,6 +424,7 @@ function FinancePage() {
                 hub={hub}
                 today={today}
                 adviceItems={advice?.items ?? []}
+                adviceLoading={adviceLoading}
                 onChange={reload}
                 flash={flash}
               />
@@ -448,9 +456,10 @@ function OverviewTab({
   hub,
   today,
   adviceItems,
+  adviceLoading,
   onChange,
   flash,
-}: TabProps & { today: string; adviceItems: FinanceAdviceItem[] }) {
+}: TabProps & { today: string; adviceItems: FinanceAdviceItem[]; adviceLoading: boolean }) {
   const queryClient = useQueryClient();
   const simplefinQuery = useQuery(simplefinStatusQuery());
   const [name, setName] = useState("");
@@ -759,7 +768,7 @@ function OverviewTab({
         </p>
       )}
 
-      <CoachSuggestions items={adviceItems} today={today} flash={flash} />
+      <CoachSuggestions items={adviceItems} today={today} flash={flash} loading={adviceLoading} />
 
       <DataQualityCard hub={hub} today={today} />
 
@@ -921,10 +930,12 @@ function CoachSuggestions({
   items,
   today,
   flash,
+  loading = false,
 }: {
   items: FinanceAdviceItem[];
   today: string;
   flash: (msg: string) => void;
+  loading?: boolean;
 }) {
   const topItems = items.slice(0, 3);
   const [busyIndex, setBusyIndex] = useState<number | null>(null);
@@ -935,7 +946,52 @@ function CoachSuggestions({
     setBusyIndex(null);
   }, [items]);
 
-  if (!topItems.length) return null;
+  // Shared chrome so the skeleton and loaded states have identical framing (no
+  // layout shift when the real advice swaps in).
+  const header = (
+    <CardHeader className="pb-2">
+      <CardTitle className="flex items-center justify-between gap-2 text-sm">
+        <span className="flex items-center gap-2 font-semibold tracking-tight">
+          <Sparkles className="size-4 text-primary" />
+          Next moves
+        </span>
+        <span className="text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
+          Coach
+        </span>
+      </CardTitle>
+    </CardHeader>
+  );
+
+  // Render the container immediately with a tasteful skeleton while the (slow,
+  // un-awaited) Grok advice request is in flight; genuinely empty advice → null.
+  if (!topItems.length) {
+    if (!loading) return null;
+    return (
+      <Card
+        role="status"
+        aria-busy="true"
+        className="overflow-hidden border-primary/25 bg-linear-to-br from-primary/8 via-card to-card shadow-sm"
+      >
+        <span className="sr-only">Loading coach suggestions…</span>
+        {header}
+        <CardContent className="pt-0">
+          <ul className="divide-y divide-border/50" aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+              <li key={row} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="mt-0.5 size-8 shrink-0 animate-pulse rounded-md bg-primary/10" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-2.5 w-20 animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                  {row !== 1 && <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />}
+                </div>
+                <div className="mt-0.5 h-8 w-20 shrink-0 animate-pulse rounded-md bg-muted" />
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    );
+  }
 
   async function acceptOne(item: FinanceAdviceItem, index: number) {
     setBusyIndex(index);
@@ -953,17 +1009,7 @@ function CoachSuggestions({
 
   return (
     <Card className="overflow-hidden border-primary/25 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between gap-2 text-sm">
-          <span className="flex items-center gap-2 font-semibold tracking-tight">
-            <Sparkles className="size-4 text-primary" />
-            Next moves
-          </span>
-          <span className="text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
-            Coach
-          </span>
-        </CardTitle>
-      </CardHeader>
+      {header}
       <CardContent className="pt-0">
         <ul className="divide-y divide-border/50">
           {topItems.map((item, index) => {
@@ -1773,6 +1819,8 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   const [moveOverrides, setMoveOverrides] = useState<Record<string, "needs" | "wants" | "savings">>(
     {},
   );
+  // Which hero tile's transaction breakdown is open (null = none).
+  const [breakdown, setBreakdown] = useState<null | "spent" | "onetime" | "recurring">(null);
 
   const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const th = Number(takeHome) || hub.budget?.monthlyTakeHome || 0;
@@ -1858,6 +1906,39 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
         monthlyTakeHome: th,
       })
     : [];
+
+  // Itemized breakdowns behind the three hero tiles. Totals stay authoritative
+  // via `budgetInsight.*`; these lists are the transactions/commitments that add
+  // up to those numbers. Grouped by 50/30/20 bucket to reinforce the plan.
+  const bucketOrder = ["needs", "wants", "savings"] as const;
+  const spentGroups = bucketOrder
+    .map((b) => {
+      const txns = bucketTxns[b].filter((t) => !t.excludeFromBudget);
+      return {
+        key: b,
+        label: GROUP_LABELS[b],
+        subtotal: txns.reduce((s, t) => s + Math.abs(t.amount), 0),
+        txns,
+      };
+    })
+    .filter((g) => g.txns.length > 0);
+  const oneTimeTxns = monthTxns
+    .filter((t) => t.amount < 0 && t.excludeFromBudget && spendBucketOf(t.categoryGroup))
+    .sort((a, c) => Math.abs(c.amount) - Math.abs(a.amount));
+  const recurringGroups = bucketOrder
+    .map((b) => {
+      const items = recurringItems[b]
+        .filter((i) => i.remainingMonthlyAmount > 0)
+        .sort((a, c) => c.remainingMonthlyAmount - a.remainingMonthlyAmount);
+      return {
+        key: b,
+        label: GROUP_LABELS[b],
+        subtotal: items.reduce((s, i) => s + i.remainingMonthlyAmount, 0),
+        items,
+      };
+    })
+    .filter((g) => g.items.length > 0);
+
   async function saveTakeHome() {
     const v = Number(takeHome);
     if (!Number.isFinite(v) || v <= 0) return;
@@ -1994,27 +2075,52 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
             <span>Imported + synced spend for {formatMonthLabel(selectedMonth)}.</span>
             <InfoHint>
               Spending here comes from your imported and synced transactions, plus active recurring
-              commitments from the Recurring tab that haven’t shown up in statements yet. Targets
-              are 50/30/20 of the take-home baseline in this header.
+              commitments from the Recurring tab that haven’t shown up in statements yet. “Left so
+              far” is take-home minus what’s already posted this month; “Left after bills” also
+              subtracts upcoming recurring commitments that haven’t posted yet. Targets are 50/30/20
+              of the take-home baseline in this header.
             </InfoHint>
           </div>
           {th > 0 ? (
             <>
-              {/* Hero: the one number that matters, with three secondary tiles. */}
+              {/* Hero: the two numbers that matter, with three secondary tiles. */}
               <div className="rounded-lg bg-muted/20 p-3 ring-1 ring-foreground/10">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Left of take-home
-                </div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
-                  {fmtMoney(budgetInsight.remainingCash)}
+                <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Left so far
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
+                      {fmtMoney(budgetInsight.remainingCash)}
+                    </div>
+                  </div>
+                  <div className="border-l border-border/60 pl-6">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Left after bills
+                    </div>
+                    <div className="mt-1 text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">
+                      {fmtMoney(budgetInsight.remainingAfterCommitted)}
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
-                  <MiniStat label="Plan spend" value={fmtMoney(budgetInsight.planSpend)} />
+                  <MiniStat
+                    label="Spent so far"
+                    value={fmtMoney(budgetInsight.planSpend)}
+                    onClick={spentGroups.length > 0 ? () => setBreakdown("spent") : undefined}
+                  />
                   <MiniStat
                     label="One-time"
                     value={`${fmtMoney(budgetInsight.oneTimeSpend)} · ${budgetInsight.oneTimeCount}`}
+                    onClick={oneTimeTxns.length > 0 ? () => setBreakdown("onetime") : undefined}
                   />
-                  <MiniStat label="Recurring" value={fmtMoney(budgetInsight.plannedRecurring)} />
+                  <MiniStat
+                    label="Upcoming recurring"
+                    value={fmtMoney(budgetInsight.plannedRecurring)}
+                    onClick={
+                      recurringGroups.length > 0 ? () => setBreakdown("recurring") : undefined
+                    }
+                  />
                 </div>
               </div>
 
@@ -2151,7 +2257,191 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
           <RecentTransactions transactions={monthTxns} onChange={onChange} />
         </div>
       </CollapsibleCard>
+
+      <BudgetBreakdownDialog
+        active={breakdown}
+        onClose={() => setBreakdown(null)}
+        planSpend={budgetInsight.planSpend}
+        oneTimeSpend={budgetInsight.oneTimeSpend}
+        oneTimeCount={budgetInsight.oneTimeCount}
+        plannedRecurring={budgetInsight.plannedRecurring}
+        spentGroups={spentGroups}
+        oneTimeTxns={oneTimeTxns}
+        recurringGroups={recurringGroups}
+      />
     </div>
+  );
+}
+
+// Read-only reference view behind the three "This month vs plan" hero tiles. One
+// Dialog reused for all three breakdowns, keyed by `active`. The header shows the
+// authoritative `budgetInsight.*` total; the body lists the items that sum to it.
+function BudgetBreakdownDialog({
+  active,
+  onClose,
+  planSpend,
+  oneTimeSpend,
+  oneTimeCount,
+  plannedRecurring,
+  spentGroups,
+  oneTimeTxns,
+  recurringGroups,
+}: {
+  active: null | "spent" | "onetime" | "recurring";
+  onClose: () => void;
+  planSpend: number;
+  oneTimeSpend: number;
+  oneTimeCount: number;
+  plannedRecurring: number;
+  spentGroups: { key: BudgetBucket; label: string; subtotal: number; txns: Transaction[] }[];
+  oneTimeTxns: Transaction[];
+  recurringGroups: {
+    key: BudgetBucket;
+    label: string;
+    subtotal: number;
+    items: BudgetRecurringItem[];
+  }[];
+}) {
+  const meta = {
+    spent: {
+      title: "Spent so far",
+      total: planSpend,
+      count: spentGroups.reduce((n, g) => n + g.txns.length, 0),
+      description:
+        "Money already posted to your accounts this month, counted against your 50/30/20 plan.",
+    },
+    onetime: {
+      title: "One-time",
+      total: oneTimeSpend,
+      count: oneTimeCount,
+      description: "Charges you marked as one-time — tracked, but left out of the plan.",
+    },
+    recurring: {
+      title: "Upcoming recurring",
+      total: plannedRecurring,
+      count: recurringGroups.reduce((n, g) => n + g.items.length, 0),
+      description:
+        "Recurring commitments expected this month that haven’t posted to a statement yet.",
+    },
+  } as const;
+  const current = active ? meta[active] : null;
+
+  return (
+    <Dialog open={active !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        {current && (
+          <>
+            <DialogHeader>
+              <DialogTitle>{current.title}</DialogTitle>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold tabular-nums">
+                  {fmtMoney(current.total)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {current.count} {current.count === 1 ? "item" : "items"}
+                </span>
+              </div>
+              <DialogDescription>{current.description}</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {current.count === 0 ? (
+                <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                  Nothing here yet.
+                </p>
+              ) : active === "spent" ? (
+                <div className="space-y-3">
+                  {spentGroups.map((g) => (
+                    <div key={g.key}>
+                      <div className="mb-1 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
+                        <span className="capitalize">{g.label}</span>
+                        <span className="tabular-nums">{fmtMoney(g.subtotal)}</span>
+                      </div>
+                      <ul className="divide-y divide-border rounded-md border border-border/60 bg-muted/20">
+                        {g.txns.map((t) => (
+                          <li
+                            key={t.id}
+                            className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="truncate">
+                                  {t.category ? cleanMerchantName(t.category) : "—"}
+                                </span>
+                                {t.recurringId && <Badge variant="secondary">Recurring</Badge>}
+                              </div>
+                              <TxnSubline t={t} />
+                            </div>
+                            <span className="shrink-0 tabular-nums">
+                              {fmtMoney(Math.abs(t.amount))}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ) : active === "onetime" ? (
+                <ul className="divide-y divide-border rounded-md border border-border/60 bg-muted/20">
+                  {oneTimeTxns.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="truncate">
+                            {t.category ? cleanMerchantName(t.category) : "—"}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          >
+                            One-time
+                          </Badge>
+                        </div>
+                        <TxnSubline t={t} />
+                      </div>
+                      <span className="shrink-0 tabular-nums">{fmtMoney(Math.abs(t.amount))}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="space-y-3">
+                  {recurringGroups.map((g) => (
+                    <div key={g.key}>
+                      <div className="mb-1 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
+                        <span className="capitalize">{g.label}</span>
+                        <span className="tabular-nums">{fmtMoney(g.subtotal)} planned</span>
+                      </div>
+                      <ul className="divide-y divide-border rounded-md border border-border/60 bg-muted/20">
+                        {g.items.map((item) => (
+                          <li
+                            key={item.id}
+                            className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate">{cleanMerchantName(item.name)}</div>
+                              <div className="truncate text-muted-foreground">
+                                {recurringKindLabel(item.kind)} · {CADENCE_ABBR[item.cadence]}
+                                {item.account ? ` · ${item.account}` : ""}
+                                {` · ${fmtMoney(item.remainingMonthlyAmount)} planned`}
+                              </div>
+                            </div>
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {fmtMoney(item.monthlyAmount)}/mo
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -4907,12 +5197,41 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+// A small labeled figure. Non-interactive by default (renders a <div>); pass
+// `onClick` to make it a real button that opens a breakdown dialog — the visual
+// layout stays identical so mixed rows stay aligned. Other call sites in this
+// file omit `onClick` and are unaffected.
+function MiniStat({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  onClick?: () => void;
+}) {
+  const body = (
+    <>
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-    </div>
+    </>
+  );
+  if (!onClick) {
+    return <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">{body}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-haspopup="dialog"
+      className="relative cursor-pointer rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40 hover:ring-1 hover:ring-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <ChevronRight
+        className="absolute top-1.5 right-1.5 size-3 text-muted-foreground/50"
+        aria-hidden
+      />
+      {body}
+    </button>
   );
 }
 
