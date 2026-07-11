@@ -121,6 +121,7 @@ import {
   recurringMatchesTransaction,
   recurringNamesShareToken,
   simulateDebtPayoff,
+  transactionsBeforeMonth,
   transactionsForMonth,
   type BudgetBucket,
   type OneTimeCandidate,
@@ -1884,7 +1885,11 @@ function BudgetTab({ hub, month, onChange, flash }: TabProps & { month: string }
   // Recurring commitments are normalized into the same 50/30/20 buckets as
   // imported transactions. Show the full monthly plan every month, but only add
   // rows that are not already represented by imported statement data.
-  const recurringItems = recurringItemsForMonth(hub.subscriptions, monthTxns);
+  const recurringItems = recurringItemsForMonth(
+    hub.subscriptions,
+    monthTxns,
+    transactionsBeforeMonth(hub.transactions, selectedMonth),
+  );
   const recurringAdditions = recurringAdditionsFromItems(recurringItems);
   for (const b of ["needs", "wants", "savings"] as const) {
     buckets[b] += recurringAdditions[b];
@@ -2425,6 +2430,9 @@ function BudgetBreakdownDialog({
                                 {recurringKindLabel(item.kind)} · {CADENCE_ABBR[item.cadence]}
                                 {item.account ? ` · ${item.account}` : ""}
                                 {` · ${fmtMoney(item.remainingMonthlyAmount)} planned`}
+                                {item.lastPaidTxn
+                                  ? ` · last paid ${fmtDate(item.lastPaidTxn.timestamp)}`
+                                  : ""}
                               </div>
                             </div>
                             <span className="shrink-0 tabular-nums text-muted-foreground">
@@ -3089,7 +3097,13 @@ function RecurringUpdatesCard({
   );
 }
 
-type RecurringChargeStatus = { label: string; tone: "paid" | "unpaid" };
+type RecurringChargeStatus = {
+  label: string;
+  tone: "paid" | "unpaid";
+  // For unpaid rows: when this commitment was last charged (usually last month),
+  // so a not-yet-posted bill reads differently from one that has lapsed.
+  lastPaidLabel?: string;
+};
 
 function RecurringRow({
   s,
@@ -3272,6 +3286,9 @@ function RecurringRow({
             {s.source === "detected" ? "Detected from statements" : "Added manually"}
             {chargeStatus && !canceled && (
               <span className={chargeStatusClass}> · {chargeStatus.label}</span>
+            )}
+            {chargeStatus?.lastPaidLabel && !canceled && (
+              <span className="text-muted-foreground"> · {chargeStatus.lastPaidLabel}</span>
             )}
           </div>
           {loanMeta.length > 0 && (
@@ -3474,6 +3491,9 @@ function PaymentCheckRow({
                   : item.expectedThisMonth > 1
                     ? `0 of ${item.expectedThisMonth} weekly charges seen this month`
                     : "Not seen in statements this month"}
+                {item.lastPaidTxn && (
+                  <span> · Last paid {fmtDate(item.lastPaidTxn.timestamp)}</span>
+                )}
               </div>
             )}
           </div>
@@ -3538,7 +3558,11 @@ function MonthlyPaymentCheckCard({
   const monthLabel = formatMonthLabel(selectedMonth);
   const monthTxns = transactionsForMonth(transactions, selectedMonth);
   const hasMonthTxns = monthTxns.length > 0;
-  const monthItems = recurringItemsForMonth(subscriptions, monthTxns);
+  const monthItems = recurringItemsForMonth(
+    subscriptions,
+    monthTxns,
+    transactionsBeforeMonth(transactions, selectedMonth),
+  );
   const items = (["needs", "wants", "savings"] as const).flatMap((bucket) => monthItems[bucket]);
   const verifiableItems = items.filter((i) => i.bucket !== "savings");
   const savingsItems = items.filter((i) => i.bucket === "savings");
@@ -3991,8 +4015,13 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
 
   // Which items matched this month's transactions, so rows answer whether the
   // expected charge has been seen without making the user open the checklist.
-  const currentMonthTxns = transactionsForMonth(hub.transactions, todayISO().slice(0, 7));
-  const monthItems = recurringItemsForMonth(hub.subscriptions, currentMonthTxns);
+  const currentMonth = todayISO().slice(0, 7);
+  const currentMonthTxns = transactionsForMonth(hub.transactions, currentMonth);
+  const monthItems = recurringItemsForMonth(
+    hub.subscriptions,
+    currentMonthTxns,
+    transactionsBeforeMonth(hub.transactions, currentMonth),
+  );
   const chargeStatusById = new Map(
     (["needs", "wants", "savings"] as const)
       .flatMap((bucket) => monthItems[bucket])
@@ -4015,6 +4044,9 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
                   ? `0 of ${item.expectedThisMonth} charges seen this month`
                   : "not seen this month",
               tone: "unpaid" as const,
+              lastPaidLabel: item.lastPaidTxn
+                ? `last paid ${fmtDate(item.lastPaidTxn.timestamp)}`
+                : undefined,
             },
       ]),
   );
@@ -5514,6 +5546,7 @@ function BudgetBar({
                   {recurringKindLabel(item.kind)} · {CADENCE_ABBR[item.cadence]}
                   {item.account ? ` · ${item.account}` : ""}
                   {` · ${fmtMoney(item.remainingMonthlyAmount)} planned`}
+                  {item.lastPaidTxn ? ` · last paid ${fmtDate(item.lastPaidTxn.timestamp)}` : ""}
                 </div>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground">

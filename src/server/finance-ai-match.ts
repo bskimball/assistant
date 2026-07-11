@@ -1,5 +1,5 @@
 import type { CategoryGroup, Subscription, Transaction } from "@/lib/domain";
-import { recurringKindOf } from "@/lib/domain";
+import { recurringBudgetBucket, recurringKindOf } from "@/lib/domain";
 import { recurringMatchesTransaction } from "@/lib/finance-math";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import {
@@ -126,16 +126,43 @@ function confidentCacheEntry(entry: AiMatchCacheEntry | undefined): entry is AiM
   return !!entry && (entry.source === "user" || entry.confidence >= CACHE_GROUP_CONFIDENCE);
 }
 
-function isRescanCandidate(t: Transaction, activeSubs: Subscription[]): boolean {
+function isRescanCandidate(t: Transaction): boolean {
   return (
     !t.deletedAt &&
     t.amount < 0 &&
     !t.recurringId &&
     t.recurringMatchSource !== "user" &&
-    !activeSubs.some((sub) => recurringMatchesTransaction(sub, t)) &&
     t.categoryGroup !== "transfer" &&
     t.categoryGroup !== "income"
   );
+}
+
+/**
+ * Persist an unambiguous rules-based recurring match. Display-time reconciliation
+ * uses the same matcher, so saving it here keeps the ledger and UI from disagreeing
+ * across refreshes or deployments. Ambiguous matches remain unlinked for review.
+ */
+export function applyDeterministicRecurringMatch(
+  transaction: Transaction,
+  activeSubs: Subscription[],
+): ApplyDecisionResult | null {
+  const matches = activeSubs.filter((sub) => recurringMatchesTransaction(sub, transaction));
+  if (matches.length !== 1) return null;
+
+  const sub = matches[0];
+  const group = recurringBudgetBucket(sub);
+  return {
+    transaction: {
+      ...transaction,
+      recurringId: sub.id,
+      recurringSuggestedId: undefined,
+      categoryGroup: group,
+      updatedAt: Date.now(),
+    },
+    linked: true,
+    suggested: false,
+    recategorized: transaction.categoryGroup !== group,
+  };
 }
 
 function countApplied(stats: EnrichStats, applied: ApplyDecisionResult): void {
@@ -389,7 +416,7 @@ export async function rescanUnmatchedCharges(opts: EnrichOptions): Promise<Resca
     const candidateGroups = new Map<string, Transaction[]>();
 
     for (const txn of transactions) {
-      if (!isRescanCandidate(txn, activeSubs)) continue;
+      if (!isRescanCandidate(txn)) continue;
       const key = cacheKeyFor(txn);
       if (!key) continue;
       const group = candidateGroups.get(key) ?? [];
@@ -429,7 +456,19 @@ export async function rescanUnmatchedCharges(opts: EnrichOptions): Promise<Resca
           if (applied.transaction !== charge) updates.set(charge.id, applied.transaction);
         }
       } else {
-        needsModel.push({ key, charges, representative: charges[0] });
+        const unresolved: Transaction[] = [];
+        for (const charge of charges) {
+          const applied = applyDeterministicRecurringMatch(charge, activeSubs);
+          if (!applied) {
+            unresolved.push(charge);
+            continue;
+          }
+          countApplied(stats, applied);
+          updates.set(charge.id, applied.transaction);
+        }
+        if (unresolved.length) {
+          needsModel.push({ key, charges: unresolved, representative: unresolved[0] });
+        }
       }
     }
 
@@ -540,7 +579,12 @@ export async function enrichNewTransactions(
         if (cached.transaction !== charge) updates.set(charge.id, cached.transaction);
         continue;
       }
-      if (activeSubs.some((sub) => recurringMatchesTransaction(sub, charge))) continue;
+      const deterministic = applyDeterministicRecurringMatch(charge, activeSubs);
+      if (deterministic) {
+        countApplied(stats, deterministic);
+        updates.set(charge.id, deterministic.transaction);
+        continue;
+      }
       aiCandidates.push(charge);
     }
 

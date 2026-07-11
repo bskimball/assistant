@@ -143,6 +143,19 @@ export type BudgetRecurringItem = {
     account?: string;
     matchSource?: "ai" | "user";
   };
+  /**
+   * The most recent matching charge in a month *before* the one being reported,
+   * when `recurringItemsForMonth` is given prior transactions. Lets pending rows
+   * answer "when was this last paid?" (usually last month) so the owner can tell
+   * an as-yet-unposted bill from one that has actually lapsed. Undefined when no
+   * prior charge is known.
+   */
+  lastPaidTxn?: {
+    id: string;
+    timestamp: number;
+    amount: number;
+    account?: string;
+  };
 };
 
 export type RecurringInsightKind = "amount-change" | "likely-canceled";
@@ -625,6 +638,13 @@ export function transactionsForMonth(transactions: Transaction[], month: string)
   return transactions.filter((t) => monthKey(t.timestamp) === month);
 }
 
+// Transactions posted in any month strictly before `month` ("YYYY-MM"). Feeds
+// `recurringItemsForMonth`'s prior-charge lookup so pending recurring rows can
+// report when they were last paid. "YYYY-MM" keys compare lexicographically.
+export function transactionsBeforeMonth(transactions: Transaction[], month: string): Transaction[] {
+  return transactions.filter((t) => monthKey(t.timestamp) < month);
+}
+
 export function detectOneTimeCandidates(input: {
   transactions: Transaction[];
   subscriptions: Subscription[];
@@ -915,6 +935,11 @@ function remainingRecurringAmount(
 export function recurringItemsForMonth(
   subscriptions: Subscription[],
   monthTxns: Transaction[],
+  // Transactions from months *before* `monthTxns` (e.g. via `transactionsBeforeMonth`).
+  // When supplied, each item gets `lastPaidTxn` — the most recent prior charge —
+  // so pending rows can show when they were last paid. Optional so callers that
+  // only need monthly totals skip the extra sweep.
+  priorTxns?: Transaction[],
 ): Record<BudgetBucket, BudgetRecurringItem[]> {
   const items: Record<BudgetBucket, BudgetRecurringItem[]> = { needs: [], wants: [], savings: [] };
   for (const sub of subscriptions) {
@@ -927,6 +952,16 @@ export function recurringItemsForMonth(
       (best, t) => (!best || t.timestamp > best.timestamp ? t : best),
       null,
     );
+    // Latest charge in an earlier month, so pending rows can show "last paid".
+    const lastPaid = priorTxns
+      ? priorTxns.reduce<Transaction | null>(
+          (best, t) =>
+            recurringMatchesTransaction(sub, t) && (!best || t.timestamp > best.timestamp)
+              ? t
+              : best,
+          null,
+        )
+      : null;
     const monthlyAmount = subscriptionMonthlyCost(sub);
     const matchedAmount = matches.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const seenThisMonth = matched !== null;
@@ -955,6 +990,14 @@ export function recurringItemsForMonth(
             amount: matched.amount,
             account: matched.account,
             matchSource: matched.recurringMatchSource,
+          }
+        : undefined,
+      lastPaidTxn: lastPaid
+        ? {
+            id: lastPaid.id,
+            timestamp: lastPaid.timestamp,
+            amount: lastPaid.amount,
+            account: lastPaid.account,
           }
         : undefined,
     });

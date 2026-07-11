@@ -57,6 +57,7 @@ vi.mock("@/server/adapters/ai", () => ({
 
 import {
   applyAiDecision,
+  applyDeterministicRecurringMatch,
   buildMatchPrompt,
   cachedGroupFor,
   mergeAiCacheEntry,
@@ -176,6 +177,30 @@ describe("finance AI charge matching helpers", () => {
       applyAiDecision(base, { group: "needs", subId: null, confidence: 0, source: "ai" }, subs, {})
         .transaction.recurringSuggestedId,
     ).toBeUndefined();
+  });
+
+  it("persists a unique deterministic match and corrects its budget bucket", () => {
+    const transaction = txn({
+      category: "TRUIST IL PYMT",
+      amount: -1094.31,
+      categoryGroup: "wants",
+    });
+    const result = applyDeterministicRecurringMatch(transaction, [
+      sub({ id: "car", name: "Truist IL Pymt", amount: 1094.31, kind: "loan" }),
+    ]);
+
+    expect(result).toMatchObject({ linked: true, recategorized: true });
+    expect(result?.transaction).toMatchObject({ recurringId: "car", categoryGroup: "needs" });
+  });
+
+  it("does not persist an ambiguous deterministic match", () => {
+    const transaction = txn({ category: "UTILITY", amount: -100 });
+    const subscriptions = [
+      sub({ id: "one", name: "Utility", amount: 100, kind: "bill" }),
+      sub({ id: "two", name: "Utility", amount: 100, kind: "bill" }),
+    ];
+
+    expect(applyDeterministicRecurringMatch(transaction, subscriptions)).toBeNull();
   });
 
   it("blocks rejected sub ids for both links and suggestions", () => {

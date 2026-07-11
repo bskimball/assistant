@@ -15,6 +15,7 @@ import {
   recurringMatchesTransaction,
   rollupMonth,
   simulateDebtPayoff,
+  transactionsBeforeMonth,
   transactionsForMonth,
 } from "@/lib/finance-math";
 
@@ -848,6 +849,53 @@ describe("finance math", () => {
     expect(gym?.matchedTxn).toBeUndefined();
   });
 
+  it("reports lastPaidTxn from prior-month charges for a pending item", () => {
+    const lastMonth = Date.UTC(2025, 11, 5); // Dec 5 — before the reported month
+    const older = Date.UTC(2025, 9, 4); // Oct 4 — an even earlier charge
+    const subscriptions = [sub({ id: "netflix", name: "Netflix", amount: 15, group: "wants" })];
+    // No charge this month (empty), but two in prior months.
+    const priorTxns = [
+      txn({
+        id: "oct",
+        timestamp: older,
+        amount: -14.99,
+        category: "NETFLIX.COM",
+        account: "Visa",
+      }),
+      txn({
+        id: "dec",
+        timestamp: lastMonth,
+        amount: -15.49,
+        category: "NETFLIX.COM",
+        account: "Amex",
+      }),
+    ];
+
+    const items = recurringItemsForMonth(subscriptions, [], priorTxns);
+    const netflix = items.wants.find((item) => item.id === "netflix");
+
+    expect(netflix?.seenThisMonth).toBe(false);
+    // Most recent prior charge wins.
+    expect(netflix?.lastPaidTxn).toEqual({
+      id: "dec",
+      timestamp: lastMonth,
+      amount: -15.49,
+      account: "Amex",
+    });
+  });
+
+  it("omits lastPaidTxn when no prior transactions are provided", () => {
+    const subscriptions = [sub({ id: "netflix", name: "Netflix", amount: 15, group: "wants" })];
+    const items = recurringItemsForMonth(subscriptions, []);
+    expect(items.wants[0]?.lastPaidTxn).toBeUndefined();
+  });
+
+  it("selects transactions strictly before a month key", () => {
+    const txns = [txn({ id: "jan", timestamp: jan }), txn({ id: "feb", timestamp: feb })];
+    const before = transactionsBeforeMonth(txns, "2026-02");
+    expect(before.map((t) => t.id)).toEqual(["jan"]);
+  });
+
   it("surfaces matched transaction id and AI match source for explicit links", () => {
     const subscriptions = [sub({ id: "jeep", name: "Jeep payment", amount: 418, kind: "loan" })];
     const txns = [
@@ -869,6 +917,36 @@ describe("finance math", () => {
       matchSource: "ai",
       amount: -500,
     });
+  });
+
+  it("reconciles current bank descriptors against their tracked recurring items", () => {
+    const cases = [
+      { name: "Truist IL Pymt", amount: 1094.31, category: "TRUIST IL PYMT" },
+      { name: "Rocket Mortgage Loan", amount: 3275.33, category: "ROCKET MORTGAGE LOAN" },
+      { name: "Comcast Xfinity", amount: 199.83, category: "PURCHASE 0703 COMCAST / XFINITY" },
+      {
+        name: "PY Mosquito Authority302",
+        amount: 159,
+        category: "PY *MOSQUITO AUTHORITY302-346-2970",
+      },
+      { name: "Amazon Digital", amount: 12.99, category: "PURCHASE 0630 AMAZON DIGITAL" },
+      {
+        name: "Verizon Wireless Payments",
+        amount: 302.61,
+        category: "VERIZON WIRELESS PAYMENTS",
+        transactionAmount: 297.8,
+      },
+    ];
+
+    for (const item of cases) {
+      const subscription = sub({ name: item.name, amount: item.amount });
+      const transaction = txn({
+        amount: -(item.transactionAmount ?? item.amount),
+        category: item.category,
+      });
+
+      expect(recurringMatchesTransaction(subscription, transaction), item.name).toBe(true);
+    }
   });
 
   it("filters transactions by stable UTC month key", () => {
