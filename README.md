@@ -1,257 +1,78 @@
-Welcome to your new TanStack Start app!
+# Compass
 
-# Getting Started
+Compass is a private, voice-first personal AI coach for a two-person household. It combines daily planning, tasks, fitness, nutrition, finance, weekly review, analytics, and conversational coaching in one TanStack Start application.
 
-To run this application:
+## Stack
+
+- TanStack Start, React, and TanStack Router
+- Cloudflare Workers with R2 for domain data and D1 for authentication tables
+- Better Auth with Google OAuth and passkeys
+- Tailwind CSS and shadcn/ui
+- Vite+ for development, checks, tests, and builds
+- Grok for AI features, with deterministic fallbacks when no API key is configured
+
+## Getting started
 
 ```bash
 npm install
-# With Vite+: vp install && vp dev   (or npm run dev)
+npm run dev
 ```
 
-# Building For Production
+`npm run dev` starts the app on port 3000 using the Cloudflare Vite plugin and local emulated bindings. Use `npm run dev:cf` when full Wrangler binding fidelity is needed.
 
-To build this application for production:
+Local configuration belongs in `.dev.vars` and must not be committed. Authentication degrades gracefully in local development when OAuth is not configured; production fails closed.
+
+## Quality commands
 
 ```bash
-# With Vite+: vp build
-npm run build
+npm run check        # format/lint checks and TypeScript
+npm run test         # test suite
+npm run build        # check, test, production build, and output sanitization
+npm run build:only   # production build without the quality gate
+npm run generate-routes
 ```
 
-## Testing
+CI and Workers Builds use `npm run build`, so formatting, type, or test failures block deployment.
 
-This project uses [Vitest](https://vitest.dev/) via Vite+. You can run the tests with:
+## Architecture
 
-```bash
-# vp test --run   or
-npm run test
-```
+- `src/routes/` — file-based routes and page UI
+- `src/components/` — shared application and shadcn components
+- `src/lib/` — client-safe domain types, state, and pure helpers
+- `src/server/` — route-facing server functions and domain operations
+- `src/server/adapters/` — Cloudflare and external API integrations
+- `src/worker-entry.ts` — Worker entry and scheduled jobs
+- `docs/adr/` — architecture decision records
+- `docs/ai/` — agent-readable architecture and domain documentation
 
-## Styling
+Domain data is accessed through server functions. Personal health, nutrition, profile, and coaching data is member-scoped; household finance and shared tasks use the household scope. See `AGENTS.md` and ADR-017 before changing persistence or authorization boundaries.
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
+`src/routeTree.gen.ts` and Cloudflare type declarations are generated artifacts. Do not edit them manually.
 
-### Removing Tailwind CSS
+## Cloudflare setup
 
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Uninstall the packages: `npm install @tailwindcss/vite tailwindcss -D`
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "My App" },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-});
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from "@tanstack/react-start";
-
-const getServerTime = createServerFn({
-  method: "GET",
-}).handler(async () => {
-  return new Date().toISOString();
-});
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState("");
-
-  useEffect(() => {
-    getServerTime().then(setTime);
-  }, []);
-
-  return <div>Server time: {time}</div>;
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from "@tanstack/react-router";
-import { json } from "@tanstack/react-start";
-
-export const Route = createFileRoute("/api/hello")({
-  server: {
-    handlers: {
-      GET: () => json({ message: "Hello, World!" }),
-    },
-  },
-});
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from "@tanstack/react-router";
-
-export const Route = createFileRoute("/people")({
-  loader: async () => {
-    const response = await fetch("https://swapi.dev/api/people");
-    return response.json();
-  },
-  component: PeopleComponent,
-});
-```
-
-## Cloudflare + R2 Deployment (ADR-001)
-
-This app is deployed to **Cloudflare Workers** with **R2** as the primary persistent store.
-
-### Key conventions
-
-- All user data lives under R2 keys: `assistant/{userId}/{collection}.json`
-- Current user: `brian` (see `src/server/adapters/r2.ts`)
-- TanStack DB (`todosCollection`) is **client reactive state only**.
-- All reads/writes are performed via server functions (`src/server/*`) → R2.
-
-### Local development
-
-```bash
-npm run dev          # Uses @cloudflare/vite-plugin + emulated R2 (vp dev also works)
-npm run dev:cf       # Full wrangler dev (recommended for bindings fidelity)
-```
-
-On first run with R2 you may need a bucket:
+Create the required R2 bucket and refresh generated binding types when configuring a new environment:
 
 ```bash
 npx wrangler r2 bucket create assistant-data
-npm run cf-typegen   # Refresh CloudflareEnv types
+npm run cf-typegen
 ```
 
-### Deploy
-
-Production configuration follows Cloudflare Workers conventions:
-
-- Put sensitive values in Worker secrets: `BETTER_AUTH_SECRET` and `GOOGLE_CLIENT_SECRET`.
-- Put non-sensitive runtime config in Cloudflare variables: `GOOGLE_CLIENT_ID`,
-  `BETTER_AUTH_URL`, and `PUBLIC_APP_URL`.
-- Keep `.dev.vars` local-only for `vp dev` / `wrangler dev`. The build script removes
-  generated `.dev.vars` / `.env*` artifacts from `dist` before deploy.
+Set production secrets with Wrangler:
 
 ```bash
 npx wrangler secret put BETTER_AUTH_SECRET
 npx wrangler secret put GOOGLE_CLIENT_SECRET
-# Optional AI features:
+# Optional AI features
 npx wrangler secret put GROK_API_KEY
 ```
 
+Non-sensitive production variables such as `GOOGLE_CLIENT_ID`, `BETTER_AUTH_URL`, and `PUBLIC_APP_URL` are configured as Cloudflare variables. A real D1 database ID and production route are configured in `wrangler.jsonc`.
+
+## Deployment
+
 ```bash
-npm run build
 npm run deploy
 ```
 
-Requires a logged-in Wrangler session (`npx wrangler login`), a real D1 database id in
-`wrangler.jsonc`, and the R2 bucket to exist. Production auth fails closed if the
-required Google/Better Auth config is missing.
-
-See [`.agents/adrs/001-cloudflare-r2-deployment.md`](.agents/adrs/001-cloudflare-r2-deployment.md) and `wrangler.jsonc`.
-
-### Scripts
-
-- `dev` / `build` / `preview` / `test` / `check` (Vite+ `vp` wrappers + npm fallbacks)
-- `deploy` — build, sanitize generated env artifacts, then `wrangler deploy`
-- `dev:cf` — wrangler dev
-- `cf-typegen` — generate worker types from wrangler config
-
-function PeopleComponent() {
-const data = Route.useLoaderData()
-return (
-
-<ul>
-{data.results.map((person) => (
-<li key={person.name}>{person.name}</li>
-))}
-</ul>
-)
-}
-
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
-```
+This runs the complete quality gate before deploying through Wrangler. See `docs/adr/001-cloudflare-r2-deployment.md` and `wrangler.jsonc` for deployment details.

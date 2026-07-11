@@ -23,7 +23,7 @@ export interface StoreScopeOptions {
  * `node:async_hooks`, which must never be bundled into client code.
  */
 async function resolveScope(opts?: StoreScopeOptions): Promise<string> {
-  const { getCurrentUserScope } = await import("@/server/request-context");
+  const { getCurrentUserScope } = await import("@/server/request-context.server");
   const scope = getCurrentUserScope();
   if (!scope) {
     throw new Error(

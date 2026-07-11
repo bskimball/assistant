@@ -24,7 +24,7 @@ export default {
       (async () => {
         try {
           const [{ runWithUserScope }, { runSimplefinSyncImpl }] = await Promise.all([
-            import("@/server/request-context"),
+            import("@/server/request-context.server"),
             import("@/server/finance-sync"),
           ]);
           const result = await runWithUserScope("brian", () =>

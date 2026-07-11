@@ -32,7 +32,7 @@ export const userScopeMiddleware = createMiddleware({ type: "function" }).server
     const request = getRequest();
     const scope = await resolveScopeForRequest(request);
     if (scope) {
-      const { runWithUserScope } = await import("@/server/request-context");
+      const { runWithUserScope } = await import("@/server/request-context.server");
       return runWithUserScope(scope, () => next());
     }
     return next();

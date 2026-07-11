@@ -74,10 +74,6 @@ export const saveWorkoutPlans = createServerFn({ method: "POST" })
   .validator((data: { plans: WorkoutPlan[] }) => data)
   .handler(({ data }) => withDomainAuthData(data, impl.saveWorkoutPlansImpl));
 
-export async function getActiveWorkoutPlan(): Promise<WorkoutPlan | null> {
-  return impl.getActiveWorkoutPlanImpl();
-}
-
 export const loadWorkoutSessions = createServerFn({ method: "GET" }).handler(() =>
   withDomainAuth(impl.loadWorkoutSessionsImpl),
 );

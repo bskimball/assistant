@@ -1,48 +1,29 @@
+/**
+ * Plain server domain facade.
+ *
+ * Cohesive CRUD remains here; behavior-heavy clusters live in dedicated plain
+ * implementation modules and are re-exported to preserve this module's public
+ * interface for existing callers.
+ */
+
 import type {
   AIInteraction,
-  BaseEntity,
-  Budget,
-  CategoryGroup,
   ChatConversation,
   ChatConversationsStore,
   CoachMemoriesStore,
   CoachMemory,
-  DailyFinanceSnapshot,
-  DailyFocusScore,
-  DailyNutrition,
-  DailyPlan,
   ExerciseLibrary,
-  ISODate,
-  ISOWeek,
-  ProductivityTask,
-  Subscription,
-  Transaction,
   UserProfile,
   VoiceTranscript,
-  VoiceIntent,
   WorkoutPlan,
   WorkoutSession,
-  WeeklyReview,
 } from "@/lib/domain";
 import {
-  addDaysISO,
   assertSingleActiveWorkoutPlan,
-  assertValidMealLog,
   assertValidWorkoutSessionDate,
-  createProductivityTask,
   createDefaultUserProfile,
-  flOzToMl,
-  legacyTodoFromProductivityTask,
-  mlToFlOz,
-  newId,
-  resolveVoiceTargetDate,
-  todayISO,
-  type Macros,
 } from "@/lib/domain";
-import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import { getDomainStore } from "@/server/store";
-import type { SoftDeleteRecord } from "@/server/adapters/r2";
-import { loadTodosImpl, saveTodosImpl } from "@/server/todos";
 
 export type WorkoutPlansStore = {
   plans: WorkoutPlan[];
@@ -52,36 +33,6 @@ export type WorkoutPlansStore = {
 export type WorkoutSessionsStore = {
   sessions: WorkoutSession[];
   updatedAt: number;
-};
-
-export type DailyNutritionPayload = DailyNutrition & { updatedAt: number };
-export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number };
-
-export type TransactionsStore = {
-  transactions: Transaction[];
-  updatedAt: number;
-};
-
-export type ProductivityTasksPayload = {
-  tasks: ProductivityTask[];
-  updatedAt: number;
-};
-
-export type DailyPlanPayload = DailyPlan & { updatedAt: number };
-
-export interface DailyActivity {
-  interactions: AIInteraction[];
-  transcripts: VoiceTranscript[];
-}
-
-export type DailyDashboardPayload = {
-  date: ISODate;
-  nutrition: DailyNutritionPayload | null;
-  finance: DailyFinancePayload | null;
-  productivity: ProductivityTasksPayload;
-  plan: DailyPlanPayload | null;
-  focus: (DailyFocusScore & { updatedAt: number }) | null;
-  recent: DailyActivity;
 };
 
 export async function loadUserProfileImpl(): Promise<UserProfile> {
@@ -225,442 +176,6 @@ export async function appendWorkoutSessionImpl(
   await saveWorkoutSessionsImpl({ sessions: [...stored.sessions, session] });
   return session;
 }
-
-export function emptyMacros(): Macros {
-  return { calories: 0, protein: 0, carbs: 0, fat: 0 };
-}
-
-export function addMacros(a: Macros, b: Partial<Macros>): Macros {
-  return {
-    calories: Math.max(0, Math.round(a.calories + (b.calories ?? 0))),
-    protein: Math.max(0, Math.round(a.protein + (b.protein ?? 0))),
-    carbs: Math.max(0, Math.round(a.carbs + (b.carbs ?? 0))),
-    fat: Math.max(0, Math.round(a.fat + (b.fat ?? 0))),
-  };
-}
-
-export function sumMealMacros(meals: DailyNutrition["mealLogs"]): Macros {
-  return meals
-    .filter((meal) => !meal.deletedAt)
-    .flatMap((meal) => meal.foodItems || [])
-    .reduce((total, item) => addMacros(total, item.macros || emptyMacros()), emptyMacros());
-}
-
-function inferFoodMacrosFromText(
-  lower: string,
-): { macros: Macros; confidence: "low" | "medium" } | null {
-  if (
-    /\b0\s*(?:cal|cals|calorie|calories|kcal)\b/.test(lower) ||
-    /\b(water|black coffee|unsweetened tea|diet soda)\b/.test(lower)
-  ) {
-    return { macros: emptyMacros(), confidence: "medium" };
-  }
-
-  return null;
-}
-
-export function estimateMacrosFromText(text: string): {
-  macros: Macros;
-  confidence: "low" | "medium" | "high";
-} {
-  const lower = text.toLowerCase();
-  const read = (patterns: RegExp[]) => {
-    for (const pattern of patterns) {
-      const match = lower.match(pattern);
-      if (match?.[1]) return Number(match[1]);
-    }
-    return 0;
-  };
-  const protein = read([
-    /(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s*)?protein/,
-    /protein\s*(\d+(?:\.\d+)?)\s*g?/,
-  ]);
-  const carbs = read([
-    /(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s*)?carbs?/,
-    /carbs?\s*(\d+(?:\.\d+)?)\s*g?/,
-  ]);
-  const fat = read([/(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s*)?fat/, /fat\s*(\d+(?:\.\d+)?)\s*g?/]);
-  const calories = read([
-    /(\d+(?:\.\d+)?)\s*(?:cal|cals|calories|kcal)/,
-    /(?:cal|cals|calories|kcal)\s*(\d+(?:\.\d+)?)/,
-  ]);
-  const macroCalories = protein * 4 + carbs * 4 + fat * 9;
-  const inferredCalories = calories || macroCalories;
-  const knownCount = [protein, carbs, fat, calories].filter((n) => n > 0).length;
-  if (knownCount === 0) {
-    const inferred = inferFoodMacrosFromText(lower);
-    if (inferred) return inferred;
-  }
-  return {
-    macros: {
-      calories: Math.round(inferredCalories),
-      protein: Math.round(protein),
-      carbs: Math.round(carbs),
-      fat: Math.round(fat),
-    },
-    confidence: knownCount >= 3 ? "high" : knownCount >= 1 ? "medium" : "low",
-  };
-}
-
-export async function loadDailyNutritionImpl(date: ISODate): Promise<DailyNutritionPayload> {
-  const store = await getDomainStore();
-  const stored = await store.daily.get<DailyNutritionPayload>("daily-nutrition", date);
-  if (stored) return stored;
-  return {
-    id: `nutrition-${date}`,
-    date,
-    mealLogs: [],
-    totals: { calories: 0, protein: 0, carbs: 0, fat: 0 },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-}
-
-export async function saveDailyNutritionImpl(data: {
-  date: ISODate;
-  nutrition: Omit<DailyNutrition, "id" | "createdAt" | "updatedAt" | "deletedAt" | "date">;
-}): Promise<DailyNutritionPayload> {
-  data.nutrition.mealLogs.forEach(assertValidMealLog);
-  const now = Date.now();
-  const full: DailyNutritionPayload = {
-    id: `nutrition-${data.date}`,
-    date: data.date,
-    ...(data.nutrition as any),
-    totals: sumMealMacros(data.nutrition.mealLogs),
-    createdAt: (data.nutrition as any).createdAt ?? now,
-    updatedAt: now,
-  };
-  const store = await getDomainStore();
-  await store.daily.put("daily-nutrition", data.date, full);
-  return full;
-}
-
-export async function loadDailyFinanceImpl(date: ISODate): Promise<DailyFinancePayload> {
-  const store = await getDomainStore({ shared: true });
-  const stored = await store.daily.get<DailyFinancePayload>("daily-finance", date);
-  if (stored) return stored;
-  return {
-    id: `finance-${date}`,
-    date,
-    netWorth: 0,
-    accounts: [],
-    positions: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-}
-
-/**
- * Latest snapshot on or before `date` (carry-forward). Sync and the hub both
- * read through this so a new day starts from yesterday's accounts/positions
- * instead of an empty snapshot.
- */
-export async function loadLatestDailyFinanceImpl(
-  date: ISODate,
-): Promise<{ snapshot: DailyFinancePayload; sourceDate: ISODate }> {
-  const store = await getDomainStore({ shared: true });
-  const exact = await store.daily.get<DailyFinancePayload>("daily-finance", date);
-  if (exact) return { snapshot: exact, sourceDate: date };
-
-  const { getUserPrefix, listKeys } = await import("@/server/adapters/r2");
-  const { HOUSEHOLD_ID } = await import("@/lib/scope");
-  const prefix = `${getUserPrefix(HOUSEHOLD_ID)}/daily-finance/`;
-  const dates = (await listKeys(prefix))
-    .map((key) => key.match(/\/daily-finance\/(\d{4}-\d{2}-\d{2})\.json$/)?.[1])
-    .filter((d): d is ISODate => !!d && d <= date)
-    .sort((a, b) => b.localeCompare(a));
-
-  for (const sourceDate of dates) {
-    const snapshot = await store.daily.get<DailyFinancePayload>("daily-finance", sourceDate);
-    if (snapshot) {
-      return {
-        snapshot: { ...snapshot, id: `finance-${date}`, date },
-        sourceDate,
-      };
-    }
-  }
-
-  return { snapshot: await loadDailyFinanceImpl(date), sourceDate: date };
-}
-
-export async function saveDailyFinanceImpl(data: {
-  date: ISODate;
-  finance: Omit<
-    DailyFinanceSnapshot,
-    "id" | "createdAt" | "updatedAt" | "deletedAt" | "netWorth"
-  > & {
-    netWorth?: number;
-  };
-}): Promise<DailyFinancePayload> {
-  const now = Date.now();
-  const accountsTotal = (data.finance.accounts || []).reduce(
-    (s, a: { amount?: number }) => s + (a.amount || 0),
-    0,
-  );
-  const positionsTotal = (data.finance.positions || []).reduce(
-    (s, p: { value?: number }) => s + (p.value || 0),
-    0,
-  );
-  const full: DailyFinancePayload = {
-    id: `finance-${data.date}`,
-    ...data.finance,
-    date: data.date,
-    netWorth: data.finance.netWorth ?? accountsTotal + positionsTotal,
-    createdAt: (data.finance as any).createdAt ?? now,
-    updatedAt: now,
-  };
-  const store = await getDomainStore({ shared: true });
-  await store.daily.put("daily-finance", data.date, full);
-  return full;
-}
-
-export async function loadTransactionsImpl(): Promise<TransactionsStore> {
-  const store = await getDomainStore({ shared: true });
-  return (
-    (await store.ref.get<TransactionsStore>("transactions.json")) ?? {
-      transactions: [],
-      updatedAt: Date.now(),
-    }
-  );
-}
-
-/**
- * Atomically mutate the shared transaction ledger (etag CAS + retry). Both
- * household members write this file, so every ledger mutation must go through
- * here rather than load → save, or concurrent writers drop each other's data.
- * `mutate` may run more than once on conflict — keep it pure over its input.
- */
-export async function updateTransactionsImpl(
-  mutate: (transactions: Transaction[]) => Transaction[],
-): Promise<TransactionsStore> {
-  const store = await getDomainStore({ shared: true });
-  return store.ref.update<TransactionsStore>("transactions.json", (current) => ({
-    transactions: mutate(current?.transactions ?? []),
-    updatedAt: Date.now(),
-  }));
-}
-
-export async function appendTransactionImpl(
-  data: Omit<Transaction, "id" | "createdAt">,
-): Promise<Transaction> {
-  const now = Date.now();
-  const transaction: Transaction = {
-    id: newId("txn"),
-    createdAt: now,
-    ...data,
-    currency: data.currency ?? "USD",
-    timestamp: data.timestamp ?? now,
-  };
-  await updateTransactionsImpl((transactions) => [...transactions, transaction]);
-  return transaction;
-}
-
-/* ---------- Budget (50/30/20) ---------- */
-
-export type BudgetPayload = Budget & { updatedAt: number };
-
-export async function loadBudgetImpl(): Promise<BudgetPayload | null> {
-  const store = await getDomainStore({ shared: true });
-  return store.ref.get<BudgetPayload>("budget.json");
-}
-
-export async function saveBudgetImpl(data: {
-  budget: Omit<Budget, "id" | "createdAt" | "updatedAt" | "deletedAt">;
-}): Promise<BudgetPayload> {
-  const now = Date.now();
-  const existing = await loadBudgetImpl();
-  const payload: BudgetPayload = {
-    id: "budget",
-    ...data.budget,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  };
-  const store = await getDomainStore({ shared: true });
-  await store.ref.put("budget.json", payload);
-  return payload;
-}
-
-/* ---------- Subscriptions ---------- */
-
-export type SubscriptionsStore = {
-  subscriptions: Subscription[];
-  updatedAt: number;
-};
-
-export async function loadSubscriptionsImpl(): Promise<SubscriptionsStore> {
-  const store = await getDomainStore({ shared: true });
-  return (
-    (await store.ref.get<SubscriptionsStore>("subscriptions.json")) ?? {
-      subscriptions: [],
-      updatedAt: Date.now(),
-    }
-  );
-}
-
-export async function saveSubscriptionsImpl(data: {
-  subscriptions: Subscription[];
-}): Promise<SubscriptionsStore> {
-  const payload: SubscriptionsStore = {
-    subscriptions: data.subscriptions,
-    updatedAt: Date.now(),
-  };
-  const store = await getDomainStore({ shared: true });
-  await store.ref.put("subscriptions.json", payload);
-  return payload;
-}
-
-/* ---------- Category rules (learned overrides) ---------- */
-
-export type CategoryRulesStore = {
-  /** Lowercased merchant/keyword → 50/30/20 group. */
-  rules: Record<string, CategoryGroup>;
-  updatedAt: number;
-};
-
-export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
-  const store = await getDomainStore({ shared: true });
-  return (
-    (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
-      rules: {},
-      updatedAt: Date.now(),
-    }
-  );
-}
-
-/** Atomically merge learned category rules (etag CAS + retry, shared file). */
-export async function updateCategoryRulesImpl(
-  mutate: (rules: Record<string, CategoryGroup>) => Record<string, CategoryGroup>,
-): Promise<CategoryRulesStore> {
-  const store = await getDomainStore({ shared: true });
-  return store.ref.update<CategoryRulesStore>("category-rules.json", (current) => ({
-    rules: mutate(current?.rules ?? {}),
-    updatedAt: Date.now(),
-  }));
-}
-
-/**
- * Productivity tasks are split across two scopes (ADR-017): personal tasks live
- * in the signed-in user's scope, shared (household) tasks in the shared scope.
- * Load merges both — tagging each task with its `shared` origin — so a single
- * combined view shows "mine + shared". Save routes each task back to the
- * correct scope by its `shared` flag.
- */
-export async function loadProductivityTasksForDayImpl(
-  date: ISODate,
-): Promise<ProductivityTasksPayload> {
-  const [personalStore, sharedStore] = await Promise.all([
-    getDomainStore(),
-    getDomainStore({ shared: true }),
-  ]);
-  const [personal, shared] = await Promise.all([
-    personalStore.daily.get<ProductivityTasksPayload>("productivity-tasks", date),
-    sharedStore.daily.get<ProductivityTasksPayload>("productivity-tasks", date),
-  ]);
-  const tasks = [
-    ...(personal?.tasks ?? []).map((t) => ({ ...t, shared: false })),
-    ...(shared?.tasks ?? []).map((t) => ({ ...t, shared: true })),
-  ];
-  return {
-    tasks,
-    updatedAt: Math.max(personal?.updatedAt ?? 0, shared?.updatedAt ?? 0) || Date.now(),
-  };
-}
-
-export async function saveProductivityTasksForDayImpl(data: {
-  date: ISODate;
-  tasks: ProductivityTask[];
-}): Promise<ProductivityTasksPayload> {
-  const now = Date.now();
-  const personalTasks = data.tasks.filter((t) => !t.shared);
-  const sharedTasks = data.tasks.filter((t) => t.shared);
-  const [personalStore, sharedStore] = await Promise.all([
-    getDomainStore(),
-    getDomainStore({ shared: true }),
-  ]);
-  await Promise.all([
-    personalStore.daily.put("productivity-tasks", data.date, {
-      tasks: personalTasks,
-      updatedAt: now,
-    }),
-    sharedStore.daily.put("productivity-tasks", data.date, {
-      tasks: sharedTasks,
-      updatedAt: now,
-    }),
-  ]);
-  return { tasks: data.tasks, updatedAt: now };
-}
-
-export async function loadDailyPlanImpl(date: ISODate): Promise<DailyPlanPayload | null> {
-  const store = await getDomainStore();
-  return store.daily.get<DailyPlanPayload>("daily-plan", date);
-}
-
-export async function saveDailyPlanImpl(plan: DailyPlan): Promise<DailyPlanPayload> {
-  const payload: DailyPlanPayload = { ...plan, updatedAt: Date.now() };
-  const store = await getDomainStore();
-  await store.daily.put("daily-plan", plan.date, payload);
-  return payload;
-}
-
-export async function loadDailyFocusScoreImpl(
-  date: ISODate,
-): Promise<(DailyFocusScore & { updatedAt: number }) | null> {
-  const store = await getDomainStore();
-  return store.daily.get<DailyFocusScore & { updatedAt: number }>("focus-score", date);
-}
-
-export async function saveDailyFocusScoreImpl(
-  score: DailyFocusScore,
-): Promise<DailyFocusScore & { updatedAt: number }> {
-  const payload = { ...score, updatedAt: Date.now() };
-  const store = await getDomainStore();
-  await store.daily.put("focus-score", score.date, payload);
-  return payload;
-}
-
-export async function loadWeeklyReviewImpl(
-  week: ISOWeek,
-): Promise<(WeeklyReview & { updatedAt: number }) | null> {
-  const store = await getDomainStore();
-  return store.weekly.get<WeeklyReview & { updatedAt: number }>("weekly-review", week);
-}
-
-export async function saveWeeklyReviewImpl(
-  review: WeeklyReview,
-): Promise<WeeklyReview & { updatedAt: number }> {
-  const payload = { ...review, updatedAt: Date.now() };
-  const store = await getDomainStore();
-  await store.weekly.put("weekly-review", review.week, payload);
-  return payload;
-}
-
-export async function loadDailyDashboardImpl(date: ISODate): Promise<DailyDashboardPayload> {
-  const store = await getDomainStore();
-  const [nutrition, finance, productivity, plan, focus, ai, voice] = await Promise.all([
-    loadDailyNutritionImpl(date),
-    loadDailyFinanceImpl(date),
-    loadProductivityTasksForDayImpl(date),
-    loadDailyPlanImpl(date),
-    loadDailyFocusScoreImpl(date),
-    store.log.read<AIInteraction>("ai-interactions", date),
-    store.log.read<VoiceTranscript>("voice-transcripts", date),
-  ]);
-  const dayStart = new Date(date + "T00:00:00").getTime();
-  const dayEnd = new Date(date + "T23:59:59.999").getTime();
-  return {
-    date,
-    nutrition,
-    finance,
-    productivity,
-    plan,
-    focus,
-    recent: {
-      interactions: ai.filter((i) => i.timestamp >= dayStart && i.timestamp <= dayEnd),
-      transcripts: voice.filter((t) => t.timestamp >= dayStart && t.timestamp <= dayEnd),
-    },
-  };
-}
-
 export async function appendAIInteractionImpl(
   data: Omit<AIInteraction, "id" | "createdAt" | "updatedAt" | "deletedAt">,
 ): Promise<AIInteraction> {
@@ -690,442 +205,6 @@ export async function appendVoiceTranscriptImpl(
   await store.log.append("voice-transcripts", day, record);
   return record;
 }
-
-export interface VoiceProcessResult {
-  transcriptId: string;
-  aiInteractionId: string;
-  intent: VoiceIntent;
-  spokenText: string;
-  success: boolean;
-  legacyTodo?: import("@/lib/todos").Todo;
-  error?: string;
-}
-
-function buildIntentPrompt(transcriptText: string, today: ISODate): string {
-  return `You are the intent parser for Brian's personal life assistant.
-Today's date is ${today}.
-
-Return ONLY JSON matching:
-{
-  "action": "createTask" | "logWater" | "logMeal" | "deleteTask" | "markTaskDone" | "unknown",
-  "payload": {},
-  "confidence": 0.0-1.0,
-  "requiresConfirmation": boolean,
-  "clarificationQuestion": "optional"
-}
-
-Rules:
-- createTask/logWater/logMeal/markTaskDone can execute immediately.
-- deleteTask requires confirmation.
-- For createTask include { text: string, date?: "today"|"tomorrow"|YYYY-MM-DD }.
-- For logMeal include { description: string, date?: ... } and explicit macro fields if spoken
-  (use keys calories, protein, carbs, fat — not proteinGrams). If the user only states a macro
-  (e.g. "log 40g protein"), set description to something like "40g protein" and protein: 40.
-- For logWater include { fluidOunces: number } for US customary phrases, or
-  { milliliters: number } if the user explicitly says ml. Infer 8 fl oz if vague "a glass".
-- Extract the key request precisely. Do not invent.
-- If garbage or ambiguous (confidence < 0.55) set action:"unknown" and provide a short spoken clarificationQuestion.
-
-User said (verbatim):
-"""${transcriptText}"""
-`;
-}
-
-function fallbackParseIntent(text: string, _today: ISODate): VoiceIntent {
-  const t = text.toLowerCase().trim();
-  const addMatch = t.match(
-    /(?:add|create|new|remind me to|todo|task)\s+(?:task\s+)?["']?(.+?)["']?(?:\s+(?:for|on)\s+(today|tomorrow|\d{4}-\d{2}-\d{2}))?$/i,
-  );
-  if (addMatch || t.startsWith("add ") || t.includes("remind me")) {
-    const rawText = (
-      addMatch?.[1] || text.replace(/^(add|create|new|remind me to|task)\s*/i, "")
-    ).trim();
-    const datePart = addMatch?.[2] || (t.includes("tomorrow") ? "tomorrow" : "today");
-    const taskText = rawText.replace(/\s+(for|on)\s+(today|tomorrow).*$/i, "").trim() || text;
-    return {
-      action: "createTask",
-      payload: { text: taskText, date: datePart },
-      confidence: 0.75,
-      requiresConfirmation: false,
-    };
-  }
-  if (t.includes("water") || t.includes("drink")) {
-    const waterMatch = t.match(
-      /(\d+)\s*(oz|ounce|ounces|fl oz|fluid ounce|fluid ounces|ml|milli|glass|cup)/,
-    );
-    const unit = waterMatch?.[2] ?? "";
-    const amount = waterMatch ? parseInt(waterMatch[1], 10) : 8;
-    const ml =
-      unit.includes("ml") || unit.includes("milli")
-        ? amount
-        : unit.includes("cup")
-          ? (flOzToMl(amount * 8) ?? 237)
-          : unit.includes("glass")
-            ? (flOzToMl(amount * 8) ?? 237)
-            : (flOzToMl(amount) ?? 237);
-    return {
-      action: "logWater",
-      payload: { milliliters: ml },
-      confidence: 0.8,
-      requiresConfirmation: false,
-    };
-  }
-  if (t.includes("delete") || t.includes("remove")) {
-    const what = text.replace(/.*?(delete|remove)\s*/i, "").trim() || "item";
-    return {
-      action: "deleteTask",
-      payload: { text: what },
-      confidence: 0.65,
-      requiresConfirmation: true,
-    };
-  }
-  if (t.includes("done") || t.includes("complete") || t.includes("finish")) {
-    const what =
-      text.replace(/.*?(mark|set|make)\s+(.+?)\s+(done|complete).*/i, "$2").trim() || text;
-    return {
-      action: "markTaskDone",
-      payload: { text: what },
-      confidence: 0.7,
-      requiresConfirmation: false,
-    };
-  }
-  return {
-    action: "unknown",
-    payload: {},
-    confidence: 0.3,
-    requiresConfirmation: false,
-    clarificationQuestion:
-      'Sorry, I heard "' + text.slice(0, 60) + '..." — what would you like me to do?',
-  };
-}
-
-async function extractVoiceIntentImpl(
-  transcriptText: string,
-  today: ISODate,
-): Promise<VoiceIntent> {
-  const apiKey = await getGrokApiKey();
-  if (!apiKey) return fallbackParseIntent(transcriptText, today);
-
-  try {
-    const parsed = await completeJSON<any>(apiKey, {
-      model: await getGrokJsonModel(),
-      messages: [
-        {
-          role: "system",
-          content: "Return strictly valid minified JSON only. No prose.",
-        },
-        { role: "user", content: buildIntentPrompt(transcriptText, today) },
-      ],
-      temperature: 0.1,
-      maxTokens: 400,
-    });
-    return {
-      action: parsed.action || "unknown",
-      payload: parsed.payload || {},
-      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
-      requiresConfirmation: !!parsed.requiresConfirmation,
-      clarificationQuestion: parsed.clarificationQuestion,
-    };
-  } catch (e) {
-    console.warn("[voice] Grok intent failed, using fallback", e);
-    return fallbackParseIntent(transcriptText, today);
-  }
-}
-
-/**
- * Human-readable suffix naming the target day when it isn't today, so a
- * confirmation surfaces the *resolved* date — a mis-parsed "yesterday" is
- * visible instead of silently landing on the wrong day. Returns "" for today.
- */
-function describeDay(date: ISODate, today: ISODate): string {
-  if (date === today) return "";
-  const rel =
-    date === addDaysISO(today, -1)
-      ? "yesterday"
-      : date === addDaysISO(today, 1)
-        ? "tomorrow"
-        : new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
-            weekday: "long",
-            timeZone: "UTC",
-          });
-  const md = new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-  return ` for ${rel}, ${md}`;
-}
-
-export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
-  spokenText: string;
-  success: boolean;
-  legacyTodo?: import("@/lib/todos").Todo;
-  error?: string;
-}> {
-  const now = Date.now();
-  const today = todayISO();
-
-  try {
-    switch (intent.action) {
-      case "createTask": {
-        const text = (intent.payload.text || intent.payload.query || "").toString().trim();
-        if (!text) throw new Error("Missing task text");
-        const targetDate = resolveVoiceTargetDate(
-          intent.payload.date ?? intent.payload.when,
-          today,
-        );
-        const prodTask = createProductivityTask({
-          text,
-          date: targetDate,
-          notes: intent.payload.notes,
-          priority: intent.payload.priority,
-          source: "ai",
-        });
-        const existing = await loadProductivityTasksForDayImpl(targetDate);
-        await saveProductivityTasksForDayImpl({
-          date: targetDate,
-          tasks: [...(existing?.tasks || []), prodTask],
-        });
-
-        const legacy = legacyTodoFromProductivityTask(prodTask);
-        const currentTodos = await loadTodosImpl();
-        await saveTodosImpl({
-          items: [...(currentTodos?.items || []), legacy],
-        });
-
-        return {
-          spokenText: `Task added: ${text}${describeDay(targetDate, today)}`,
-          success: true,
-          legacyTodo: legacy,
-        };
-      }
-
-      case "logWater": {
-        const ml = Number(
-          intent.payload.milliliters ?? intent.payload.amountMl ?? intent.payload.ml ?? 250,
-        );
-        const date = resolveVoiceTargetDate(intent.payload.date, today);
-        const nutrition = await loadDailyNutritionImpl(date);
-        await saveDailyNutritionImpl({
-          date,
-          nutrition: {
-            ...nutrition,
-            waterMl: (nutrition.waterMl ?? 0) + Math.max(1, Math.round(ml)),
-            updatedAt: now,
-          } as any,
-        });
-        return {
-          spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.${describeDay(date, today)}`,
-          success: true,
-        };
-      }
-
-      case "logMeal": {
-        const date = resolveVoiceTargetDate(intent.payload.date, today);
-        const nutrition = await loadDailyNutritionImpl(date);
-        const explicitMacros = {
-          calories: Number(intent.payload.calories ?? intent.payload.kcal ?? 0),
-          protein: Number(
-            intent.payload.protein ?? intent.payload.proteinG ?? intent.payload.proteinGrams ?? 0,
-          ),
-          carbs: Number(
-            intent.payload.carbs ?? intent.payload.carbsG ?? intent.payload.carbGrams ?? 0,
-          ),
-          fat: Number(intent.payload.fat ?? intent.payload.fatG ?? intent.payload.fatGrams ?? 0),
-        };
-        // Models often return { proteinGrams: 40 } without a description.
-        const desc = (
-          intent.payload.description ||
-          intent.payload.text ||
-          (explicitMacros.protein > 0 ? `${explicitMacros.protein}g protein` : "meal")
-        ).toString();
-        const estimated = estimateMacrosFromText(desc);
-        const macros =
-          explicitMacros.calories ||
-          explicitMacros.protein ||
-          explicitMacros.carbs ||
-          explicitMacros.fat
-            ? addMacros(emptyMacros(), {
-                ...explicitMacros,
-                calories:
-                  explicitMacros.calories ||
-                  explicitMacros.protein * 4 + explicitMacros.carbs * 4 + explicitMacros.fat * 9,
-              })
-            : estimated.macros;
-        const mealLog = {
-          id: `meal-${now}`,
-          timestamp: now,
-          foodItems: [
-            {
-              id: `food-${now}`,
-              name: desc,
-              quantity: 1,
-              unit: "serving",
-              macros,
-              source: "user" as const,
-            },
-          ],
-          estimateConfidence: estimated.confidence,
-          createdAt: now,
-        };
-        await saveDailyNutritionImpl({
-          date,
-          nutrition: {
-            ...nutrition,
-            mealLogs: [...(nutrition.mealLogs || []), mealLog],
-          } as any,
-        });
-        return { spokenText: `Logged meal: ${desc}${describeDay(date, today)}`, success: true };
-      }
-
-      case "markTaskDone": {
-        const matchText = (intent.payload.text || "").toString().toLowerCase();
-        const targetDate = resolveVoiceTargetDate(intent.payload.date, today);
-        const payload = await loadProductivityTasksForDayImpl(targetDate);
-        const updatedTasks = (payload?.tasks || []).map((t) =>
-          t.text.toLowerCase().includes(matchText) || matchText.includes(t.text.toLowerCase())
-            ? {
-                ...t,
-                status: "done" as const,
-                done: true,
-                completedAt: now,
-                updatedAt: now,
-              }
-            : t,
-        );
-        await saveProductivityTasksForDayImpl({
-          date: targetDate,
-          tasks: updatedTasks,
-        });
-
-        const todos = await loadTodosImpl();
-        const updatedLegacy = (todos?.items || []).map((t) =>
-          t.text.toLowerCase().includes(matchText) ? { ...t, done: true, completedAt: now } : t,
-        );
-        await saveTodosImpl({ items: updatedLegacy });
-        return { spokenText: "Marked task done.", success: true };
-      }
-
-      case "deleteTask": {
-        const matchText = (intent.payload.text || "").toString().toLowerCase();
-        const targetDate = resolveVoiceTargetDate(intent.payload.date, today);
-        const payload = await loadProductivityTasksForDayImpl(targetDate);
-        const filtered = (payload?.tasks || []).filter(
-          (t) =>
-            !(t.text.toLowerCase().includes(matchText) || matchText.includes(t.text.toLowerCase())),
-        );
-        await saveProductivityTasksForDayImpl({
-          date: targetDate,
-          tasks: filtered,
-        });
-
-        const todos = await loadTodosImpl();
-        const filteredLegacy = (todos?.items || []).filter(
-          (t) =>
-            !(t.text.toLowerCase().includes(matchText) || matchText.includes(t.text.toLowerCase())),
-        );
-        await saveTodosImpl({ items: filteredLegacy });
-        return { spokenText: "Task deleted.", success: true };
-      }
-
-      case "unknown":
-      default:
-        return {
-          spokenText: intent.clarificationQuestion || "Can you say that again or be more specific?",
-          success: false,
-        };
-    }
-  } catch (e: any) {
-    return {
-      spokenText: "Sorry, I had trouble with that. " + (e?.message || ""),
-      success: false,
-      error: String(e),
-    };
-  }
-}
-
-export async function processVoiceInputImpl(data: {
-  transcriptText: string;
-  language?: string;
-  forceExecute?: boolean;
-}): Promise<VoiceProcessResult> {
-  const now = Date.now();
-  const today = todayISO();
-  const text = (data.transcriptText || "").trim();
-  if (!text) {
-    return {
-      transcriptId: "",
-      aiInteractionId: "",
-      intent: {
-        action: "unknown",
-        payload: {},
-        confidence: 0,
-        requiresConfirmation: false,
-        clarificationQuestion: "Empty transcript.",
-      },
-      spokenText: "I did not hear anything.",
-      success: false,
-      error: "empty",
-    };
-  }
-
-  const store = await getDomainStore();
-  const transcriptId = `voice-${now}`;
-  const transcript: VoiceTranscript = {
-    id: transcriptId,
-    createdAt: now,
-    timestamp: now,
-    audioR2Key: "",
-    transcriptText: text,
-    durationSec: Math.max(1, Math.round(text.split(" ").length / 2.5)),
-    language: data.language,
-  };
-  await store.putVoiceTranscript(transcript);
-  const dayForLog = new Date(now).toISOString().slice(0, 10);
-  await store.log.append("voice-transcripts", dayForLog, transcript);
-
-  const intent = await extractVoiceIntentImpl(text, today);
-  const shouldExecute = data.forceExecute || !intent.requiresConfirmation;
-  const exec = shouldExecute
-    ? await executeVoiceIntentImpl(intent)
-    : {
-        spokenText: intent.clarificationQuestion || `About to ${intent.action}. Are you sure?`,
-        success: false,
-      };
-
-  const interactionId = `ai-${now}`;
-  // Human-readable only — Recent Activity on the dashboard shows `response`
-  // verbatim. Keep structured debug data out of the user-facing string.
-  const interaction: AIInteraction = {
-    id: interactionId,
-    createdAt: now,
-    timestamp: now,
-    intent: intent.action,
-    prompt: `voice:${text.slice(0, 120)}`,
-    response: exec.spokenText,
-    model: "grok-voice-pipeline",
-    tokensIn: undefined,
-    tokensOut: undefined,
-  };
-  await store.putAIInteraction(interaction);
-  await store.log.append("ai-interactions", dayForLog, interaction);
-  await store.putVoiceTranscript({
-    ...transcript,
-    aiInteractionId: interactionId,
-    updatedAt: now,
-  });
-
-  return {
-    transcriptId,
-    aiInteractionId: interactionId,
-    intent,
-    spokenText: exec.spokenText,
-    success: exec.success && shouldExecute,
-    legacyTodo: exec.legacyTodo,
-    error: exec.error,
-  };
-}
-
 export async function loadExerciseLibraryImpl(): Promise<ExerciseLibrary | null> {
   const store = await getDomainStore();
   return store.ref.get<ExerciseLibrary>("exercise-library.json");
@@ -1137,92 +216,64 @@ export async function saveExerciseLibraryImpl(lib: ExerciseLibrary): Promise<Exe
   return lib;
 }
 
-export async function recordSoftDeletedKeyImpl(
-  key: string,
-  deletedAt = Date.now(),
-  domain?: string,
-): Promise<void> {
-  const store = await getDomainStore();
-  await store.recordSoftDelete(key, deletedAt, domain);
-}
+export {
+  addMacros,
+  emptyMacros,
+  estimateMacrosFromText,
+  loadDailyNutritionImpl,
+  saveDailyNutritionImpl,
+  sumMealMacros,
+} from "@/server/nutrition-impl";
+export type { DailyNutritionPayload } from "@/server/nutrition-impl";
 
-/** Collection stores keep their entities under one of these list keys. */
-type SoftDeleteContainer<T> = { items?: T[]; plans?: T[]; sessions?: T[] };
+export {
+  appendTransactionImpl,
+  loadBudgetImpl,
+  loadCategoryRulesImpl,
+  loadDailyFinanceImpl,
+  loadLatestDailyFinanceImpl,
+  loadSubscriptionsImpl,
+  loadTransactionsImpl,
+  saveBudgetImpl,
+  saveDailyFinanceImpl,
+  saveSubscriptionsImpl,
+  updateCategoryRulesImpl,
+  updateTransactionsImpl,
+} from "@/server/finance-data-impl";
+export type {
+  BudgetPayload,
+  CategoryRulesStore,
+  DailyFinancePayload,
+  SubscriptionsStore,
+  TransactionsStore,
+} from "@/server/finance-data-impl";
 
-export async function softDeleteInStoreImpl<T extends BaseEntity>(
-  id: string,
-  loadFn: () => Promise<SoftDeleteContainer<T>>,
-  saveFn: (payload: SoftDeleteContainer<T>) => Promise<unknown>,
-  containerKey?: string,
-  domainHint?: string,
-): Promise<void> {
-  const store = await loadFn();
-  const items: T[] = store.items ?? store.plans ?? store.sessions ?? [];
-  const now = Date.now();
-  const updated = items.map((it) =>
-    it.id === id ? ({ ...it, deletedAt: now, updatedAt: now } as T) : it,
-  );
-  if (store.plans) {
-    await saveFn({ plans: updated });
-  } else if (store.sessions) {
-    await saveFn({ sessions: updated });
-  } else {
-    await saveFn({ items: updated });
-  }
-  if (containerKey) await recordSoftDeletedKeyImpl(containerKey, now, domainHint);
-}
+export {
+  loadProductivityTasksForDayImpl,
+  saveProductivityTasksForDayImpl,
+} from "@/server/productivity-impl";
+export type { ProductivityTasksPayload } from "@/server/productivity-impl";
 
-export async function runHardDeleteMaintenanceImpl(daysBack = 8): Promise<{
-  shardsScanned: string[];
-  objectsDeleted: string[];
-  shardsPruned: string[];
-}> {
-  const store = await getDomainStore();
-  const now = Date.now();
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  const shardsScanned: string[] = [];
-  const objectsDeleted: string[] = [];
-  const shardsPruned: string[] = [];
+export {
+  loadDailyDashboardImpl,
+  loadDailyFocusScoreImpl,
+  loadDailyPlanImpl,
+  loadWeeklyReviewImpl,
+  saveDailyFocusScoreImpl,
+  saveDailyPlanImpl,
+  saveWeeklyReviewImpl,
+} from "@/server/daily-dashboard-impl";
+export type {
+  DailyActivity,
+  DailyDashboardPayload,
+  DailyPlanPayload,
+} from "@/server/daily-dashboard-impl";
 
-  for (let i = 0; i < daysBack; i++) {
-    const d = new Date(now - i * 24 * 60 * 60 * 1000);
-    const dateStr = d.toISOString().slice(0, 10);
-    const records = await store.getDeletedIndex(dateStr);
-    shardsScanned.push(dateStr);
+export { executeVoiceIntentImpl, processVoiceInputImpl } from "@/server/voice-impl";
+export type { VoiceProcessResult } from "@/server/voice-impl";
 
-    const toDelete: SoftDeleteRecord[] = [];
-    const keep: SoftDeleteRecord[] = [];
-    for (const rec of records) {
-      if (now - rec.deletedAt > sevenDaysMs) toDelete.push(rec);
-      else keep.push(rec);
-    }
-
-    for (const rec of toDelete) {
-      try {
-        await store.deleteObject(rec.key);
-        objectsDeleted.push(rec.key);
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const shardIsOld = now - d.getTime() > sevenDaysMs;
-    if (shardIsOld && toDelete.length > 0) {
-      try {
-        await store.deleteDeletedIndexShard(dateStr);
-        shardsPruned.push(dateStr);
-      } catch {
-        /* ignore */
-      }
-    } else if (keep.length !== records.length) {
-      if (keep.length === 0 && shardIsOld) {
-        await store.deleteDeletedIndexShard(dateStr);
-        shardsPruned.push(dateStr);
-      } else {
-        await store.putJSON(store.getDeletedIndexKey(dateStr), keep);
-      }
-    }
-  }
-
-  return { shardsScanned, objectsDeleted, shardsPruned };
-}
+export {
+  recordSoftDeletedKeyImpl,
+  runHardDeleteMaintenanceImpl,
+  softDeleteInStoreImpl,
+} from "@/server/soft-delete-impl";

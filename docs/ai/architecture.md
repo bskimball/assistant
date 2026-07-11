@@ -27,8 +27,13 @@ Keep these wrappers thin: validate input, require auth for writes, call plain im
 
 **Plain server-side domain behavior**
 
-- `src/server/domain-impl.ts`: daily dashboard composition, aggregate loaders/savers, voice intent parsing and execution, soft-delete maintenance, nutrition macro estimation, finance transactions, workout session append logic, and legacy todo compatibility hooks.
-- Add deeper implementation modules only when `domain-impl.ts` becomes too broad. New modules should still be plain functions, not `createServerFn` wrappers.
+- `src/server/domain-impl.ts`: compatibility facade and cohesive CRUD loaders/savers (profile, chat memories, workout collections, activity logs, exercise library). It re-exports behavior modules so existing plain implementation imports remain stable.
+- `src/server/voice-impl.ts`: voice intent prompt/fallback parsing, intent extraction/execution, and voice processing.
+- `src/server/daily-dashboard-impl.ts`: daily dashboard composition plus daily plan, focus-score, and weekly-review persistence.
+- `src/server/productivity-impl.ts`: per-user/household productivity task scope merging and routing.
+- `src/server/soft-delete-impl.ts`: soft-delete recording, collection marking, and hard-delete maintenance.
+- `src/server/nutrition-impl.ts` and `src/server/finance-data-impl.ts`: nutrition macro/daily persistence and finance aggregate/ledger persistence.
+- Deeper implementation modules remain plain functions, not `createServerFn` wrappers.
 
 **Persistence boundary**
 
