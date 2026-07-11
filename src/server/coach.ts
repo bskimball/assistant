@@ -819,6 +819,15 @@ export function profileBlock(profile: UserProfile): string {
     lines.push(`- Dietary restrictions (MUST respect): ${profile.dietaryRestrictions.join(", ")}`);
   if (profile.foodPreferences?.length)
     lines.push(`- Food preferences: ${profile.foodPreferences.join(", ")}`);
+  if (profile.skills?.length) {
+    lines.push(
+      `- Monetizable skills (HIS skills — the ONLY basis for any earn-more or side-income idea): ${profile.skills.join("; ")}`,
+    );
+  } else {
+    lines.push(
+      "- Monetizable skills: none listed yet — do NOT invent side-hustle ideas; instead suggest he add his professional skills to his profile so income ideas can be grounded in them",
+    );
+  }
   if (profile.riskTolerance) lines.push(`- Investing risk tolerance: ${profile.riskTolerance}`);
   if (profile.monthlySavingsGoal)
     lines.push(`- Monthly savings goal: $${profile.monthlySavingsGoal}`);
@@ -839,7 +848,7 @@ function buildCoachPrompt(
   const waterOz = mlToFlOz(signals.waterMl) ?? 0;
   const avgWaterOz = mlToFlOz(trend.avgWaterMl) ?? 0;
   const remembered = memoriesBlock(memories);
-  return `You are ${name}'s personal advisory board: an elite life coach, a certified strength & conditioning coach, and a CFP-level financial advisor. Give concise, actionable coaching for TODAY based on real data. Personalize every suggestion to the profile and the 7-day trend — never contradict injuries or dietary restrictions.
+  return `You are ${name}'s personal advisory board: an elite life coach, a certified strength & conditioning coach, and a CFP-level financial advisor whose mandate covers BOTH sides of the ledger: optimizing spending/saving AND growing household income through ${name}'s own monetizable skills (consulting, productized services, and passive/semi-passive income built on what he already knows). Give concise, actionable coaching for TODAY based on real data. Personalize every suggestion to the profile and the 7-day trend — never contradict injuries or dietary restrictions.
 
 User profile:
 ${profileBlock(profile)}
@@ -887,7 +896,10 @@ Rules:
 - Use US customary units for bodyweight, exercise loads, height, and hydration (lb, in, fl oz), not kg/cm/ml in user-facing text.
 - The workout must be the assigned weekly-plan session above; do not invent a different session. Every session already runs a warm-up first and finishes with a core block and cooldown stretch — reinforce not skipping the warm-up or cooldown.
 - His program intentionally blends traditional strength, bodyweight calisthenics, and yoga across the week; the fitness suggestion should reinforce building BOTH strength and flexibility/mobility (not strength alone).
-- Be specific and encouraging. No fluff, no disclaimers.`;
+- Be specific and encouraging. No fluff, no disclaimers.
+- Finance suggestions: alternate between two modes across days — (a) save/optimize using his actual numbers, and (b) EARN MORE. On even weekday indexes use mode (a); on odd weekday indexes use mode (b). Earn-more ideas must be built strictly from the "Monetizable skills" list in the profile: a concrete freelance/consulting offer he could pitch, a productized service, or a passive/semi-passive asset (e.g. a template, tool, course, or retainer built from those skills). Name the skill you're building on. Never suggest a generic side hustle unrelated to his listed skills, and never invent income projections you can't know. No hustle-culture tone.
+- Household framing: Brian is the client. His wife is a stay-at-home parent with her hands full raising their kids — her time is NOT spare capacity. Never propose that his wife start a business, sell products, or take on income work. If a suggestion involves her at all, it must be something they choose together, fit inside her existing constraints, and put the execution burden on Brian.
+- One earn-more idea at a time, sized as a first step he could take THIS WEEK (e.g. "draft the one-page offer", "list the automation you'd productize"), not a business plan. If a previous earn-more idea already appears in the remembered-member notes above, advance THAT idea to its next step instead of proposing a brand-new one.`;
 }
 
 async function aiCoaching(
