@@ -177,6 +177,8 @@ export async function saveSimplefinMappingsImpl(data: {
   aliases?: Record<string, string>;
   loanLinks?: Record<string, string | null>;
 }): Promise<SimplefinPublicStatus> {
+  const state = await loadSimplefinStateImpl();
+  const renames = deriveAliasRenames(state, data.aliases ?? {});
   await updateSimplefinState((state) => {
     const aliases = { ...state.aliases };
     for (const [id, alias] of Object.entries(data.aliases ?? {})) {
@@ -189,9 +191,112 @@ export async function saveSimplefinMappingsImpl(data: {
       if (subscriptionId) loanLinks[accountId] = subscriptionId;
       else delete loanLinks[accountId];
     }
-    return { ...state, aliases, loanLinks };
+    const renamedById = new Map(renames.map((rename) => [rename.accountId, rename.to]));
+    const lastAccounts = (state.lastAccounts ?? []).map((account) => {
+      const displayName = renamedById.get(account.id);
+      return displayName ? { ...account, displayName } : account;
+    });
+    return { ...state, aliases, loanLinks, lastAccounts };
   });
+  await renameTransactionAccounts(renames);
   return getSimplefinStatusImpl();
+}
+
+export interface TransactionAccountRename {
+  from: string[];
+  to: string;
+}
+
+interface AccountAliasRename extends TransactionAccountRename {
+  accountId: string;
+}
+
+export function deriveAliasRenames(
+  state: SimplefinState,
+  incomingAliases: Record<string, string>,
+): AccountAliasRename[] {
+  const accounts = new Map((state.lastAccounts ?? []).map((account) => [account.id, account]));
+  const renames: AccountAliasRename[] = [];
+  for (const [accountId, alias] of Object.entries(incomingAliases)) {
+    const account = accounts.get(accountId);
+    if (!account) continue;
+    const rawName = [account.orgName, account.name].filter(Boolean).join(" ").trim();
+    const oldDisplay = state.aliases[accountId]?.trim() || rawName;
+    const newDisplay = alias.trim() || rawName;
+    if (newDisplay === oldDisplay) continue;
+    const from = [...new Set([rawName, oldDisplay, account.displayName].filter(Boolean))];
+    renames.push({ accountId, from, to: newDisplay });
+  }
+  return renames;
+}
+
+/**
+ * Renames to run on every sync. A row frozen under an account's raw bank label
+ * (ingested before the user aliased that account) never sees a *change* between
+ * syncs, so a change-detector alone would leave it orphaned under the old name.
+ * Sweeping `rawName -> current display name` unconditionally heals those rows;
+ * it's a no-op once healed (and when no alias is set, rawName === display name).
+ */
+export function deriveSyncRenames(
+  state: SimplefinState,
+  payload: SimplefinPayload,
+): TransactionAccountRename[] {
+  const previous = new Map((state.lastAccounts ?? []).map((account) => [account.id, account]));
+  const renames: TransactionAccountRename[] = [];
+  for (const account of payload.accounts) {
+    const newDisplay = displayNameFor(account, state);
+    const rawName = [account.org?.name || account.conn_name, account.name]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const from = [...new Set([previous.get(account.id)?.displayName, rawName].filter(Boolean))];
+    if (from.length) renames.push({ from: from as string[], to: newDisplay });
+  }
+  return renames;
+}
+
+function renameMapFor(renames: TransactionAccountRename[]): Map<string, string> {
+  const renameMap = new Map<string, string>();
+  for (const rename of renames) {
+    const toKey = rename.to.trim().toLowerCase();
+    for (const from of rename.from) {
+      const fromKey = from.trim().toLowerCase();
+      if (fromKey && fromKey !== toKey) renameMap.set(fromKey, rename.to);
+    }
+  }
+  return renameMap;
+}
+
+export async function renameTransactionAccounts(
+  renames: TransactionAccountRename[],
+): Promise<number> {
+  const renameMap = renameMapFor(renames);
+  if (!renameMap.size) return 0;
+  let changed = 0;
+  // SimpleFIN transaction rows freeze the display label used when they were ingested.
+  await updateTransactionsImpl((transactions) => {
+    const result = rewriteTransactionAccountLabels(transactions, renames);
+    changed = result.changed;
+    return result.transactions;
+  });
+  return changed;
+}
+
+export function rewriteTransactionAccountLabels(
+  transactions: Transaction[],
+  renames: TransactionAccountRename[],
+): { transactions: Transaction[]; changed: number } {
+  const renameMap = renameMapFor(renames);
+  let changed = 0;
+  const rewritten = transactions.map((transaction) => {
+    const account = transaction.account
+      ? renameMap.get(transaction.account.trim().toLowerCase())
+      : undefined;
+    if (!account || account === transaction.account) return transaction;
+    changed++;
+    return { ...transaction, account };
+  });
+  return { transactions: rewritten, changed };
 }
 
 function displayNameFor(account: SimplefinAccount, state: SimplefinState): string {
@@ -525,6 +630,7 @@ export async function runSimplefinSyncImpl(args: {
     syncState,
     fetchResult.payload,
   );
+  await renameTransactionAccounts(deriveSyncRenames(syncState, fetchResult.payload));
   await enrichNewTransactions(newTxns, { manual: args.manual });
 
   const today = todayISO();

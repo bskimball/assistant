@@ -1,16 +1,166 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  deriveAliasRenames,
+  deriveSyncRenames,
   isBackfilledTransaction,
   loanOptionsForStatus,
   mergeAccountBalances,
   mergePositions,
   parseSimplefinMoney,
   positionsFromHoldings,
+  renameTransactionAccounts,
+  rewriteTransactionAccountLabels,
+  type SimplefinState,
 } from "./finance-sync";
 import type { SimplefinPayload } from "@/server/adapters/simplefin";
 import type { Position, Subscription, Transaction } from "@/lib/domain";
 
+const { updateTransactionsMock } = vi.hoisted(() => ({
+  updateTransactionsMock: vi.fn(),
+}));
+
+vi.mock("@/server/domain-impl", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/domain-impl")>()),
+  updateTransactionsImpl: updateTransactionsMock,
+}));
+
 describe("finance-sync helpers", () => {
+  beforeEach(() => updateTransactionsMock.mockReset());
+
+  it("rewrites matching frozen account labels and skips an empty rename set", async () => {
+    const stored = [
+      { id: "old", account: " Old Checking " },
+      { id: "other", account: "Savings" },
+    ] as Transaction[];
+    const result = rewriteTransactionAccountLabels(stored, [
+      { from: ["old checking"], to: "Household Checking" },
+    ]);
+
+    expect(result.changed).toBe(1);
+    expect(result.transactions.map(({ id, account }) => ({ id, account }))).toEqual([
+      { id: "old", account: "Household Checking" },
+      { id: "other", account: "Savings" },
+    ]);
+    await expect(renameTransactionAccounts([])).resolves.toBe(0);
+    expect(updateTransactionsMock).not.toHaveBeenCalled();
+  });
+
+  it("derives alias renames for setting, changing, clearing, and unchanged aliases", () => {
+    const account = {
+      id: "checking",
+      name: "Checking (4237)",
+      displayName: "M&T Bank (checking)",
+      orgName: "EZChoice",
+      currency: "USD",
+      balance: 100,
+    };
+    const rawName = "EZChoice Checking (4237)";
+
+    expect(
+      deriveAliasRenames(
+        { aliases: {}, loanLinks: {}, lastAccounts: [account] },
+        {
+          checking: "M&T Bank (checking)",
+        },
+      ),
+    ).toEqual([
+      {
+        accountId: "checking",
+        from: [rawName, "M&T Bank (checking)"],
+        to: "M&T Bank (checking)",
+      },
+    ]);
+    expect(
+      deriveAliasRenames(
+        { aliases: { checking: "Alias A" }, loanLinks: {}, lastAccounts: [account] },
+        { checking: "Alias B" },
+      ),
+    ).toEqual([
+      {
+        accountId: "checking",
+        from: [rawName, "Alias A", "M&T Bank (checking)"],
+        to: "Alias B",
+      },
+    ]);
+    expect(
+      deriveAliasRenames(
+        { aliases: { checking: "M&T Bank (checking)" }, loanLinks: {}, lastAccounts: [account] },
+        { checking: "" },
+      ),
+    ).toEqual([
+      {
+        accountId: "checking",
+        from: [rawName, "M&T Bank (checking)"],
+        to: rawName,
+      },
+    ]);
+    expect(
+      deriveAliasRenames(
+        { aliases: { checking: "M&T Bank (checking)" }, loanLinks: {}, lastAccounts: [account] },
+        { checking: " M&T Bank (checking) " },
+      ),
+    ).toEqual([]);
+  });
+
+  it("sweeps raw account labels to the current display name on every sync", () => {
+    const payload = {
+      accounts: [
+        {
+          id: "checking",
+          name: "Checking (4237)",
+          org: { name: "EZChoice" },
+          currency: "USD",
+          balance: 100,
+          transactions: [],
+        },
+        {
+          id: "savings",
+          name: "Savings (9)",
+          org: { name: "M&T" },
+          currency: "USD",
+          balance: 5,
+          transactions: [],
+        },
+      ],
+    } as unknown as SimplefinPayload;
+    const state = {
+      aliases: { checking: "M&T Bank (checking)" },
+      loanLinks: {},
+      lastAccounts: [
+        {
+          id: "checking",
+          name: "Checking (4237)",
+          displayName: "M&T Bank (checking)",
+          orgName: "EZChoice",
+          currency: "USD",
+          balance: 100,
+        },
+      ],
+    } as SimplefinState;
+
+    // The aliased account's raw label is swept to the alias even though the
+    // display name did not change since the last sync (heals orphaned rows).
+    // The un-aliased account maps to itself and is dropped downstream.
+    expect(deriveSyncRenames(state, payload)).toEqual([
+      { from: ["M&T Bank (checking)", "EZChoice Checking (4237)"], to: "M&T Bank (checking)" },
+      { from: ["M&T Savings (9)"], to: "M&T Savings (9)" },
+    ]);
+
+    const stored = [
+      { id: "old", account: "EZChoice Checking (4237)" },
+      { id: "new", account: "M&T Bank (checking)" },
+    ] as Transaction[];
+    const { transactions, changed } = rewriteTransactionAccountLabels(
+      stored,
+      deriveSyncRenames(state, payload),
+    );
+    expect(changed).toBe(1);
+    expect(transactions.map((t) => t.account)).toEqual([
+      "M&T Bank (checking)",
+      "M&T Bank (checking)",
+    ]);
+  });
+
   it("parses decimal money strings to cents precision", () => {
     expect(parseSimplefinMoney("100.239")).toBe(100.24);
     expect(parseSimplefinMoney("-42.1")).toBe(-42.1);

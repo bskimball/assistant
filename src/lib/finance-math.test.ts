@@ -40,6 +40,7 @@ function txn(partial: Partial<Transaction>): Transaction {
     recurringMatchConfidence: partial.recurringMatchConfidence,
     recurringSuggestedId: partial.recurringSuggestedId,
     oneTimeSuggestionDismissed: partial.oneTimeSuggestionDismissed,
+    source: partial.source,
     deletedAt: partial.deletedAt,
   };
 }
@@ -813,6 +814,35 @@ describe("finance math", () => {
     expect(additions.needs).toBeCloseTo((100 * 52) / 12 - 200);
   });
 
+  it("treats a manual cash/Venmo charge linked by recurringId as paid with no remaining plan", () => {
+    const subscriptions = [
+      sub({ id: "lawn", name: "Grass cutting", amount: 120, kind: "bill", group: "needs" }),
+    ];
+    // A manually-logged cash payment: no matching name, linked only by recurringId.
+    const txns = [
+      txn({
+        id: "manual-1",
+        amount: -120,
+        category: "Grass cutting",
+        categoryGroup: "needs",
+        account: "Cash / Venmo",
+        source: "manual",
+        recurringId: "lawn",
+        recurringMatchSource: "user",
+      }),
+    ];
+    const items = recurringItemsForMonth(subscriptions, txns);
+    const lawn = items.needs.find((item) => item.id === "lawn");
+
+    expect(lawn?.seenThisMonth).toBe(true);
+    expect(lawn?.matchedTxn?.manual).toBe(true);
+    expect(lawn?.remainingMonthlyAmount).toBe(0);
+    // No phantom "unseen recurring" is added on top of the real charge.
+    expect(
+      addUnseenRecurringToBuckets({ needs: 0, wants: 0, savings: 0 }, subscriptions, txns),
+    ).toEqual({ needs: 0, wants: 0, savings: 0 });
+  });
+
   it("populates matchedTxn from the most recent matching charge and derives seenThisMonth", () => {
     const early = Date.UTC(2026, 0, 3);
     const late = Date.UTC(2026, 0, 20);
@@ -843,6 +873,7 @@ describe("finance math", () => {
       amount: -14.99,
       account: "Amex",
       matchSource: undefined,
+      manual: false,
     });
     // Unmatched item carries no matchedTxn and is not seen.
     expect(gym?.seenThisMonth).toBe(false);

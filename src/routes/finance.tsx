@@ -76,6 +76,8 @@ import {
   rescanRecurringMatches,
   linkRecurringCharge,
   unlinkRecurringCharge,
+  markRecurringPaid,
+  unmarkRecurringPaid,
   setTransactionExcluded,
   dismissOneTimeSuggestion,
   acceptFinanceActions,
@@ -3392,14 +3394,20 @@ const SECTION_META: {
 // unmatched item (muted circle + why it may be missing).
 function PaymentCheckRow({
   item,
+  month,
   candidates,
   onLinkCharge,
   onUnlinkCharge,
+  onMarkPaid,
+  onUnmarkPaid,
 }: {
   item: BudgetRecurringItem;
+  month?: string;
   candidates?: Transaction[];
   onLinkCharge?: (subId: string, txnId: string) => Promise<void>;
   onUnlinkCharge?: (txnId: string) => Promise<void>;
+  onMarkPaid?: (subId: string, month: string) => Promise<void>;
+  onUnmarkPaid?: (subId: string, month: string) => Promise<void>;
 }) {
   const isAnnual = item.cadence === "annual";
   const seenCount =
@@ -3408,6 +3416,7 @@ function PaymentCheckRow({
       : item.matchedCount;
   const [linking, setLinking] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
+  const [marking, setMarking] = useState(false);
 
   async function link(t: Transaction) {
     if (!onLinkCharge || linking) return;
@@ -3429,9 +3438,36 @@ function PaymentCheckRow({
     }
   }
 
+  async function markPaid() {
+    if (!onMarkPaid || !month || marking) return;
+    setMarking(true);
+    try {
+      await onMarkPaid(item.id, month);
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  async function unmarkPaid() {
+    if (!onUnmarkPaid || !month || marking) return;
+    setMarking(true);
+    try {
+      await onUnmarkPaid(item.id, month);
+    } finally {
+      setMarking(false);
+    }
+  }
+
   const showCandidates =
     !item.seenThisMonth && !!onLinkCharge && !!candidates && candidates.length > 0;
   const aiLinked = item.matchedTxn?.matchSource === "ai";
+  const manualPaid = item.matchedTxn?.manual === true;
+  // Offer a cash/Venmo "mark paid" whenever the month still expects a payment:
+  // any unseen item, or a weekly item that hasn't hit its expected count yet.
+  const canMarkPaid =
+    !!onMarkPaid &&
+    !!month &&
+    (item.expectedThisMonth > 0 ? item.matchedCount < item.expectedThisMonth : !item.seenThisMonth);
   return (
     <li className="py-2 text-sm">
       <div className="flex items-center justify-between gap-3">
@@ -3479,6 +3515,30 @@ function PaymentCheckRow({
                       >
                         <X className="size-3" />
                         Unlink
+                      </Button>
+                    )}
+                  </>
+                )}
+                {manualPaid && (
+                  <>
+                    <Badge
+                      variant="secondary"
+                      className="h-5 gap-1 rounded-md px-1.5 text-[10px] text-primary"
+                    >
+                      <Banknote className="size-3" />
+                      Cash / Venmo
+                    </Badge>
+                    {onUnmarkPaid && month && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 gap-1 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                        onClick={unmarkPaid}
+                        disabled={marking}
+                      >
+                        <X className="size-3" />
+                        Undo
                       </Button>
                     )}
                   </>
@@ -3531,6 +3591,22 @@ function PaymentCheckRow({
           ))}
         </div>
       )}
+      {canMarkPaid && (
+        <div className="mt-1.5 pl-6">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            disabled={marking}
+            onClick={markPaid}
+            aria-label={`Mark ${cleanMerchantName(item.name)} paid via cash or Venmo`}
+          >
+            <Banknote className="size-3 shrink-0" />
+            Mark paid (cash / Venmo)
+          </Button>
+        </div>
+      )}
     </li>
   );
 }
@@ -3544,12 +3620,16 @@ function MonthlyPaymentCheckCard({
   transactions,
   onLinkCharge,
   onUnlinkCharge,
+  onMarkPaid,
+  onUnmarkPaid,
   onRescanAiMatches,
 }: {
   subscriptions: Subscription[];
   transactions: Transaction[];
   onLinkCharge: (subId: string, txnId: string) => Promise<void>;
   onUnlinkCharge: (txnId: string) => Promise<void>;
+  onMarkPaid: (subId: string, month: string) => Promise<void>;
+  onUnmarkPaid: (subId: string, month: string) => Promise<void>;
   onRescanAiMatches: () => Promise<void>;
 }) {
   const currentMonth = todayISO().slice(0, 7);
@@ -3753,9 +3833,12 @@ function MonthlyPaymentCheckCard({
                       <PaymentCheckRow
                         key={item.id}
                         item={item}
+                        month={selectedMonth}
                         candidates={candidatesFor(item)}
                         onLinkCharge={onLinkCharge}
                         onUnlinkCharge={onUnlinkCharge}
+                        onMarkPaid={onMarkPaid}
+                        onUnmarkPaid={onUnmarkPaid}
                       />
                     ))}
                   </ul>
@@ -3768,7 +3851,14 @@ function MonthlyPaymentCheckCard({
                   </div>
                   <ul className="divide-y divide-border/60 rounded-lg px-2 ring-1 ring-foreground/10">
                     {matchedItems.map((item) => (
-                      <PaymentCheckRow key={item.id} item={item} onUnlinkCharge={onUnlinkCharge} />
+                      <PaymentCheckRow
+                        key={item.id}
+                        item={item}
+                        month={selectedMonth}
+                        onUnlinkCharge={onUnlinkCharge}
+                        onMarkPaid={onMarkPaid}
+                        onUnmarkPaid={onUnmarkPaid}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -4142,6 +4232,21 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
     flash("Unlinked that charge.");
   }
 
+  async function markPaid(subId: string, month: string) {
+    const sub = hub.subscriptions.find((x) => x.id === subId);
+    if (!sub) return;
+    await markRecurringPaid({ data: { subId, month } });
+    await onChange();
+    flash(`Marked ${cleanMerchantName(sub.name)} paid.`);
+  }
+
+  async function unmarkPaid(subId: string, month: string) {
+    const sub = hub.subscriptions.find((x) => x.id === subId);
+    await unmarkRecurringPaid({ data: { subId, month } });
+    await onChange();
+    flash(`Undid manual payment${sub ? ` for ${cleanMerchantName(sub.name)}` : ""}.`);
+  }
+
   async function rescanAiMatches() {
     flash("Re-scanning unmatched charges…");
     try {
@@ -4303,6 +4408,8 @@ function RecurringTab({ hub, onChange, flash }: TabProps) {
         transactions={hub.transactions}
         onLinkCharge={linkCharge}
         onUnlinkCharge={unlinkCharge}
+        onMarkPaid={markPaid}
+        onUnmarkPaid={unmarkPaid}
         onRescanAiMatches={rescanAiMatches}
       />
 

@@ -142,6 +142,8 @@ export type BudgetRecurringItem = {
     amount: number;
     account?: string;
     matchSource?: "ai" | "user";
+    /** True when this charge is a manually-logged cash/Venmo "mark paid". */
+    manual?: boolean;
   };
   /**
    * The most recent matching charge in a month *before* the one being reported,
@@ -990,6 +992,7 @@ export function recurringItemsForMonth(
             amount: matched.amount,
             account: matched.account,
             matchSource: matched.recurringMatchSource,
+            manual: matched.source === "manual",
           }
         : undefined,
       lastPaidTxn: lastPaid

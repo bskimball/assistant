@@ -83,6 +83,7 @@ import {
   updateCategoryRulesImpl,
   loadTransactionsImpl,
   updateTransactionsImpl,
+  appendTransactionImpl,
   loadLatestDailyFinanceImpl,
   loadUserProfileImpl,
   loadProductivityTasksForDayImpl,
@@ -471,6 +472,82 @@ export const unlinkRecurringCharge = createServerFn({ method: "POST" })
     );
     if (!target) throw new Error("Transaction not found.");
     await rememberUserRecurringUnlink(target, rejectedSubId);
+    return { ok: true };
+  });
+
+/**
+ * Noon on the 15th keeps the derived day/month key inside `month` regardless of
+ * timezone; for the live month we stamp "now" so the charge sorts with today's.
+ */
+function markPaidTimestamp(month: string): number {
+  if (month === todayISO().slice(0, 7)) return Date.now();
+  const [year, monthIndex] = month.split("-").map(Number);
+  return new Date(year, monthIndex - 1, 15, 12, 0, 0).getTime();
+}
+
+/**
+ * Log a cash/Venmo payment for a recurring item the bank sync never sees (lawn
+ * care, cleaners, anything paid off-statement). Writes a real manual charge
+ * linked to the item so it counts as "seen" this month and rolls into spend
+ * totals — the same shape a synced charge would take. One click logs a single
+ * occurrence (`sub.amount`), so a weekly item can be marked again per payment.
+ */
+export const markRecurringPaid = createServerFn({ method: "POST" })
+  .validator((data: { subId: string; month: string; amount?: number }) => data)
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { subId, month } = data;
+    const { subscriptions } = await loadSubscriptionsImpl();
+    const sub = subscriptions.find((s) => s.id === subId && !s.deletedAt);
+    if (!sub) throw new Error("Recurring item not found.");
+    const amount = data.amount && data.amount > 0 ? data.amount : sub.amount;
+    await appendTransactionImpl({
+      timestamp: markPaidTimestamp(month),
+      type: "withdrawal",
+      amount: -Math.abs(amount),
+      currency: "USD",
+      account: sub.account || "Cash / Venmo",
+      category: sub.name,
+      categoryGroup: recurringBudgetBucket(sub),
+      notes: "Marked paid manually",
+      source: "manual",
+      recurringId: subId,
+      recurringMatchSource: "user",
+    });
+    return { ok: true };
+  });
+
+/**
+ * Undo the most recent manual "mark paid" for an item in a given month by
+ * soft-deleting the manual charge we wrote. Only ever touches manually-logged
+ * charges linked to the item, so synced statement charges are safe.
+ */
+export const unmarkRecurringPaid = createServerFn({ method: "POST" })
+  .validator((data: { subId: string; month: string }) => data)
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    const { subId, month } = data;
+    const now = Date.now();
+    let removed = false;
+    await updateTransactionsImpl((transactions) => {
+      // Drop only the newest manual charge for this item in the month, so
+      // repeated weekly payments unwind one click at a time.
+      const target = transactions
+        .filter(
+          (t) =>
+            !t.deletedAt &&
+            t.source === "manual" &&
+            t.recurringId === subId &&
+            monthKey(t.timestamp) === month,
+        )
+        .sort((a, b) => b.timestamp - a.timestamp)[0];
+      if (!target) return transactions;
+      removed = true;
+      return transactions.map((t) =>
+        t.id === target.id ? { ...t, deletedAt: now, updatedAt: now } : t,
+      );
+    });
+    if (!removed) throw new Error("No manual payment to remove for that month.");
     return { ok: true };
   });
 

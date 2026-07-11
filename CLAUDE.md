@@ -52,4 +52,4 @@ When on Opus, the `advisor()` tool forwards the full conversation to Fable 5 (`a
 - when stuck — recurring errors, results that don't fit
 - before declaring a hard task complete (write/commit deliverables first)
 
-Its guidance generally wins; if your own evidence contradicts a specific claim, reconcile in a follow-up advisor call rather than silently picking a side. Subagents inherit the advisor when their model supports the pairing.
+Its guidance generally wins; if your own evidence contradicts a specific claim, reconcile in a follow-up advisor call rather than silently picking a side. Subagents inherit the advisor when their model supports the pairing. If the Advisor is unavailable, call a sub-agent running Fable 5 at medium effort.
