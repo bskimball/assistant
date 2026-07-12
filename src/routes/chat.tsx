@@ -600,7 +600,7 @@ function ChatPage() {
             </div>
           </aside>
 
-          <section className="flex min-h-0 flex-col">
+          <section className="flex min-h-0 min-w-0 flex-col">
             {/* Conversation — content anchors to the bottom so a short chat sits
               just above the composer instead of leaving a tall empty gap.
               Plain overflow (not Radix ScrollArea, whose inner display:table

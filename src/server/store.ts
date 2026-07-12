@@ -1,6 +1,7 @@
 import type { AIInteraction, VoiceTranscript } from "@/lib/domain";
 import type { SoftDeleteRecord } from "@/server/adapters/r2";
 import { HOUSEHOLD_ID } from "@/lib/scope";
+import { createServerOnlyFn } from "@tanstack/react-start";
 
 /**
  * Options controlling which data scope a store reads/writes (ADR-017).
@@ -22,7 +23,7 @@ export interface StoreScopeOptions {
  * `request-context` is imported dynamically (server-only) because it pulls in
  * `node:async_hooks`, which must never be bundled into client code.
  */
-async function resolveScope(opts?: StoreScopeOptions): Promise<string> {
+const resolveScope = createServerOnlyFn(async (opts?: StoreScopeOptions): Promise<string> => {
   const { getCurrentUserScope } = await import("@/server/request-context.server");
   const scope = getCurrentUserScope();
   if (!scope) {
@@ -32,7 +33,7 @@ async function resolveScope(opts?: StoreScopeOptions): Promise<string> {
     );
   }
   return opts?.shared ? HOUSEHOLD_ID : scope;
-}
+});
 
 export interface DailyStore {
   get<T>(domain: string, date: string): Promise<T | null>;
