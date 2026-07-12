@@ -40,6 +40,7 @@ import {
   appendTransaction,
   saveDailyNutrition,
   saveEveningCheckIn,
+  recordRecommendationOutcome,
   type DailyDashboardPayload,
 } from "@/server/domain";
 import { type FinanceHubPayload } from "@/server/finance";
@@ -52,6 +53,7 @@ import {
 } from "@/server/coach";
 import type { DailyNutrition, ISODate, DailyFocusScore, DailyPlan } from "@/lib/domain";
 import { selectNextBestAction } from "@/lib/next-best-action";
+import { stableRecommendationId } from "@/lib/recommendation-id";
 import {
   createProductivityTask,
   flOzToMl,
@@ -166,6 +168,7 @@ function UnifiedDailyDashboard() {
   const dashboard = dashQuery.data ?? null;
   const isLoading = dashQuery.isPending;
   const [syncing, setSyncing] = useState(false);
+  const [hiddenNextBestActionDate, setHiddenNextBestActionDate] = useState<ISODate | null>(null);
 
   const reload = () =>
     Promise.all([
@@ -295,6 +298,7 @@ function UnifiedDailyDashboard() {
     financeStatus: financeHub?.safeToSpend?.status,
     safeToSpendThisMonth: financeHub?.safeToSpend?.safeToSpendThisMonth,
   });
+  const nextBestActionText = `${nextBestAction.title}\n${nextBestAction.reason}`;
   const selectedMonth = selectedDate.slice(0, 7);
   const monthTransactions = transactions.filter(
     (t) => new Date(t.timestamp).toISOString().slice(0, 7) === selectedMonth,
@@ -400,6 +404,27 @@ function UnifiedDailyDashboard() {
     upsertProductivityTaskClient(newTask);
     setTaskInput("");
     await persistTasks(selectedDate);
+  }
+
+  async function recordNextBestActionOutcome(status: "completed" | "dismissed") {
+    if (!isToday || hiddenNextBestActionDate === selectedDate) return;
+    setSyncing(true);
+    try {
+      await recordRecommendationOutcome({
+        data: {
+          id: stableRecommendationId(selectedDate, "next-best-action", nextBestActionText),
+          date: selectedDate,
+          source: "next-best-action",
+          text: nextBestActionText,
+          status,
+        },
+      });
+      setHiddenNextBestActionDate(selectedDate);
+    } catch (e) {
+      console.error("[dashboard] next-best-action outcome failed", e);
+    } finally {
+      setSyncing(false);
+    }
   }
 
   // Log the suggested workout as a completed session.
@@ -967,7 +992,7 @@ function UnifiedDailyDashboard() {
           </div>
         </div>
 
-        {isToday && (
+        {isToday && hiddenNextBestActionDate !== selectedDate && (
           <Reveal>
             <Card className="mb-6 border-l-4 border-l-primary" aria-live="polite">
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -978,9 +1003,27 @@ function UnifiedDailyDashboard() {
                   <div className="mt-1 font-semibold">{nextBestAction.title}</div>
                   <p className="mt-1 text-sm text-muted-foreground">{nextBestAction.reason}</p>
                 </div>
-                <Button asChild className="shrink-0">
-                  <Link to={nextBestAction.href}>Take action</Link>
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => recordNextBestActionOutcome("dismissed")}
+                    disabled={syncing}
+                  >
+                    Skip
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => recordNextBestActionOutcome("completed")}
+                    disabled={syncing}
+                  >
+                    Done
+                  </Button>
+                  <Button asChild>
+                    <Link to={nextBestAction.href}>Take action</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </Reveal>

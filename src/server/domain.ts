@@ -23,13 +23,14 @@ import type {
   VoiceTranscript,
   ExerciseLibrary,
   UserProfile,
+  RecommendationOutcome,
   ISOWeek,
   ISODate,
   BaseEntity,
 } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
 import * as impl from "@/server/domain-impl";
-import type { VoiceProcessResult } from "@/server/domain-impl";
+import type { RecordRecommendationOutcomeInput, VoiceProcessResult } from "@/server/domain-impl";
 
 async function withDomainAuth<TResult>(handler: () => Promise<TResult>): Promise<TResult> {
   await requireAuthSession();
@@ -55,6 +56,7 @@ export type {
   DailyActivity,
   DailyDashboardPayload,
   VoiceProcessResult,
+  RecordRecommendationOutcomeInput,
 } from "@/server/domain-impl";
 
 export type { VoiceIntent } from "@/lib/domain";
@@ -149,6 +151,17 @@ export const saveDailyPlan = createServerFn({ method: "POST" })
 export const saveEveningCheckIn = createServerFn({ method: "POST" })
   .validator((data: { date: ISODate; checkIn: EveningCheckIn }) => data)
   .handler(({ data }) => withDomainAuthData(data, impl.saveEveningCheckInImpl));
+
+export const recordRecommendationOutcome = createServerFn({ method: "POST" })
+  .validator((outcome: RecordRecommendationOutcomeInput) => outcome)
+  .handler(({ data }) => withDomainAuthData(data, impl.recordRecommendationOutcomeImpl));
+
+export const loadRecommendationOutcomes = createServerFn({ method: "GET" })
+  .validator((dates: ISODate[]) => dates)
+  .handler(
+    ({ data }): Promise<RecommendationOutcome[]> =>
+      withDomainAuthData(data, impl.loadRecommendationOutcomesImpl),
+  );
 
 export const loadDailyFocusScore = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)

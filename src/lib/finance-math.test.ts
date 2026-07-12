@@ -5,6 +5,7 @@ import {
   buildBudgetInsight,
   analyzeRecurringHealth,
   buildCashFlowProjection,
+  calculateCashFlowCalendar,
   calculateEmergencyFund,
   calculateSafeToSpend,
   detectOneTimeCandidates,
@@ -53,6 +54,7 @@ function sub(partial: Partial<Subscription>): Subscription {
     name: partial.name ?? "Netflix",
     amount: partial.amount ?? 15,
     cadence: partial.cadence ?? "monthly",
+    nextChargeDate: partial.nextChargeDate,
     status: partial.status ?? "active",
     source: partial.source ?? "manual",
     account: partial.account,
@@ -1271,6 +1273,110 @@ describe("finance math", () => {
     expect(
       transactionsForMonth([txn({ timestamp: jan }), txn({ timestamp: feb })], "2026-01"),
     ).toHaveLength(1);
+  });
+
+  it("builds payday-aware cash-flow calendars across every supported cadence", () => {
+    const common = {
+      todayISO: "2026-01-10",
+      horizonDays: 22,
+      currentCashBalance: 1000,
+      monthlyTakeHome: 1200,
+    };
+    expect(
+      calculateCashFlowCalendar({ ...common, paySchedule: { cadence: "monthly", payDays: [15] } })
+        .events.filter((event) => event.type === "income")
+        .map((event) => [event.date, event.amount]),
+    ).toEqual([["2026-01-15", 1200]]);
+    expect(
+      calculateCashFlowCalendar({
+        ...common,
+        paySchedule: { cadence: "semimonthly", payDays: [15, 31] },
+      })
+        .events.filter((event) => event.type === "income")
+        .map((event) => [event.date, event.amount]),
+    ).toEqual([
+      ["2026-01-15", 600],
+      ["2026-01-31", 600],
+    ]);
+    expect(
+      calculateCashFlowCalendar({
+        ...common,
+        paySchedule: { cadence: "biweekly", anchorDate: "2026-01-02" },
+      })
+        .events.filter((event) => event.type === "income")
+        .map((event) => event.date),
+    ).toEqual(["2026-01-16", "2026-01-30"]);
+    expect(
+      calculateCashFlowCalendar({
+        ...common,
+        paySchedule: { cadence: "weekly", anchorDate: "2026-01-08" },
+      })
+        .events.filter((event) => event.type === "income")
+        .map((event) => event.date),
+    ).toEqual(["2026-01-15", "2026-01-22", "2026-01-29"]);
+  });
+
+  it("finds the lowest projected balance after upcoming commitments", () => {
+    const result = calculateCashFlowCalendar({
+      todayISO: "2026-01-10",
+      horizonDays: 15,
+      currentCashBalance: 1000,
+      monthlyTakeHome: 2000,
+      paySchedule: { cadence: "monthly", payDays: [20] },
+      subscriptions: [sub({ name: "Rent", amount: 800, nextChargeDate: "2026-01-12" })],
+    });
+
+    expect(result).toMatchObject({
+      projectedFloor: 200,
+      projectedFloorDate: "2026-01-12",
+      status: "tight",
+    });
+    expect(result.events).toMatchObject([
+      { date: "2026-01-12", label: "Rent", amount: -800, projectedBalance: 200 },
+      { date: "2026-01-20", label: "Payday", amount: 2000, projectedBalance: 2200 },
+    ]);
+  });
+
+  it("marks a projected overdraft as negative", () => {
+    expect(
+      calculateCashFlowCalendar({
+        todayISO: "2026-01-10",
+        currentCashBalance: 100,
+        monthlyTakeHome: 1000,
+        paySchedule: { cadence: "monthly", payDays: [25] },
+        subscriptions: [sub({ name: "Loan", amount: 250, nextChargeDate: "2026-01-12" })],
+      }),
+    ).toMatchObject({ projectedFloor: -150, projectedFloorDate: "2026-01-12", status: "negative" });
+  });
+
+  it("falls back to income on the first when no payday schedule is configured", () => {
+    const result = calculateCashFlowCalendar({
+      todayISO: "2026-01-20",
+      horizonDays: 15,
+      currentCashBalance: 500,
+      monthlyTakeHome: 3000,
+    });
+
+    expect(result.events).toEqual([
+      { date: "2026-02-01", type: "income", label: "Payday", amount: 3000, projectedBalance: 3500 },
+    ]);
+  });
+
+  it("keeps the current cash balance as a healthy floor with no commitments", () => {
+    expect(
+      calculateCashFlowCalendar({
+        todayISO: "2026-01-10",
+        horizonDays: 5,
+        currentCashBalance: 750,
+        monthlyTakeHome: 0,
+        subscriptions: [],
+      }),
+    ).toMatchObject({
+      events: [],
+      projectedFloor: 750,
+      projectedFloorDate: "2026-01-10",
+      status: "healthy",
+    });
   });
 
   it("builds a monthly cash-flow projection with unseen recurring commitments", () => {

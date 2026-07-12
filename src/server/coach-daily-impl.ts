@@ -9,6 +9,7 @@ import {
   mlToFlOz,
   todayISO,
 } from "@/lib/domain";
+import { stableRecommendationId } from "@/lib/recommendation-id";
 import {
   loadCoachMemoriesImpl,
   loadDailyDashboardImpl,
@@ -23,6 +24,7 @@ import {
   saveProductivityTasksForDayImpl,
 } from "@/server/domain-impl";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
+import { recordRecommendationOutcomeImpl } from "@/server/recommendation-outcomes-impl";
 import { memoriesBlock } from "@/server/context";
 import { fallbackWorkout, getOrCreateWeeklyWorkout } from "@/server/coach-workout-impl";
 
@@ -629,6 +631,21 @@ export async function acceptDailyCoachingPlanImpl(data: {
 
   const tasks = [...(existingTasks?.tasks || []), workoutTask, ...planTasks];
   await saveProductivityTasksForDayImpl({ date: data.date, tasks });
+
+  for (const [index, suggestion] of data.suggestions
+    .filter((item) => item.text && item.domain !== "general")
+    .slice(0, 5)
+    .entries()) {
+    const task = planTasks[index];
+    await recordRecommendationOutcomeImpl({
+      id: stableRecommendationId(data.date, "coach-daily", suggestion.text),
+      date: data.date,
+      source: "coach-daily",
+      text: suggestion.text,
+      status: "accepted",
+      taskId: task.id,
+    });
+  }
 
   const existingPlan = await loadDailyPlanImpl(data.date);
   const plan = await saveDailyPlanImpl({

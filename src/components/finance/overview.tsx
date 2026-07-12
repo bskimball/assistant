@@ -372,6 +372,8 @@ export function OverviewTab({
 
       <SafeToSpendGuardrail result={hub.safeToSpend} />
 
+      <CashFlowCalendarCard result={hub.cashFlowCalendar} />
+
       <CoachSuggestions items={adviceItems} today={today} flash={flash} loading={adviceLoading} />
 
       <DataQualityCard hub={hub} today={today} />
@@ -571,6 +573,69 @@ function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpe
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function CashFlowCalendarCard({ result }: { result: FinanceHubPayload["cashFlowCalendar"] }) {
+  const tone =
+    result.status === "healthy"
+      ? "border-emerald-500/25 bg-emerald-500/5"
+      : result.status === "negative"
+        ? "border-destructive/30 bg-destructive/5"
+        : "border-amber-500/30 bg-amber-500/5";
+  const statusLabel: Record<typeof result.status, string> = {
+    healthy: "Healthy",
+    tight: "Tight",
+    negative: "Below zero",
+  };
+  const upcoming = result.events.slice(0, 4);
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${tone}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium">30-day cash-flow outlook</div>
+          <div className="text-[11px] text-muted-foreground">Cash, checking, and savings only</div>
+        </div>
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {statusLabel[result.status]}
+        </span>
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <div>
+          <div className="text-lg font-semibold tabular-nums">
+            {fmtMoney(result.projectedFloor)}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            projected floor · {fmtISODate(result.projectedFloorDate)}
+          </div>
+        </div>
+        <span className="text-right text-[11px] text-muted-foreground">
+          {result.horizonDays}-day view
+        </span>
+      </div>
+      {upcoming.length > 0 && (
+        <ul className="mt-2 divide-y divide-border/50 text-xs">
+          {upcoming.map((event, index) => (
+            <li
+              key={`${event.date}-${event.type}-${event.label}-${index}`}
+              className="flex items-center justify-between gap-2 py-1.5"
+            >
+              <span className="min-w-0 truncate">
+                <span className="mr-1.5 text-muted-foreground">{fmtISODate(event.date)}</span>
+                {event.label}
+              </span>
+              <span
+                className={`shrink-0 tabular-nums ${event.amount < 0 ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"}`}
+              >
+                {event.amount < 0 ? "-" : "+"}
+                {fmtMoney(Math.abs(event.amount))}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

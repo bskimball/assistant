@@ -1,11 +1,13 @@
 import type {
   CategoryGroup,
   FinanceAdviceItem,
+  ISODate,
   Subscription,
   Transaction,
   UserProfile,
 } from "@/lib/domain";
 import {
+  addDaysISO,
   cleanMerchantName,
   DEFAULT_BUDGET_TARGETS,
   recurringBudgetBucket,
@@ -33,6 +35,43 @@ export type CashFlowProjectionInput = {
   monthlyIncome?: number;
   monthlyBuckets?: Partial<Record<BudgetBucket, number>>;
   includeRecurringCommitments?: boolean;
+};
+
+export type PaySchedule = {
+  cadence: "monthly" | "semimonthly" | "biweekly" | "weekly";
+  anchorDate?: ISODate;
+  payDays?: number[];
+};
+
+export type CashFlowCalendarEvent = {
+  date: ISODate;
+  type: "income" | "commitment";
+  label: string;
+  /** Positive for income, negative for a commitment. */
+  amount: number;
+  projectedBalance: number;
+};
+
+export type CashFlowCalendarStatus = "healthy" | "tight" | "negative";
+
+export type CashFlowCalendar = {
+  todayISO: ISODate;
+  horizonDays: number;
+  startingCash: number;
+  events: CashFlowCalendarEvent[];
+  projectedFloor: number;
+  projectedFloorDate: ISODate;
+  status: CashFlowCalendarStatus;
+};
+
+export type CashFlowCalendarInput = {
+  todayISO: ISODate;
+  /** Number of calendar days to include, beginning with today. */
+  horizonDays?: number;
+  currentCashBalance: number;
+  monthlyTakeHome?: number;
+  paySchedule?: PaySchedule;
+  subscriptions?: Subscription[];
 };
 
 export type CashFlowProjectionMonth = MonthBuckets & {
@@ -930,6 +969,151 @@ export function calculateSafeToSpend(input: {
     safeToSpendPerDay,
     remainingDays,
     explanation,
+  };
+}
+
+/** Return a month key offset without converting an ISO day through local time. */
+function addMonthsToKey(month: string, offset: number): string {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const shifted = year * 12 + (monthIndex - 1) + offset;
+  const nextYear = Math.floor(shifted / 12);
+  const nextMonth = (shifted % 12) + 1;
+  return `${nextYear.toString().padStart(4, "0")}-${nextMonth.toString().padStart(2, "0")}`;
+}
+
+function daysInISOMonth(month: string): number {
+  const [year, monthIndex] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, monthIndex, 0)).getUTCDate();
+}
+
+function dateInMonth(month: string, day: number): ISODate {
+  const safeDay = Math.min(Math.max(1, Math.floor(day)), daysInISOMonth(month));
+  return `${month}-${safeDay.toString().padStart(2, "0")}`;
+}
+
+function nextMonthlyDate(date: ISODate, months = 1): ISODate {
+  return dateInMonth(addMonthsToKey(date.slice(0, 7), months), Number(date.slice(8, 10)));
+}
+
+function paydayDates(
+  todayISO: ISODate,
+  endISO: ISODate,
+  monthlyTakeHome: number,
+  schedule?: PaySchedule,
+): Array<Omit<CashFlowCalendarEvent, "projectedBalance">> {
+  if (positive(monthlyTakeHome) === 0) return [];
+  const cadence = schedule?.cadence ?? "monthly";
+  const payDays = (schedule?.payDays ?? []).filter(
+    (day) => Number.isInteger(day) && day >= 1 && day <= 31,
+  );
+  const count =
+    cadence === "semimonthly"
+      ? 2
+      : cadence === "biweekly"
+        ? 26 / 12
+        : cadence === "weekly"
+          ? 52 / 12
+          : 1;
+  const amount = dollars(monthlyTakeHome / count);
+  const dates: ISODate[] = [];
+
+  if (cadence === "monthly" || cadence === "semimonthly") {
+    // Without configured payday timing, assume monthly take-home lands on the 1st.
+    const anchorDay = schedule?.anchorDate ? Number(schedule.anchorDate.slice(8, 10)) : 1;
+    const days = [
+      ...new Set(payDays.length ? payDays : cadence === "semimonthly" ? [1, 15] : [anchorDay]),
+    ];
+    for (let monthOffset = 0; ; monthOffset++) {
+      const month = addMonthsToKey(todayISO.slice(0, 7), monthOffset);
+      if (`${month}-01` > endISO) break;
+      for (const day of days) {
+        const date = dateInMonth(month, day);
+        if (date >= todayISO && date <= endISO) dates.push(date);
+      }
+    }
+  } else {
+    const interval = cadence === "weekly" ? 7 : 14;
+    let date = schedule?.anchorDate ?? todayISO;
+    while (date > todayISO) date = addDaysISO(date, -interval);
+    while (date < todayISO) date = addDaysISO(date, interval);
+    while (date <= endISO) {
+      dates.push(date);
+      date = addDaysISO(date, interval);
+    }
+  }
+
+  return dates.map((date) => ({ date, type: "income", label: "Payday", amount }));
+}
+
+function nextCommitmentDate(date: ISODate, cadence: Subscription["cadence"]): ISODate {
+  if (cadence === "weekly") return addDaysISO(date, 7);
+  if (cadence === "monthly") return nextMonthlyDate(date);
+  return nextMonthlyDate(date, 12);
+}
+
+/**
+ * Project cash/checking/savings through dated paydays and known recurring charges.
+ * This is a cash timing view, distinct from the monthly safe-to-spend budget guardrail.
+ */
+export function calculateCashFlowCalendar(input: CashFlowCalendarInput): CashFlowCalendar {
+  const horizonDays = Math.max(1, Math.floor(input.horizonDays ?? 30));
+  const endISO = addDaysISO(input.todayISO, horizonDays - 1);
+  const events: Array<Omit<CashFlowCalendarEvent, "projectedBalance">> = paydayDates(
+    input.todayISO,
+    endISO,
+    positive(input.monthlyTakeHome),
+    input.paySchedule,
+  );
+
+  for (const subscription of input.subscriptions ?? []) {
+    if (subscription.deletedAt || subscription.status !== "active" || !subscription.nextChargeDate)
+      continue;
+    let date = subscription.nextChargeDate;
+    while (date < input.todayISO) date = nextCommitmentDate(date, subscription.cadence);
+    while (date <= endISO) {
+      events.push({
+        date,
+        type: "commitment",
+        label: subscription.name,
+        amount: -dollars(Math.abs(subscription.amount)),
+      });
+      date = nextCommitmentDate(date, subscription.cadence);
+    }
+  }
+
+  events.sort((a, b) =>
+    a.date === b.date
+      ? a.type === b.type
+        ? a.label.localeCompare(b.label)
+        : a.type === "income"
+          ? -1
+          : 1
+      : a.date.localeCompare(b.date),
+  );
+
+  let balance = dollars(input.currentCashBalance);
+  let projectedFloor = balance;
+  let projectedFloorDate = input.todayISO;
+  const projectedEvents = events.map((event) => {
+    balance = dollars(balance + event.amount);
+    if (balance < projectedFloor) {
+      projectedFloor = balance;
+      projectedFloorDate = event.date;
+    }
+    return { ...event, projectedBalance: balance };
+  });
+  const tightThreshold = positive(input.monthlyTakeHome) * 0.1;
+  const status: CashFlowCalendarStatus =
+    projectedFloor < 0 ? "negative" : projectedFloor <= tightThreshold ? "tight" : "healthy";
+
+  return {
+    todayISO: input.todayISO,
+    horizonDays,
+    startingCash: dollars(input.currentCashBalance),
+    events: projectedEvents,
+    projectedFloor,
+    projectedFloorDate,
+    status,
   };
 }
 

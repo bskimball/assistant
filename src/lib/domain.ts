@@ -395,6 +395,14 @@ export interface Budget extends BaseEntity {
   targets: { needs: number; wants: number; savings: number };
   /** Optional per-category dollar limits for power use (envelope-style). */
   categoryLimits?: Record<string, number>;
+  /** Optional household payday timing used by the derived cash-flow calendar. */
+  paySchedule?: {
+    cadence: "monthly" | "semimonthly" | "biweekly" | "weekly";
+    /** First weekly/biweekly payday, or a fallback calendar day for monthly schedules. */
+    anchorDate?: ISODate;
+    /** Calendar days of the month, primarily for monthly and semimonthly schedules. */
+    payDays?: number[];
+  };
 }
 
 /* ---------- Subscriptions — ref object `subscriptions.json` ---------- */
@@ -645,6 +653,19 @@ export interface EveningCheckIn {
   friction?: string;
   note?: string;
   completedAt: Timestamp;
+}
+
+/** Immutable personal feedback event for a surfaced coach recommendation (ADR-023). */
+export interface RecommendationOutcome {
+  /** Stable recommendation identifier, not a generated event identifier. */
+  id: string;
+  date: ISODate;
+  source: "coach-daily" | "coach-weekly" | "next-best-action";
+  text: string;
+  status: "accepted" | "dismissed" | "completed";
+  helpful?: boolean;
+  taskId?: string;
+  recordedAt: Timestamp;
 }
 
 export interface DailyPlan extends BaseEntity {
@@ -1061,6 +1082,7 @@ export type DomainEntity =
   | DailyFocusScore
   | DailyPlan
   | WeeklyReview
+  | RecommendationOutcome
   | CoachMemory
   | AIInteraction
   | VoiceTranscript

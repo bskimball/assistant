@@ -3,9 +3,11 @@ import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
 import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
+  calculateCashFlowCalendar,
   calculateSafeToSpend,
   monthKey,
   rollupMonth,
+  type CashFlowCalendar,
   type MonthBuckets,
   type RecurringInsight,
   type SafeToSpendResult,
@@ -28,6 +30,7 @@ export interface FinanceHubPayload {
   transactions: Transaction[];
   recurringInsights: RecurringInsight[];
   safeToSpend: SafeToSpendResult;
+  cashFlowCalendar: CashFlowCalendar;
 }
 
 /** Load the most recent finance snapshot on or before the requested day. */
@@ -59,6 +62,21 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
       subscriptions,
       transactions,
       date: day,
+    }),
+    cashFlowCalendar: calculateCashFlowCalendar({
+      todayISO: day,
+      currentCashBalance: snapshotInfo.snapshot.accounts
+        .filter((account) => /(?:checking|savings|cash|bank)/i.test(account.account))
+        .filter(
+          (account) =>
+            !/(?:loan|credit|card|401k|ira|brokerage|investment|stock|crypto)/i.test(
+              account.account,
+            ),
+        )
+        .reduce((sum, account) => sum + account.amount, 0),
+      monthlyTakeHome: budget?.monthlyTakeHome,
+      paySchedule: budget?.paySchedule,
+      subscriptions,
     }),
   };
 }
