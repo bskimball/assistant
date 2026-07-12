@@ -163,6 +163,10 @@ export const loadRecommendationOutcomes = createServerFn({ method: "GET" })
       withDomainAuthData(data, impl.loadRecommendationOutcomesImpl),
   );
 
+export const loadMonthlyEffectiveness = createServerFn({ method: "GET" })
+  .validator((month: string) => month)
+  .handler(({ data }) => withDomainAuthData(data, impl.loadMonthlyEffectivenessImpl));
+
 export const loadDailyFocusScore = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(({ data }) => withDomainAuthData(data, impl.loadDailyFocusScoreImpl));

@@ -13,8 +13,14 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Item, Reveal, revealDelay, Stagger } from "@/components/motion";
-import { loadDailyDashboard, loadTransactions, loadWorkoutSessions } from "@/server/domain";
+import {
+  loadDailyDashboard,
+  loadMonthlyEffectiveness,
+  loadTransactions,
+  loadWorkoutSessions,
+} from "@/server/domain";
 import { mlToFlOz, todayISO, toISODate, type ISODate } from "@/lib/domain";
+import type { EffectivenessReport } from "@/lib/effectiveness-report";
 
 const analyticsQueryOptions = (range: 7 | 14 | 30) =>
   queryOptions({
@@ -24,9 +30,19 @@ const analyticsQueryOptions = (range: 7 | 14 | 30) =>
     placeholderData: keepPreviousData,
   });
 
+const effectivenessQueryOptions = (month: string) =>
+  queryOptions({
+    queryKey: ["effectiveness", month] as const,
+    queryFn: () => loadMonthlyEffectiveness({ data: month }),
+  });
+
 export const Route = createFileRoute("/analytics")({
   // Prime the default window so the first paint has data (SSR + revisit cache).
-  loader: ({ context: { queryClient } }) => queryClient.ensureQueryData(analyticsQueryOptions(14)),
+  loader: ({ context: { queryClient } }) =>
+    Promise.all([
+      queryClient.ensureQueryData(analyticsQueryOptions(14)),
+      queryClient.ensureQueryData(effectivenessQueryOptions(todayISO().slice(0, 7))),
+    ]),
   component: Analytics,
 });
 
@@ -39,6 +55,22 @@ interface DayPoint {
   netWorth: number;
   workouts: number;
   cashflow: number;
+}
+
+function recentMonths(currentMonth: string, count = 6): string[] {
+  let year = Number(currentMonth.slice(0, 4));
+  let month = Number(currentMonth.slice(5, 7));
+  const months: string[] = [];
+
+  for (let index = 0; index < count; index++) {
+    months.push(`${year}-${String(month).padStart(2, "0")}`);
+    month--;
+    if (month === 0) {
+      month = 12;
+      year--;
+    }
+  }
+  return months;
 }
 
 function lastNDates(n: number): ISODate[] {
@@ -95,9 +127,14 @@ async function loadAnalyticsRange(range: 7 | 14 | 30): Promise<DayPoint[]> {
 
 function Analytics() {
   const [range, setRange] = useState<7 | 14 | 30>(14);
+  const currentMonth = todayISO().slice(0, 7);
+  const [effectivenessMonth, setEffectivenessMonth] = useState(currentMonth);
   // Primed by the loader; revisits hit the cache. `isPending` is only true on a
   // genuine cold load (no cached or placeholder data).
   const { data: points = [], isPending: loading } = useQuery(analyticsQueryOptions(range));
+  const { data: effectiveness, isPending: effectivenessLoading } = useQuery(
+    effectivenessQueryOptions(effectivenessMonth),
+  );
 
   const avg = (sel: (p: DayPoint) => number, onlyNonZero = false) => {
     const vals = points.map(sel).filter((v) => (onlyNonZero ? v > 0 : true));
@@ -174,6 +211,14 @@ function Analytics() {
           />
         </Stagger>
 
+        <EffectivenessCard
+          month={effectivenessMonth}
+          months={recentMonths(currentMonth)}
+          report={effectiveness}
+          loading={effectivenessLoading}
+          onMonthChange={setEffectivenessMonth}
+        />
+
         {loading ? (
           <Card className="shadow-sm">
             <CardContent className="animate-pulse py-10 text-center text-sm text-muted-foreground">
@@ -223,6 +268,125 @@ function Analytics() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function EffectivenessCard({
+  month,
+  months,
+  report,
+  loading,
+  onMonthChange,
+}: {
+  month: string;
+  months: string[];
+  report?: EffectivenessReport;
+  loading: boolean;
+  onMonthChange: (month: string) => void;
+}) {
+  const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(
+    new Date(`${month}-01T12:00:00Z`),
+  );
+
+  return (
+    <Card className="mb-6 overflow-hidden bg-card shadow-sm">
+      <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Target className="size-4" />
+          </span>
+          Effectiveness
+        </CardTitle>
+        <label className="sr-only" htmlFor="effectiveness-month">
+          Effectiveness month
+        </label>
+        <select
+          id="effectiveness-month"
+          value={month}
+          onChange={(event) => onMonthChange(event.target.value)}
+          className="h-9 rounded-md border bg-background px-2 text-sm font-medium"
+        >
+          {months.map((option) => (
+            <option key={option} value={option}>
+              {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(
+                new Date(`${option}-01T12:00:00Z`),
+              )}
+            </option>
+          ))}
+        </select>
+      </CardHeader>
+      <CardContent>
+        {loading && !report ? (
+          <div className="animate-pulse py-4 text-center text-sm text-muted-foreground">
+            Loading effectiveness…
+          </div>
+        ) : !report || report.total === 0 ? (
+          <div className="py-4 text-center text-sm text-muted-foreground">
+            No recommendation outcomes yet this month.
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <EffectivenessMetric label="Total" value={report.total} />
+              <EffectivenessMetric label="Accepted" value={report.accepted} />
+              <EffectivenessMetric label="Completed" value={report.completed} />
+              <EffectivenessMetric label="Dismissed" value={report.dismissed} />
+              <EffectivenessMetric
+                label="Helpful"
+                value={`Yes ${report.helpfulYes} · No ${report.helpfulNo}`}
+              />
+              <EffectivenessMetric
+                label="Completion rate"
+                value={`${Math.round(report.completionRate * 100)}%`}
+              />
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                By source · {monthLabel}
+              </div>
+              <div className="space-y-2">
+                {Object.entries(report.bySource).map(([source, breakdown]) => (
+                  <div
+                    key={source}
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-muted/50 px-3 py-2 text-xs"
+                  >
+                    <span className="font-medium capitalize text-foreground">
+                      {source.replace(/-/g, " ")}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {breakdown.total} total · {breakdown.completed} completed ·{" "}
+                      {Math.round(breakdown.completionRate * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {report.topCompleted.length > 0 && (
+              <div>
+                <div className="mb-2 text-xs font-medium text-muted-foreground">Top completed</div>
+                <ol className="space-y-1.5 text-sm">
+                  {report.topCompleted.map((text, index) => (
+                    <li key={`${index}-${text}`} className="flex gap-2">
+                      <span className="tabular-nums text-muted-foreground">{index + 1}.</span>
+                      <span>{text}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EffectivenessMetric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-lg bg-muted/50 p-2.5">
+      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

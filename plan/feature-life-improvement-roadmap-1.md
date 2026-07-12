@@ -47,24 +47,24 @@ Implement the life-improvement roadmap as independently verifiable vertical slic
 
 - GOAL-002: Make daily guidance closed-loop and resilient to low time or energy.
 
-| Task     | Description                                                                        | Completed | Date |
-| -------- | ---------------------------------------------------------------------------------- | --------- | ---- |
-| TASK-008 | Add pure deterministic next-best-action selection and tests.                       | completed |      |
-| TASK-009 | Add full, short, and minimum workout variants without duplicating session storage. | completed |      |
-| TASK-010 | Add a personal evening check-in to `DailyPlan`, server persistence, and Today UI.  | completed |      |
-| TASK-011 | Feed check-in patterns into weekly review and preserve task creation behavior.     | completed |      |
+| Task     | Description                                                                        | Completed | Date       |
+| -------- | ---------------------------------------------------------------------------------- | --------- | ---------- |
+| TASK-008 | Add pure deterministic next-best-action selection and tests.                       | ✅        | 2026-07-12 |
+| TASK-009 | Add full, short, and minimum workout variants without duplicating session storage. | ✅        | 2026-07-12 |
+| TASK-010 | Add a personal evening check-in to `DailyPlan`, server persistence, and Today UI.  | ✅        | 2026-07-12 |
+| TASK-011 | Feed check-in patterns into weekly review and preserve task creation behavior.     | ✅        | 2026-07-12 |
 
 ### Implementation Phase 3
 
 - GOAL-003: Add adaptive guidance and measurable recommendation outcomes.
 
-| Task     | Description                                                                                | Completed | Date |
-| -------- | ------------------------------------------------------------------------------------------ | --------- | ---- |
-| TASK-012 | Add readiness inputs and deterministic workout adaptation.                                 |           |      |
-| TASK-013 | Add movement history and progressive-overload recommendations with pain/deload safeguards. |           |      |
-| TASK-014 | Add payday-aware cash-flow calendar and projected balance floor.                           |           |      |
-| TASK-015 | Add stable recommendation IDs and personal-scoped feedback/outcome records.                |           |      |
-| TASK-016 | Add monthly effectiveness reporting for accepted/completed/helpful actions.                |           |      |
+| Task     | Description                                                                                | Completed | Date       |
+| -------- | ------------------------------------------------------------------------------------------ | --------- | ---------- |
+| TASK-012 | Add readiness inputs and deterministic workout adaptation.                                 | ✅        | 2026-07-12 |
+| TASK-013 | Add movement history and progressive-overload recommendations with pain/deload safeguards. | ✅        | 2026-07-12 |
+| TASK-014 | Add payday-aware cash-flow calendar and projected balance floor.                           | ✅        | 2026-07-12 |
+| TASK-015 | Add stable recommendation IDs and personal-scoped feedback/outcome records.                | ✅        | 2026-07-12 |
+| TASK-016 | Add monthly effectiveness reporting for accepted/completed/helpful actions.                | ✅        | 2026-07-12 |
 
 ## 3. Alternatives
 

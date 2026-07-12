@@ -1,7 +1,9 @@
-import type { ISODate, RecommendationOutcome } from "@/lib/domain";
+import { addDaysISO, type ISODate, type RecommendationOutcome } from "@/lib/domain";
+import { buildEffectivenessReport, type EffectivenessReport } from "@/lib/effectiveness-report";
 import { getDomainStore } from "@/server/store";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 const SOURCES = new Set<RecommendationOutcome["source"]>([
   "coach-daily",
   "coach-weekly",
@@ -62,4 +64,23 @@ export async function loadRecommendationOutcomesImpl(
     dates.map((date) => store.log.read<RecommendationOutcome>("recommendation-outcomes", date)),
   );
   return records.flat();
+}
+
+/** Load and reduce one personal month of immutable recommendation feedback. */
+export async function loadMonthlyEffectivenessImpl(month: string): Promise<EffectivenessReport> {
+  if (typeof month !== "string" || !ISO_MONTH_PATTERN.test(month)) {
+    throw new Error("Valid month is required");
+  }
+
+  const dates: ISODate[] = [];
+  for (
+    let date = `${month}-01` as ISODate;
+    date.slice(0, 7) === month;
+    date = addDaysISO(date, 1)
+  ) {
+    dates.push(date);
+  }
+
+  const outcomes = await loadRecommendationOutcomesImpl(dates);
+  return buildEffectivenessReport(outcomes, month);
 }

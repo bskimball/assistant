@@ -298,6 +298,7 @@ export { executeVoiceIntentImpl, processVoiceInputImpl } from "@/server/voice-im
 export type { VoiceProcessResult } from "@/server/voice-impl";
 
 export {
+  loadMonthlyEffectivenessImpl,
   loadRecommendationOutcomesImpl,
   recordRecommendationOutcomeImpl,
 } from "@/server/recommendation-outcomes-impl";
