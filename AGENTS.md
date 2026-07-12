@@ -100,3 +100,4 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 - Always update AGENTS.md when architecture changes
 - Create ADR for every new major domain
 - Prefer TanStack ecosystem solutions
+- Always store temporary files (such as screenshots, scratchpads, or temporary outputs) in the `.tmp` folder to keep the workspace clean
