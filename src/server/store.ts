@@ -38,6 +38,7 @@ const resolveScope = createServerOnlyFn(async (opts?: StoreScopeOptions): Promis
 export interface DailyStore {
   get<T>(domain: string, date: string): Promise<T | null>;
   put<T>(domain: string, date: string, value: T): Promise<void>;
+  update<T>(domain: string, date: string, mutate: (current: T | null) => T): Promise<T>;
   key(domain: string, date: string): string;
 }
 
@@ -105,6 +106,8 @@ export async function getDomainStore(opts?: StoreScopeOptions): Promise<DomainSt
       get: <T>(domain: string, date: string) => r2.getJSON<T>(r2.getDailyKey(date, domain, scope)),
       put: <T>(domain: string, date: string, value: T) =>
         r2.putJSON(r2.getDailyKey(date, domain, scope), value),
+      update: <T>(domain: string, date: string, mutate: (current: T | null) => T) =>
+        r2.updateJSON<T>(r2.getDailyKey(date, domain, scope), mutate),
     },
     weekly: {
       key: (domain, week) => r2.getWeeklyKey(week, domain, scope),

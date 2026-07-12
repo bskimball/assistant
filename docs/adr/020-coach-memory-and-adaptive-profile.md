@@ -1,6 +1,6 @@
 # ADR-020: Coach Memory & Adaptive Profile (durable facts across conversations)
 
-**Status**: Proposed
+**Status**: Accepted
 **Date**: 2026-07-06
 **Deciders**: Brian Kimball
 

@@ -216,15 +216,20 @@ export interface PlannedWorkoutSession {
  */
 
 export interface PerformedExercise extends PlannedExercise {
+  /** Original plan movement when the performed exercise was substituted. */
+  plannedName?: string;
   actualSets?: number;
   actualReps?: number | string;
   actualWeightLb?: number;
   rpe?: number;
 }
 
+export type WorkoutVariant = "full" | "short" | "minimum";
+
 export interface WorkoutSession extends BaseEntity {
   performedAt: Timestamp;
   planId?: string;
+  variant?: WorkoutVariant;
   exercises: PerformedExercise[];
   volume?: number;
   durationMinutes?: number;
@@ -633,6 +638,15 @@ export interface DailyFocusScore extends BaseEntity {
 
 /* ===================== PLANNING ===================== */
 
+export interface EveningCheckIn {
+  energy: 1 | 2 | 3 | 4 | 5;
+  dayRating: 1 | 2 | 3 | 4 | 5;
+  win?: string;
+  friction?: string;
+  note?: string;
+  completedAt: Timestamp;
+}
+
 export interface DailyPlan extends BaseEntity {
   date: ISODate;
   workoutPlanId?: string;
@@ -643,6 +657,7 @@ export interface DailyPlan extends BaseEntity {
   aiSuggestions?: string[];
   aiCoaching?: DailyCoachingSnapshot;
   voiceNoteIds?: string[];
+  eveningCheckIn?: EveningCheckIn;
   notes?: string;
 }
 

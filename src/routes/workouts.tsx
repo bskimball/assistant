@@ -23,6 +23,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -33,13 +34,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Reveal, revealDelay } from "@/components/motion";
-import { appendWorkoutSession, saveWorkoutSessions } from "@/server/domain";
+import { appendWorkoutSession, deleteWorkoutSession } from "@/server/domain";
 import {
   todayISO,
   type ExercisePhase,
+  type PerformedExercise,
   type PlannedExercise,
   type PlannedWorkoutSession,
+  type WorkoutVariant,
 } from "@/lib/domain";
+import { deriveWorkoutVariant } from "@/lib/workout-variants";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 
 export const Route = createFileRoute("/workouts")({
@@ -71,6 +75,34 @@ function dayKey(ts: number): string {
   return `${y}-${m}-${day}`;
 }
 
+type CompletionExercise = {
+  planned: PlannedExercise;
+  name: string;
+  actualSets: string;
+  actualReps: string;
+  actualWeightLb: string;
+  rpe: string;
+};
+
+type PlannedCompletionReview = {
+  session: PlannedWorkoutSession;
+  variant: WorkoutVariant;
+  durationMinutes: string;
+  effortRating: string;
+  sorenessRating: string;
+  notes: string;
+  exercises: CompletionExercise[];
+};
+
+function numericField(value: number | string | undefined): string {
+  return value === undefined ? "" : String(value);
+}
+
+function optionalPositiveNumber(value: string): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function WorkoutsPage() {
   const today = todayISO();
 
@@ -89,6 +121,7 @@ function WorkoutsPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [plannedReview, setPlannedReview] = useState<PlannedCompletionReview | null>(null);
 
   // Quick-log form
   const [logTitle, setLogTitle] = useState("");
@@ -155,18 +188,100 @@ function WorkoutsPage() {
     }
   }
 
-  function logPlanned(session: PlannedWorkoutSession) {
+  function startPlannedReview(session: PlannedWorkoutSession, variant: WorkoutVariant = "full") {
+    if (busy) return;
+    const derived = deriveWorkoutVariant(session, variant);
+    setPlannedReview({
+      session,
+      variant,
+      durationMinutes: String(derived.estimatedMinutes),
+      effortRating: "3",
+      sorenessRating: "",
+      notes: session.title,
+      exercises: derived.exercises.map((planned) => ({
+        planned,
+        name: planned.name,
+        actualSets: numericField(planned.sets),
+        actualReps: numericField(planned.reps),
+        actualWeightLb: numericField(planned.weightLb),
+        rpe: "",
+      })),
+    });
+  }
+
+  async function completePlannedReview() {
+    if (!plannedReview || busy) return;
+    const invalidExercise = plannedReview.exercises.find((exercise) => {
+      const sets = Number(exercise.actualSets);
+      const weight = Number(exercise.actualWeightLb);
+      const rpe = Number(exercise.rpe);
+      return (
+        (exercise.actualSets.trim() !== "" && (!Number.isInteger(sets) || sets <= 0)) ||
+        (exercise.actualWeightLb.trim() !== "" && (!Number.isFinite(weight) || weight <= 0)) ||
+        (exercise.rpe.trim() !== "" && (!Number.isFinite(rpe) || rpe < 1 || rpe > 10))
+      );
+    });
+    if (invalidExercise) {
+      flash("Use positive whole sets, positive weight, and RPE from 1 to 10.");
+      return;
+    }
+    const duration = Number(plannedReview.durationMinutes);
+    if (
+      plannedReview.durationMinutes.trim() !== "" &&
+      (!Number.isInteger(duration) || duration <= 0)
+    ) {
+      flash("Duration must be a positive whole number of minutes.");
+      return;
+    }
+
+    const effort = optionalPositiveNumber(plannedReview.effortRating);
+    const soreness = optionalPositiveNumber(plannedReview.sorenessRating);
+    if ((effort && effort > 5) || (soreness && soreness > 5)) {
+      flash("Effort and soreness must be from 1 to 5.");
+      return;
+    }
+
+    const { session } = plannedReview;
     // Past planned days are stamped at noon that day; today uses now. Future
     // days can't be logged (a session can't be performed in the future).
     const performedAt =
       session.date === today ? Date.now() : new Date(session.date + "T12:00:00").getTime();
-    void logSession({
-      title: session.title,
-      durationMinutes: session.estimatedMinutes,
-      effortRating: 3,
-      exercises: session.exercises,
-      performedAt,
+    const exercises: PerformedExercise[] = plannedReview.exercises.map((exercise) => {
+      const name = exercise.name.trim() || exercise.planned.name;
+      return {
+        ...exercise.planned,
+        name,
+        plannedName: name === exercise.planned.name ? undefined : exercise.planned.name,
+        actualSets: optionalPositiveNumber(exercise.actualSets),
+        actualReps: exercise.actualReps.trim() || undefined,
+        actualWeightLb: optionalPositiveNumber(exercise.actualWeightLb),
+        rpe: optionalPositiveNumber(exercise.rpe),
+      };
     });
+
+    setBusy(true);
+    try {
+      await appendWorkoutSession({
+        data: {
+          performedAt,
+          planId: plan?.id,
+          variant: plannedReview.variant,
+          notes: plannedReview.notes.trim() || session.title,
+          durationMinutes: optionalPositiveNumber(plannedReview.durationMinutes),
+          effortRating: effort as 1 | 2 | 3 | 4 | 5 | undefined,
+          sorenessRating: soreness as 1 | 2 | 3 | 4 | 5 | undefined,
+          exercises,
+        },
+      });
+      await refreshSessions();
+      setPlannedReview(null);
+      flash(`Logged: ${session.title}`);
+    } catch (e) {
+      console.error("[workouts] planned completion failed", e);
+      flash("Couldn’t log that workout — try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleQuickLog(e?: React.SyntheticEvent) {
@@ -204,9 +319,7 @@ function WorkoutsPage() {
     if (!match) return;
     setBusy(true);
     try {
-      const now = Date.now();
-      const next = sessions.map((s) => (s.id === match.id ? { ...s, deletedAt: now } : s));
-      await saveWorkoutSessions({ data: { sessions: next } });
+      await deleteWorkoutSession({ data: { id: match.id } });
       await refreshSessions();
       flash("Unchecked — session removed.");
     } catch (e) {
@@ -221,9 +334,7 @@ function WorkoutsPage() {
     if (busy) return;
     setBusy(true);
     try {
-      const now = Date.now();
-      const next = sessions.map((s) => (s.id === id ? { ...s, deletedAt: now } : s));
-      await saveWorkoutSessions({ data: { sessions: next } });
+      await deleteWorkoutSession({ data: { id } });
       await refreshSessions();
       flash("Removed workout.");
     } catch (e) {
@@ -383,7 +494,7 @@ function WorkoutsPage() {
                             variant={isToday ? "default" : "outline"}
                             className="h-8 shrink-0 gap-1 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                             disabled={busy}
-                            onClick={() => logPlanned(session)}
+                            onClick={() => startPlannedReview(session)}
                           >
                             <Plus className="size-3.5" /> Log
                           </Button>
@@ -419,6 +530,248 @@ function WorkoutsPage() {
             )}
           </CardContent>
         </Card>
+
+        {plannedReview && (
+          <Card className="mb-6 border-primary/30 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                <span>Review completed workout</span>
+                <Badge variant="secondary">{plannedReview.session.title}</Badge>
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Adjust what you actually did before saving. Sets and reps start from your plan.
+              </p>
+              <div className="flex flex-wrap gap-2" aria-label="Workout length">
+                {(["full", "short", "minimum"] as const).map((variant) => {
+                  const derived = deriveWorkoutVariant(plannedReview.session, variant);
+                  return (
+                    <Button
+                      key={variant}
+                      type="button"
+                      size="sm"
+                      variant={plannedReview.variant === variant ? "default" : "outline"}
+                      aria-pressed={plannedReview.variant === variant}
+                      disabled={busy}
+                      onClick={() => startPlannedReview(plannedReview.session, variant)}
+                    >
+                      {derived.label} · {derived.estimatedMinutes} min
+                    </Button>
+                  );
+                })}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {plannedReview.exercises.map((exercise, index) => (
+                  <div key={index} className="rounded-lg border border-border p-3">
+                    <div className="mb-2 text-xs font-medium text-muted-foreground">
+                      Planned: {exercise.planned.name}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-5">
+                      <Input
+                        value={exercise.name}
+                        onChange={(e) =>
+                          setPlannedReview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  exercises: current.exercises.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, name: e.target.value } : item,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
+                        aria-label={`Performed exercise name for ${exercise.planned.name}`}
+                        placeholder="Exercise name"
+                        disabled={busy}
+                        className="sm:col-span-2"
+                      />
+                      <Input
+                        value={exercise.actualSets}
+                        onChange={(e) =>
+                          setPlannedReview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  exercises: current.exercises.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, actualSets: e.target.value }
+                                      : item,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
+                        inputMode="numeric"
+                        aria-label={`Actual sets for ${exercise.planned.name}`}
+                        placeholder="Sets"
+                        disabled={busy}
+                      />
+                      <Input
+                        value={exercise.actualReps}
+                        onChange={(e) =>
+                          setPlannedReview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  exercises: current.exercises.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, actualReps: e.target.value }
+                                      : item,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
+                        aria-label={`Actual reps for ${exercise.planned.name}`}
+                        placeholder="Reps"
+                        disabled={busy}
+                      />
+                      <Input
+                        value={exercise.actualWeightLb}
+                        onChange={(e) =>
+                          setPlannedReview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  exercises: current.exercises.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, actualWeightLb: e.target.value }
+                                      : item,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
+                        inputMode="decimal"
+                        aria-label={`Actual weight in pounds for ${exercise.planned.name}`}
+                        placeholder="Weight lb"
+                        disabled={busy}
+                      />
+                    </div>
+                    <div className="mt-2 max-w-32">
+                      <Input
+                        value={exercise.rpe}
+                        onChange={(e) =>
+                          setPlannedReview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  exercises: current.exercises.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, rpe: e.target.value } : item,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
+                        inputMode="numeric"
+                        aria-label={`RPE for ${exercise.planned.name}`}
+                        placeholder="RPE 1–10"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Input
+                    value={plannedReview.durationMinutes}
+                    onChange={(e) =>
+                      setPlannedReview((current) =>
+                        current ? { ...current, durationMinutes: e.target.value } : current,
+                      )
+                    }
+                    inputMode="numeric"
+                    aria-label="Workout duration in minutes"
+                    placeholder="Duration (min)"
+                    disabled={busy}
+                  />
+                  <Select
+                    value={plannedReview.effortRating}
+                    onValueChange={(effortRating) =>
+                      setPlannedReview((current) =>
+                        current ? { ...current, effortRating } : current,
+                      )
+                    }
+                    disabled={busy}
+                  >
+                    <SelectTrigger aria-label="Session effort rating">
+                      <span className="text-xs text-muted-foreground">Effort</span>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {[1, 2, 3, 4, 5].map((rating) => (
+                          <SelectItem key={rating} value={String(rating)}>
+                            {rating}/5
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={plannedReview.sorenessRating || "none"}
+                    onValueChange={(sorenessRating) =>
+                      setPlannedReview((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sorenessRating: sorenessRating === "none" ? "" : sorenessRating,
+                            }
+                          : current,
+                      )
+                    }
+                    disabled={busy}
+                  >
+                    <SelectTrigger aria-label="Soreness rating">
+                      <span className="text-xs text-muted-foreground">Soreness</span>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="none">None</SelectItem>
+                        {[1, 2, 3, 4, 5].map((rating) => (
+                          <SelectItem key={rating} value={String(rating)}>
+                            {rating}/5
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Textarea
+                  value={plannedReview.notes}
+                  onChange={(e) =>
+                    setPlannedReview((current) =>
+                      current ? { ...current, notes: e.target.value } : current,
+                    )
+                  }
+                  aria-label="Workout notes"
+                  placeholder="Notes (optional)"
+                  disabled={busy}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setPlannedReview(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void completePlannedReview()}
+                  >
+                    <CheckCircle2 className="size-4" /> Save workout
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quick log */}
         <Card className="mb-6">

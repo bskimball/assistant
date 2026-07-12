@@ -2,6 +2,7 @@ import type {
   AIInteraction,
   DailyFocusScore,
   DailyPlan,
+  EveningCheckIn,
   ISODate,
   ISOWeek,
   VoiceTranscript,
@@ -42,6 +43,32 @@ export async function saveDailyPlanImpl(plan: DailyPlan): Promise<DailyPlanPaylo
   const store = await getDomainStore();
   await store.daily.put("daily-plan", plan.date, payload);
   return payload;
+}
+
+export async function saveEveningCheckInImpl(data: {
+  date: ISODate;
+  checkIn: EveningCheckIn;
+}): Promise<DailyPlanPayload> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) throw new Error("Valid date is required");
+  const { energy, dayRating, completedAt } = data.checkIn;
+  if (![energy, dayRating].every((value) => Number.isInteger(value) && value >= 1 && value <= 5))
+    throw new Error("Energy and day rating must be whole numbers from 1 to 5");
+  if (!Number.isFinite(completedAt) || completedAt <= 0 || completedAt > Date.now() + 60_000)
+    throw new Error("Invalid check-in timestamp");
+  for (const text of [data.checkIn.win, data.checkIn.friction, data.checkIn.note]) {
+    if (text && text.length > 1000)
+      throw new Error("Check-in text must be 1000 characters or less");
+  }
+
+  const now = Date.now();
+  const store = await getDomainStore();
+  return store.daily.update<DailyPlanPayload>("daily-plan", data.date, (current) => ({
+    ...(current ?? { id: `daily-plan-${data.date}`, createdAt: now, date: data.date }),
+    date: data.date,
+    topTaskIds: current?.topTaskIds ?? [],
+    eveningCheckIn: data.checkIn,
+    updatedAt: now,
+  }));
 }
 
 export async function loadDailyFocusScoreImpl(

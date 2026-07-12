@@ -22,6 +22,7 @@ import {
   assertSingleActiveWorkoutPlan,
   assertValidWorkoutSessionDate,
   createDefaultUserProfile,
+  newId,
 } from "@/lib/domain";
 import { getDomainStore } from "@/server/store";
 
@@ -161,21 +162,44 @@ export async function saveWorkoutSessionsImpl(data: {
   return payload;
 }
 
+/**
+ * Append a personal workout session with optimistic CAS so simultaneous tabs
+ * cannot overwrite each other's sessions. The session is created before the
+ * mutation because the mutator may run again after an etag conflict.
+ */
 export async function appendWorkoutSessionImpl(
   data: Omit<WorkoutSession, "id" | "createdAt">,
 ): Promise<WorkoutSession> {
   const now = Date.now();
   assertValidWorkoutSessionDate(data.performedAt ?? now, now);
-  const stored = await loadWorkoutSessionsImpl();
   const session: WorkoutSession = {
-    id: `session-${now}`,
+    id: newId("session"),
     createdAt: now,
     ...data,
     performedAt: data.performedAt ?? now,
   };
-  await saveWorkoutSessionsImpl({ sessions: [...stored.sessions, session] });
+  const store = await getDomainStore();
+  await store.ref.update<WorkoutSessionsStore>("workout-sessions.json", (current) => ({
+    sessions: [...(current?.sessions ?? []), session],
+    updatedAt: now,
+  }));
   return session;
 }
+
+export async function deleteWorkoutSessionImpl(data: { id: string }): Promise<{ ok: true }> {
+  const id = data.id.trim();
+  if (!id) throw new Error("Workout session id is required");
+  const now = Date.now();
+  const store = await getDomainStore();
+  await store.ref.update<WorkoutSessionsStore>("workout-sessions.json", (current) => ({
+    sessions: (current?.sessions ?? []).map((session) =>
+      session.id === id ? { ...session, deletedAt: now } : session,
+    ),
+    updatedAt: now,
+  }));
+  return { ok: true };
+}
+
 export async function appendAIInteractionImpl(
   data: Omit<AIInteraction, "id" | "createdAt" | "updatedAt" | "deletedAt">,
 ): Promise<AIInteraction> {
@@ -261,6 +285,7 @@ export {
   loadWeeklyReviewImpl,
   saveDailyFocusScoreImpl,
   saveDailyPlanImpl,
+  saveEveningCheckInImpl,
   saveWeeklyReviewImpl,
 } from "@/server/daily-dashboard-impl";
 export type {

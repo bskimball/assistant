@@ -6,6 +6,7 @@ import {
   analyzeRecurringHealth,
   buildCashFlowProjection,
   calculateEmergencyFund,
+  calculateSafeToSpend,
   detectOneTimeCandidates,
   detectRecurringCandidates,
   fallbackFinanceAdvice,
@@ -89,8 +90,17 @@ describe("finance math", () => {
   it("matches recurring subscriptions by raw descriptor match hints plus amount", () => {
     expect(
       recurringMatchesTransaction(
-        sub({ name: "Jeep payment", amount: 418, account: "Manual", matchHints: ["truist"] }),
-        txn({ amount: -418.5, category: "TRUIST IL PYMT", account: "Checking" }),
+        sub({
+          name: "Jeep payment",
+          amount: 418,
+          account: "Manual",
+          matchHints: ["truist"],
+        }),
+        txn({
+          amount: -418.5,
+          category: "TRUIST IL PYMT",
+          account: "Checking",
+        }),
       ),
     ).toBe(true);
   });
@@ -139,7 +149,12 @@ describe("finance math", () => {
   it("honors explicit user unlink veto before heuristic matching", () => {
     expect(
       recurringMatchesTransaction(
-        sub({ name: "Jeep payment", amount: 418, account: "Manual", matchHints: ["truist"] }),
+        sub({
+          name: "Jeep payment",
+          amount: 418,
+          account: "Manual",
+          matchHints: ["truist"],
+        }),
         txn({
           amount: -418.5,
           category: "TRUIST IL PYMT",
@@ -312,7 +327,12 @@ describe("finance math", () => {
   it("does not re-detect a stored recurring item (match or linked charges)", () => {
     const now = Date.UTC(2026, 3, 1);
     const months = [Date.UTC(2026, 0, 10), Date.UTC(2026, 1, 10), Date.UTC(2026, 2, 10)];
-    const netflix = sub({ id: "netflix", name: "Netflix", amount: 15.99, kind: "subscription" });
+    const netflix = sub({
+      id: "netflix",
+      name: "Netflix",
+      amount: 15.99,
+      kind: "subscription",
+    });
     const unlinked = months.map((ts, i) =>
       txn({
         id: `nf-${i}`,
@@ -421,11 +441,31 @@ describe("finance math", () => {
       subscriptions: [],
       transactions: [
         // only one charge — not enough
-        txn({ id: "once", timestamp: Date.UTC(2026, 2, 1), amount: -40, category: "Once" }),
+        txn({
+          id: "once",
+          timestamp: Date.UTC(2026, 2, 1),
+          amount: -40,
+          category: "Once",
+        }),
         // irregular gaps
-        txn({ id: "a1", timestamp: Date.UTC(2026, 0, 1), amount: -20, category: "Irregular" }),
-        txn({ id: "a2", timestamp: Date.UTC(2026, 0, 20), amount: -20, category: "Irregular" }),
-        txn({ id: "a3", timestamp: Date.UTC(2026, 2, 15), amount: -20, category: "Irregular" }),
+        txn({
+          id: "a1",
+          timestamp: Date.UTC(2026, 0, 1),
+          amount: -20,
+          category: "Irregular",
+        }),
+        txn({
+          id: "a2",
+          timestamp: Date.UTC(2026, 0, 20),
+          amount: -20,
+          category: "Irregular",
+        }),
+        txn({
+          id: "a3",
+          timestamp: Date.UTC(2026, 2, 15),
+          amount: -20,
+          category: "Irregular",
+        }),
         // transfer / income / deleted
         txn({
           id: "xfer",
@@ -496,8 +536,18 @@ describe("finance math", () => {
       monthlyTakeHome: 5000,
       subscriptions: [netflix],
       transactions: [
-        txn({ id: "subscription", amount: -15, category: "Netflix", categoryGroup: "wants" }),
-        txn({ id: "small", amount: -40, category: "Small Novel", categoryGroup: "wants" }),
+        txn({
+          id: "subscription",
+          amount: -15,
+          category: "Netflix",
+          categoryGroup: "wants",
+        }),
+        txn({
+          id: "small",
+          amount: -40,
+          category: "Small Novel",
+          categoryGroup: "wants",
+        }),
         txn({
           id: "dismissed",
           amount: -500,
@@ -512,7 +562,12 @@ describe("finance math", () => {
           categoryGroup: "needs",
           excludeFromBudget: true,
         }),
-        txn({ id: "income", amount: 500, category: "Payroll", categoryGroup: "income" }),
+        txn({
+          id: "income",
+          amount: 500,
+          category: "Payroll",
+          categoryGroup: "income",
+        }),
         txn({
           id: "transfer",
           amount: -500,
@@ -533,8 +588,18 @@ describe("finance math", () => {
       targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
       subscriptions: [sub({ id: "gym", name: "Gym", amount: 50, group: "wants" })],
       transactions: [
-        txn({ id: "rent", amount: -2000, category: "Rent", categoryGroup: "needs" }),
-        txn({ id: "dining", amount: -600, category: "Dining", categoryGroup: "wants" }),
+        txn({
+          id: "rent",
+          amount: -2000,
+          category: "Rent",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "dining",
+          amount: -600,
+          category: "Dining",
+          categoryGroup: "wants",
+        }),
         txn({
           id: "legal",
           amount: -400,
@@ -542,7 +607,12 @@ describe("finance math", () => {
           categoryGroup: "needs",
           excludeFromBudget: true,
         }),
-        txn({ id: "save", amount: -500, category: "Savings", categoryGroup: "savings" }),
+        txn({
+          id: "save",
+          amount: -500,
+          category: "Savings",
+          categoryGroup: "savings",
+        }),
       ],
     });
 
@@ -565,6 +635,134 @@ describe("finance math", () => {
     expect(insight.lines.join(" ")).toContain("Biggest one-time: Legal Aid, $400");
   });
 
+  it("calculates safe-to-spend after commitments, savings reserve, and remaining days", () => {
+    const result = calculateSafeToSpend({
+      date: "2026-01-15",
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      subscriptions: [sub({ id: "car", name: "Car Loan", amount: 300, kind: "loan" })],
+      transactions: [
+        txn({
+          id: "rent",
+          amount: -2000,
+          category: "Rent",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "dining",
+          amount: -500,
+          category: "Dining",
+          categoryGroup: "wants",
+        }),
+        txn({
+          id: "save",
+          amount: -400,
+          category: "Savings",
+          categoryGroup: "savings",
+        }),
+        txn({
+          id: "repair",
+          amount: -600,
+          category: "Repair",
+          categoryGroup: "needs",
+          excludeFromBudget: true,
+        }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: "on-track",
+      remainingAfterCommitted: 1200,
+      savingsReserve: 600,
+      safeToSpendThisMonth: 600,
+      safeToSpendPerDay: 35.29,
+      remainingDays: 17,
+    });
+  });
+
+  it("marks a negative safe-to-spend plan as over-plan and never returns negative headroom", () => {
+    const result = calculateSafeToSpend({
+      date: "2026-01-31",
+      budget: {
+        monthlyTakeHome: 1000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      subscriptions: [sub({ id: "loan", name: "Loan", amount: 300, kind: "loan" })],
+      transactions: [
+        txn({
+          id: "rent",
+          amount: -1000,
+          category: "Rent",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "repair",
+          amount: -200,
+          category: "Repair",
+          categoryGroup: "needs",
+          excludeFromBudget: true,
+        }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: "over-plan",
+      remainingAfterCommitted: -500,
+      safeToSpendThisMonth: 0,
+      safeToSpendPerDay: 0,
+      remainingDays: 1,
+    });
+  });
+
+  it("makes the safe-to-spend guardrail unavailable without a configured budget", () => {
+    expect(
+      calculateSafeToSpend({
+        date: "2026-01-15",
+        budget: null,
+        subscriptions: [],
+        transactions: [],
+      }),
+    ).toMatchObject({
+      status: "unavailable",
+      safeToSpendThisMonth: 0,
+      safeToSpendPerDay: 0,
+      remainingDays: 17,
+    });
+  });
+
+  it("excludes transactions posted after the requested historical day", () => {
+    const result = calculateSafeToSpend({
+      date: "2026-01-15",
+      budget: {
+        monthlyTakeHome: 3000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      subscriptions: [],
+      transactions: [
+        txn({
+          id: "before",
+          timestamp: Date.UTC(2026, 0, 10, 12),
+          amount: -500,
+          category: "Groceries",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "after",
+          timestamp: Date.UTC(2026, 0, 20, 12),
+          amount: -1000,
+          category: "Later purchase",
+          categoryGroup: "wants",
+        }),
+      ],
+    });
+
+    expect(result.remainingAfterCommitted).toBe(2500);
+    expect(result.savingsReserve).toBe(600);
+    expect(result.safeToSpendThisMonth).toBe(1900);
+  });
+
   it("does not extrapolate fixed early-month bills as variable budget pace", () => {
     const now = Date.UTC(2026, 0, 3);
     const insight = buildBudgetInsight({
@@ -573,8 +771,18 @@ describe("finance math", () => {
       takeHome: 11000,
       targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
       subscriptions: [
-        sub({ id: "mortgage", name: "Rocket Mortgage", amount: 3275, kind: "loan" }),
-        sub({ id: "other-bills", name: "Other Bills", amount: 2000, kind: "bill" }),
+        sub({
+          id: "mortgage",
+          name: "Rocket Mortgage",
+          amount: 3275,
+          kind: "loan",
+        }),
+        sub({
+          id: "other-bills",
+          name: "Other Bills",
+          amount: 2000,
+          kind: "bill",
+        }),
       ],
       transactions: [
         txn({
@@ -609,10 +817,20 @@ describe("finance math", () => {
     const insights = analyzeRecurringHealth({
       now,
       subscriptions: [
-        sub({ id: "comcast", name: "Comcast Xfinity", amount: 186, kind: "bill", createdAt: jan }),
+        sub({
+          id: "comcast",
+          name: "Comcast Xfinity",
+          amount: 186,
+          kind: "bill",
+          createdAt: jan,
+        }),
       ],
       transactions: [
-        txn({ timestamp: Date.UTC(2026, 6, 6), amount: -208, category: "Comcast Xfinity" }),
+        txn({
+          timestamp: Date.UTC(2026, 6, 6),
+          amount: -208,
+          category: "Comcast Xfinity",
+        }),
       ],
     });
 
@@ -640,7 +858,13 @@ describe("finance math", () => {
           lastSeen: oldCharge,
         }),
       ],
-      transactions: [txn({ timestamp: oldCharge, amount: -21, category: "Halocollar Haloco" })],
+      transactions: [
+        txn({
+          timestamp: oldCharge,
+          amount: -21,
+          category: "Halocollar Haloco",
+        }),
+      ],
     });
 
     expect(insights).toHaveLength(1);
@@ -667,7 +891,11 @@ describe("finance math", () => {
         }),
       ],
       transactions: [
-        txn({ timestamp: Date.UTC(2026, 5, 20), amount: -21, category: "Halocollar Haloco" }),
+        txn({
+          timestamp: Date.UTC(2026, 5, 20),
+          amount: -21,
+          category: "Halocollar Haloco",
+        }),
       ],
     });
 
@@ -717,7 +945,13 @@ describe("finance math", () => {
     const insights = analyzeRecurringHealth({
       now,
       subscriptions: [
-        sub({ id: "loan", name: "Auto Loan", amount: 418, kind: "loan", createdAt: jan }),
+        sub({
+          id: "loan",
+          name: "Auto Loan",
+          amount: 418,
+          kind: "loan",
+          createdAt: jan,
+        }),
       ],
       transactions: [],
     });
@@ -730,7 +964,13 @@ describe("finance math", () => {
     const insights = analyzeRecurringHealth({
       now,
       subscriptions: [
-        sub({ id: "old", name: "Old Streaming", amount: 10, status: "canceled", createdAt: jan }),
+        sub({
+          id: "old",
+          name: "Old Streaming",
+          amount: 10,
+          status: "canceled",
+          createdAt: jan,
+        }),
       ],
       transactions: [],
     });
@@ -742,9 +982,20 @@ describe("finance math", () => {
     const now = Date.UTC(2026, 6, 10);
     const insights = analyzeRecurringHealth({
       now,
-      subscriptions: [sub({ id: "comcast", name: "Comcast Xfinity", amount: 186, kind: "bill" })],
+      subscriptions: [
+        sub({
+          id: "comcast",
+          name: "Comcast Xfinity",
+          amount: 186,
+          kind: "bill",
+        }),
+      ],
       transactions: [
-        txn({ timestamp: Date.UTC(2026, 6, 6), amount: -187, category: "Comcast Xfinity" }),
+        txn({
+          timestamp: Date.UTC(2026, 6, 6),
+          amount: -187,
+          category: "Comcast Xfinity",
+        }),
       ],
     });
 
@@ -778,7 +1029,13 @@ describe("finance math", () => {
     const subscriptions = [
       sub({ id: "seen", name: "Netflix", amount: 15, group: "wants" }),
       sub({ id: "unseen", name: "Car Loan", amount: 300, kind: "loan" }),
-      sub({ id: "paused", name: "Paused", amount: 50, status: "canceled", group: "wants" }),
+      sub({
+        id: "paused",
+        name: "Paused",
+        amount: 50,
+        status: "canceled",
+        group: "wants",
+      }),
     ];
     const txns = [txn({ amount: -15, category: "Netflix", categoryGroup: "wants" })];
     const items = recurringItemsForMonth(subscriptions, txns);
@@ -793,7 +1050,13 @@ describe("finance math", () => {
 
   it("keeps the remaining weekly plan after only some weekly charges are seen", () => {
     const subscriptions = [
-      sub({ id: "weekly", name: "Cleaner", amount: 100, cadence: "weekly", kind: "bill" }),
+      sub({
+        id: "weekly",
+        name: "Cleaner",
+        amount: 100,
+        cadence: "weekly",
+        kind: "bill",
+      }),
     ];
     const txns = [
       txn({ id: "week-1", amount: -100, category: "Cleaner" }),
@@ -816,7 +1079,13 @@ describe("finance math", () => {
 
   it("treats a manual cash/Venmo charge linked by recurringId as paid with no remaining plan", () => {
     const subscriptions = [
-      sub({ id: "lawn", name: "Grass cutting", amount: 120, kind: "bill", group: "needs" }),
+      sub({
+        id: "lawn",
+        name: "Grass cutting",
+        amount: 120,
+        kind: "bill",
+        group: "needs",
+      }),
     ];
     // A manually-logged cash payment: no matching name, linked only by recurringId.
     const txns = [
@@ -858,7 +1127,13 @@ describe("finance math", () => {
         category: "NETFLIX.COM",
         account: "Visa",
       }),
-      txn({ id: "new", timestamp: late, amount: -14.99, category: "NETFLIX.COM", account: "Amex" }),
+      txn({
+        id: "new",
+        timestamp: late,
+        amount: -14.99,
+        category: "NETFLIX.COM",
+        account: "Amex",
+      }),
     ];
 
     const items = recurringItemsForMonth(subscriptions, txns);
@@ -953,14 +1228,26 @@ describe("finance math", () => {
   it("reconciles current bank descriptors against their tracked recurring items", () => {
     const cases = [
       { name: "Truist IL Pymt", amount: 1094.31, category: "TRUIST IL PYMT" },
-      { name: "Rocket Mortgage Loan", amount: 3275.33, category: "ROCKET MORTGAGE LOAN" },
-      { name: "Comcast Xfinity", amount: 199.83, category: "PURCHASE 0703 COMCAST / XFINITY" },
+      {
+        name: "Rocket Mortgage Loan",
+        amount: 3275.33,
+        category: "ROCKET MORTGAGE LOAN",
+      },
+      {
+        name: "Comcast Xfinity",
+        amount: 199.83,
+        category: "PURCHASE 0703 COMCAST / XFINITY",
+      },
       {
         name: "PY Mosquito Authority302",
         amount: 159,
         category: "PY *MOSQUITO AUTHORITY302-346-2970",
       },
-      { name: "Amazon Digital", amount: 12.99, category: "PURCHASE 0630 AMAZON DIGITAL" },
+      {
+        name: "Amazon Digital",
+        amount: 12.99,
+        category: "PURCHASE 0630 AMAZON DIGITAL",
+      },
       {
         name: "Verizon Wireless Payments",
         amount: 302.61,
@@ -1033,8 +1320,20 @@ describe("finance math", () => {
   it("simulates debt payoff using the highest APR first by default", () => {
     const result = simulateDebtPayoff({
       debts: [
-        { id: "car", name: "Car Loan", balance: 1000, apr: 8, minimumPayment: 100 },
-        { id: "card", name: "Credit Card", balance: 500, apr: 24, minimumPayment: 50 },
+        {
+          id: "car",
+          name: "Car Loan",
+          balance: 1000,
+          apr: 8,
+          minimumPayment: 100,
+        },
+        {
+          id: "card",
+          name: "Credit Card",
+          balance: 500,
+          apr: 24,
+          minimumPayment: 50,
+        },
       ],
       extraMonthlyPayment: 300,
     });
@@ -1048,7 +1347,15 @@ describe("finance math", () => {
 
   it("marks debt payoff infeasible when payments do not cover interest", () => {
     const result = simulateDebtPayoff({
-      debts: [{ id: "bad", name: "Bad Debt", balance: 1000, apr: 120, minimumPayment: 5 }],
+      debts: [
+        {
+          id: "bad",
+          name: "Bad Debt",
+          balance: 1000,
+          apr: 120,
+          minimumPayment: 5,
+        },
+      ],
       maxMonths: 12,
     });
 
@@ -1103,7 +1410,13 @@ describe("finance math", () => {
         monthlyTakeHome: 5000,
         targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
       },
-      buckets: { month: "2026-01", income: 5000, needs: 2200, wants: 2000, savings: 400 },
+      buckets: {
+        month: "2026-01",
+        income: 5000,
+        needs: 2200,
+        wants: 2000,
+        savings: 400,
+      },
       subscriptions: [sub({ amount: 20 })],
       netWorth: 25000,
       profile,
@@ -1117,8 +1430,17 @@ describe("finance math", () => {
 
   it("names the largest subscription as the cut candidate with annualized savings", () => {
     const items = fallbackFinanceAdvice({
-      budget: { monthlyTakeHome: 5000, targets: { needs: 0.5, wants: 0.3, savings: 0.2 } },
-      buckets: { month: "2026-01", income: 5000, needs: 2200, wants: 1200, savings: 1000 },
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      buckets: {
+        month: "2026-01",
+        income: 5000,
+        needs: 2200,
+        wants: 1200,
+        savings: 1000,
+      },
       subscriptions: [sub({ name: "Netflix", amount: 15 }), sub({ name: "Peloton", amount: 44 })],
       netWorth: 25000,
       profile: { id: "profile", createdAt: jan },
@@ -1132,14 +1454,35 @@ describe("finance math", () => {
 
   it("flags the highest-APR loan as a payoff/refinance candidate", () => {
     const items = fallbackFinanceAdvice({
-      budget: { monthlyTakeHome: 5000, targets: { needs: 0.5, wants: 0.3, savings: 0.2 } },
-      buckets: { month: "2026-01", income: 5000, needs: 2200, wants: 1200, savings: 1000 },
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      buckets: {
+        month: "2026-01",
+        income: 5000,
+        needs: 2200,
+        wants: 1200,
+        savings: 1000,
+      },
       subscriptions: [],
       netWorth: 25000,
       profile: { id: "profile", createdAt: jan },
       loans: [
-        sub({ name: "Mortgage", amount: 1800, kind: "loan", apr: 3.1, balance: 250000 }),
-        sub({ name: "Car Loan", amount: 450, kind: "loan", apr: 9.2, balance: 18000 }),
+        sub({
+          name: "Mortgage",
+          amount: 1800,
+          kind: "loan",
+          apr: 3.1,
+          balance: 250000,
+        }),
+        sub({
+          name: "Car Loan",
+          amount: 450,
+          kind: "loan",
+          apr: 9.2,
+          balance: 18000,
+        }),
       ],
     });
 
@@ -1151,8 +1494,17 @@ describe("finance math", () => {
 
   it("observes idle cash above a 6-month emergency fund", () => {
     const items = fallbackFinanceAdvice({
-      budget: { monthlyTakeHome: 5000, targets: { needs: 0.5, wants: 0.3, savings: 0.2 } },
-      buckets: { month: "2026-01", income: 5000, needs: 2000, wants: 1200, savings: 1000 },
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      buckets: {
+        month: "2026-01",
+        income: 5000,
+        needs: 2000,
+        wants: 1200,
+        savings: 1000,
+      },
       subscriptions: [],
       netWorth: 60000,
       profile: { id: "profile", createdAt: jan },
@@ -1170,8 +1522,17 @@ describe("finance math", () => {
 
   it("grounds the earn suggestion in profile skills when provided", () => {
     const items = fallbackFinanceAdvice({
-      budget: { monthlyTakeHome: 5000, targets: { needs: 0.5, wants: 0.3, savings: 0.2 } },
-      buckets: { month: "2026-01", income: 5000, needs: 2200, wants: 1200, savings: 400 },
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      buckets: {
+        month: "2026-01",
+        income: 5000,
+        needs: 2200,
+        wants: 1200,
+        savings: 400,
+      },
       subscriptions: [],
       netWorth: 25000,
       profile: {

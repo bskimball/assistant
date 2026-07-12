@@ -370,6 +370,8 @@ export function OverviewTab({
         </p>
       )}
 
+      <SafeToSpendGuardrail result={hub.safeToSpend} />
+
       <CoachSuggestions items={adviceItems} today={today} flash={flash} loading={adviceLoading} />
 
       <DataQualityCard hub={hub} today={today} />
@@ -521,6 +523,55 @@ export function OverviewTab({
         onChange={refreshFinanceData}
         flash={flash}
       />
+    </div>
+  );
+}
+
+function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpend"] }) {
+  const tone =
+    result.status === "on-track"
+      ? "border-emerald-500/25 bg-emerald-500/5"
+      : result.status === "over-plan"
+        ? "border-destructive/30 bg-destructive/5"
+        : result.status === "tight"
+          ? "border-amber-500/30 bg-amber-500/5"
+          : "border-border bg-muted/20";
+  const statusLabel: Record<typeof result.status, string> = {
+    unavailable: "Setup needed",
+    "on-track": "On track",
+    tight: "Tight",
+    "over-plan": "Over plan",
+  };
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${tone}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium">Monthly budget guardrail</div>
+          <div className="text-[11px] text-muted-foreground">Not available cash or net worth</div>
+        </div>
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {statusLabel[result.status]}
+        </span>
+      </div>
+      {result.status === "unavailable" ? (
+        <p className="mt-2 text-xs text-muted-foreground">{result.explanation}</p>
+      ) : (
+        <div className="mt-2 flex items-end justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold tabular-nums">
+              {fmtMoney(result.safeToSpendThisMonth)}
+            </div>
+            <div className="text-[11px] text-muted-foreground">safe to spend this month</div>
+          </div>
+          <div className="text-right">
+            <div className="font-medium tabular-nums">{fmtMoney(result.safeToSpendPerDay)}/day</div>
+            <div className="text-[11px] text-muted-foreground">
+              {result.remainingDays} day{result.remainingDays === 1 ? "" : "s"} left
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

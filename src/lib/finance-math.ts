@@ -205,6 +205,22 @@ export type BudgetInsight = {
   lines: string[];
 };
 
+export type SafeToSpendStatus = "unavailable" | "on-track" | "tight" | "over-plan";
+
+/**
+ * A monthly budget guardrail, not a statement of available account cash.
+ * Account balances, investments, and net worth are intentionally excluded.
+ */
+export type SafeToSpendResult = {
+  status: SafeToSpendStatus;
+  remainingAfterCommitted: number;
+  savingsReserve: number;
+  safeToSpendThisMonth: number;
+  safeToSpendPerDay: number;
+  remainingDays: number;
+  explanation: string;
+};
+
 const DAY = 24 * 60 * 60 * 1000;
 
 type BudgetLike = {
@@ -490,7 +506,10 @@ function cadenceGraceDays(sub: Subscription): number {
 }
 
 function shortDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function cadenceLabel(cadence: Subscription["cadence"]): string {
@@ -845,6 +864,75 @@ function daysInMonthUTC(timestamp: number): number {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
 }
 
+/**
+ * Derive a household's remaining monthly discretionary budget after known plan
+ * spending, unpaid recurring commitments, excluded one-time costs, and the
+ * still-unmet savings target. This deliberately composes `buildBudgetInsight`
+ * so all budget surfaces treat recurring and excluded transactions consistently.
+ */
+export function calculateSafeToSpend(input: {
+  budget: BudgetLike;
+  transactions: Transaction[];
+  subscriptions: Subscription[];
+  date: string;
+}): SafeToSpendResult {
+  const [year, month, day] = input.date.split("-").map(Number);
+  const requestedAt = Date.UTC(year, month - 1, day);
+  const daysInMonth = daysInMonthUTC(requestedAt);
+  const remainingDays = Math.max(1, daysInMonth - day + 1);
+
+  if (!input.budget || positive(input.budget.monthlyTakeHome) === 0) {
+    return {
+      status: "unavailable",
+      remainingAfterCommitted: 0,
+      savingsReserve: 0,
+      safeToSpendThisMonth: 0,
+      safeToSpendPerDay: 0,
+      remainingDays,
+      explanation: "Set monthly take-home pay to calculate this budget guardrail.",
+    };
+  }
+
+  const requestedDayEnd = requestedAt + DAY - 1;
+  const insight = buildBudgetInsight({
+    transactions: input.transactions.filter(
+      (transaction) => transaction.timestamp <= requestedDayEnd,
+    ),
+    subscriptions: input.subscriptions,
+    month: input.date.slice(0, 7),
+    takeHome: input.budget.monthlyTakeHome,
+    targets: input.budget.targets,
+    now: requestedAt,
+  });
+  const savingsReserve = dollars(Math.max(0, insight.bucketDeltas.savings));
+  const safeToSpendThisMonth = dollars(
+    Math.max(0, insight.remainingAfterCommitted - savingsReserve),
+  );
+  const safeToSpendPerDay = dollars(safeToSpendThisMonth / remainingDays);
+  const status: SafeToSpendStatus =
+    insight.remainingAfterCommitted < 0
+      ? "over-plan"
+      : safeToSpendThisMonth <= input.budget.monthlyTakeHome * 0.1
+        ? "tight"
+        : "on-track";
+  const explanation =
+    status === "over-plan"
+      ? `Committed spending and one-time costs are $${Math.abs(insight.remainingAfterCommitted).toLocaleString()} over monthly take-home.`
+      : status === "tight"
+        ? `After commitments and a $${savingsReserve.toLocaleString()} savings reserve, keep remaining spending to $${safeToSpendThisMonth.toLocaleString()}.`
+        : `After commitments and a $${savingsReserve.toLocaleString()} savings reserve, $${safeToSpendThisMonth.toLocaleString()} remains for this month.`;
+
+  return {
+    status,
+    remainingAfterCommitted: insight.remainingAfterCommitted,
+    savingsReserve,
+    safeToSpendThisMonth,
+    safeToSpendPerDay,
+    remainingDays,
+    explanation,
+  };
+}
+
 export function buildCashFlowProjection(input: CashFlowProjectionInput): CashFlowProjection {
   const projectionMonths = Math.max(0, Math.floor(input.months));
   const transactions = input.transactions ?? [];
@@ -904,7 +992,13 @@ export function buildCashFlowProjection(input: CashFlowProjectionInput): CashFlo
 }
 
 export function rollupMonth(transactions: Transaction[], month: string): MonthBuckets {
-  const buckets: MonthBuckets = { needs: 0, wants: 0, savings: 0, income: 0, month };
+  const buckets: MonthBuckets = {
+    needs: 0,
+    wants: 0,
+    savings: 0,
+    income: 0,
+    month,
+  };
   for (const t of transactions) {
     if (t.deletedAt || monthKey(t.timestamp) !== month) continue;
     if (t.excludeFromBudget) continue;
@@ -943,7 +1037,11 @@ export function recurringItemsForMonth(
   // only need monthly totals skip the extra sweep.
   priorTxns?: Transaction[],
 ): Record<BudgetBucket, BudgetRecurringItem[]> {
-  const items: Record<BudgetBucket, BudgetRecurringItem[]> = { needs: [], wants: [], savings: [] };
+  const items: Record<BudgetBucket, BudgetRecurringItem[]> = {
+    needs: [],
+    wants: [],
+    savings: [],
+  };
   for (const sub of subscriptions) {
     if (sub.status !== "active") continue;
     const bucket = recurringBudgetBucket(sub);

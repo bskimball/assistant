@@ -3,10 +3,12 @@ import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
 import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
+  calculateSafeToSpend,
   monthKey,
   rollupMonth,
   type MonthBuckets,
   type RecurringInsight,
+  type SafeToSpendResult,
 } from "@/lib/finance-math";
 import {
   loadBudgetImpl,
@@ -25,6 +27,7 @@ export interface FinanceHubPayload {
   subscriptions: Subscription[];
   transactions: Transaction[];
   recurringInsights: RecurringInsight[];
+  safeToSpend: SafeToSpendResult;
 }
 
 /** Load the most recent finance snapshot on or before the requested day. */
@@ -51,6 +54,12 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
     subscriptions,
     transactions,
     recurringInsights: analyzeRecurringHealth({ subscriptions, transactions }),
+    safeToSpend: calculateSafeToSpend({
+      budget,
+      subscriptions,
+      transactions,
+      date: day,
+    }),
   };
 }
 

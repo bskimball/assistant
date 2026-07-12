@@ -76,6 +76,11 @@ interface WeekStats {
   avgWaterOz: number;
   netWorth: number;
   activeDays: number;
+  checkInDays: number;
+  avgEnergy: number;
+  avgDayRating: number;
+  checkInWins: string[];
+  checkInFrictions: string[];
   perDayCompletion: { date: ISODate; pct: number; total: number }[];
 }
 
@@ -103,6 +108,11 @@ async function loadWeeklyData(
   let waterDays = 0;
   let netWorth = 0;
   let activeDays = 0;
+  let checkInDays = 0;
+  let energySum = 0;
+  let dayRatingSum = 0;
+  const checkInWins: string[] = [];
+  const checkInFrictions: string[] = [];
   const perDayCompletion: WeekStats["perDayCompletion"] = [];
 
   dashboards.forEach((dash, i) => {
@@ -128,12 +138,21 @@ async function loadWeeklyData(
       waterDays++;
     }
     if (dash.finance?.netWorth) netWorth = dash.finance.netWorth;
+    const checkIn = dash.plan?.eveningCheckIn;
+    if (checkIn) {
+      checkInDays++;
+      energySum += checkIn.energy;
+      dayRatingSum += checkIn.dayRating;
+      if (checkIn.win) checkInWins.push(checkIn.win);
+      if (checkIn.friction) checkInFrictions.push(checkIn.friction);
+    }
 
     const active =
       tasks.length > 0 ||
       (dash.nutrition?.mealLogs?.length ?? 0) > 0 ||
       water > 0 ||
-      (dash.recent?.transcripts?.length ?? 0) > 0;
+      (dash.recent?.transcripts?.length ?? 0) > 0 ||
+      !!checkIn;
     if (active) activeDays++;
   });
 
@@ -152,6 +171,11 @@ async function loadWeeklyData(
       avgWaterOz: mlToFlOz(waterDays ? Math.round(waterSum / waterDays) : 0) ?? 0,
       netWorth,
       activeDays,
+      checkInDays,
+      avgEnergy: checkInDays ? Math.round((energySum / checkInDays) * 10) / 10 : 0,
+      avgDayRating: checkInDays ? Math.round((dayRatingSum / checkInDays) * 10) / 10 : 0,
+      checkInWins,
+      checkInFrictions,
       perDayCompletion,
     },
     review,
@@ -221,6 +245,11 @@ function Weekly() {
           avgWaterMl: flOzToMl(stats.avgWaterOz) ?? 0,
           netWorth: stats.netWorth,
           activeDays: stats.activeDays,
+          checkInDays: stats.checkInDays,
+          avgEnergy: stats.avgEnergy,
+          avgDayRating: stats.avgDayRating,
+          checkInWins: stats.checkInWins,
+          checkInFrictions: stats.checkInFrictions,
         },
       });
       setNarrative(result);

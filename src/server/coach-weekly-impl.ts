@@ -15,6 +15,11 @@ export interface WeeklyStatsInput {
   avgWaterMl: number;
   netWorth: number;
   activeDays: number;
+  checkInDays?: number;
+  avgEnergy?: number;
+  avgDayRating?: number;
+  checkInWins?: string[];
+  checkInFrictions?: string[];
 }
 
 export interface WeeklyNarrativeResult {
@@ -38,6 +43,9 @@ function fallbackWeekly(s: WeeklyStatsInput): WeeklyNarrativeResult {
   if (s.avgProteinPct >= 90)
     wins.push(`Strong protein intake (${s.avgProteinPct}% of target on average).`);
   if (s.activeDays >= 5) wins.push(`Logged activity on ${s.activeDays} days — great consistency.`);
+  if ((s.checkInDays ?? 0) >= 3)
+    wins.push(`Completed ${s.checkInDays} evening check-ins with average energy ${s.avgEnergy}/5.`);
+  if (s.checkInWins?.length) wins.push(`Check-in win: ${s.checkInWins[0]}`);
   if (wins.length === 0) wins.push("Showed up — every logged day is a foundation to build on.");
 
   if (completion < 60 && s.tasksTotal > 0)
@@ -51,6 +59,10 @@ function fallbackWeekly(s: WeeklyStatsInput): WeeklyNarrativeResult {
     );
   if (s.activeDays < 4)
     blockers.push(`Active only ${s.activeDays} days — a 30-second daily check-in keeps momentum.`);
+  if ((s.checkInDays ?? 0) > 0 && (s.avgEnergy ?? 5) < 3)
+    blockers.push(`Energy averaged ${s.avgEnergy}/5 — reduce friction and protect recovery.`);
+  if (s.checkInFrictions?.length)
+    blockers.push(`Repeated friction to address: ${s.checkInFrictions[0]}`);
 
   if (s.workouts < 3)
     nextWeekFocus.push("Schedule 3–4 workouts in advance and treat them as appointments.");
@@ -98,6 +110,11 @@ Data this week:
 - Avg water: ${avgWaterOz} fl oz
 - Net worth: ${data.netWorth > 0 ? "$" + data.netWorth : "not tracked"}
 - Active (logged) days: ${data.activeDays}/7
+- Evening check-ins: ${data.checkInDays ?? 0}/7
+- Avg check-in energy: ${data.avgEnergy ?? 0}/5
+- Avg day rating: ${data.avgDayRating ?? 0}/5
+- Wins noted: ${(data.checkInWins ?? []).join("; ") || "none"}
+- Friction noted: ${(data.checkInFrictions ?? []).join("; ") || "none"}
 
 User profile:
 ${profileBlock(profile)}

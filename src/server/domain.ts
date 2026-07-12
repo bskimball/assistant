@@ -13,6 +13,7 @@ import type {
   DailyFinanceSnapshot,
   Transaction,
   DailyPlan,
+  EveningCheckIn,
   WorkoutPlan,
   WorkoutSession,
   ProductivityTask,
@@ -86,6 +87,10 @@ export const appendWorkoutSession = createServerFn({ method: "POST" })
   .validator((session: Omit<WorkoutSession, "id" | "createdAt">) => session)
   .handler(({ data }) => withDomainAuthData(data, impl.appendWorkoutSessionImpl));
 
+export const deleteWorkoutSession = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(({ data }) => withDomainAuthData(data, impl.deleteWorkoutSessionImpl));
+
 export const loadDailyNutrition = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
   .handler(({ data }) => withDomainAuthData(data, impl.loadDailyNutritionImpl));
@@ -140,6 +145,10 @@ export const loadDailyPlan = createServerFn({ method: "GET" })
 export const saveDailyPlan = createServerFn({ method: "POST" })
   .validator((plan: DailyPlan) => plan)
   .handler(({ data }) => withDomainAuthData(data, impl.saveDailyPlanImpl));
+
+export const saveEveningCheckIn = createServerFn({ method: "POST" })
+  .validator((data: { date: ISODate; checkIn: EveningCheckIn }) => data)
+  .handler(({ data }) => withDomainAuthData(data, impl.saveEveningCheckInImpl));
 
 export const loadDailyFocusScore = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)

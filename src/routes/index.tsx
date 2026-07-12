@@ -39,6 +39,7 @@ import {
   saveDailyFinance,
   appendTransaction,
   saveDailyNutrition,
+  saveEveningCheckIn,
   type DailyDashboardPayload,
 } from "@/server/domain";
 import { type FinanceHubPayload } from "@/server/finance";
@@ -50,6 +51,7 @@ import {
   type CoachDomain,
 } from "@/server/coach";
 import type { DailyNutrition, ISODate, DailyFocusScore, DailyPlan } from "@/lib/domain";
+import { selectNextBestAction } from "@/lib/next-best-action";
 import {
   createProductivityTask,
   flOzToMl,
@@ -123,7 +125,10 @@ function humanizeAiActivity(response?: string, intent?: string): string {
   if (!raw) return "";
   if (raw.startsWith("{") || raw.startsWith("[")) {
     try {
-      const parsed = JSON.parse(raw) as { result?: unknown; spokenText?: unknown };
+      const parsed = JSON.parse(raw) as {
+        result?: unknown;
+        spokenText?: unknown;
+      };
       const spoken =
         (typeof parsed.result === "string" && parsed.result) ||
         (typeof parsed.spokenText === "string" && parsed.spokenText);
@@ -164,9 +169,13 @@ function UnifiedDailyDashboard() {
 
   const reload = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedDate) }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboard(selectedDate),
+      }),
       queryClient.invalidateQueries({ queryKey: queryKeys.workoutSessions() }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.financeHub(selectedDate) }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.financeHub(selectedDate),
+      }),
     ]);
   const setDashboardData = (fn: (d: DailyDashboardPayload) => DailyDashboardPayload) =>
     queryClient.setQueryData(dashKey, (d) => (d ? fn(d) : d));
@@ -200,6 +209,11 @@ function UnifiedDailyDashboard() {
   // While dragging the water slider we hold the in-flight oz here so the fill
   // follows the thumb; we commit to the server on release.
   const [waterDraft, setWaterDraft] = useState<number | null>(null);
+  const [checkInEnergy, setCheckInEnergy] = useState(3);
+  const [checkInRating, setCheckInRating] = useState(3);
+  const [checkInWin, setCheckInWin] = useState("");
+  const [checkInFriction, setCheckInFriction] = useState("");
+  const [checkInSaving, setCheckInSaving] = useState(false);
 
   // Finance quick-add
   const [acctName, setAcctName] = useState("");
@@ -258,6 +272,29 @@ function UnifiedDailyDashboard() {
   const weekWorkoutCount = workoutSessions.filter(
     (s) => s.performedAt >= selectedDayStart - 6 * 86400000 && s.performedAt <= selectedDayEnd,
   ).length;
+  const activeTasks = tasks.filter((task) => !task.deletedAt && !task.done);
+  const orderedTopTask = dailyPlan?.topTaskIds
+    .map((id) => activeTasks.find((task) => task.id === id))
+    .find(Boolean);
+  const topTask =
+    orderedTopTask ??
+    [...activeTasks].sort(
+      (a, b) => (a.priority ?? 4) - (b.priority ?? 4) || a.createdAt - b.createdAt,
+    )[0];
+  const todaysPlannedWorkout = dailyPlan?.aiCoaching?.workout;
+  const workoutCompletedToday = workoutSessions.some(
+    (session) => session.performedAt >= selectedDayStart && session.performedAt <= selectedDayEnd,
+  );
+  const nextBestAction = selectNextBestAction({
+    incompleteTopTask: topTask ? { title: topTask.text, overdue: false } : undefined,
+    plannedWorkoutIncomplete: !!todaysPlannedWorkout && !workoutCompletedToday,
+    plannedWorkoutTitle: todaysPlannedWorkout?.title,
+    hourLocal: isToday ? new Date().getHours() : 0,
+    proteinPct,
+    waterPct,
+    financeStatus: financeHub?.safeToSpend?.status,
+    safeToSpendThisMonth: financeHub?.safeToSpend?.safeToSpendThisMonth,
+  });
   const selectedMonth = selectedDate.slice(0, 7);
   const monthTransactions = transactions.filter(
     (t) => new Date(t.timestamp).toISOString().slice(0, 7) === selectedMonth,
@@ -321,7 +358,9 @@ function UnifiedDailyDashboard() {
       });
       setCoaching(result);
       // generateCoaching persists into the day's plan → refresh the dashboard.
-      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedDate) });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboard(selectedDate),
+      });
     } catch (e) {
       console.warn("[dashboard] coaching failed", e);
     } finally {
@@ -381,7 +420,9 @@ function UnifiedDailyDashboard() {
           })),
         },
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.workoutSessions() });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.workoutSessions(),
+      });
       setVoiceStatus(`Logged: ${coaching.workout.title}`);
       speakAssistant(`Nice work. Logged ${coaching.workout.title}.`);
       setTimeout(() => setVoiceStatus(""), 2200);
@@ -468,7 +509,10 @@ function UnifiedDailyDashboard() {
           notes: txnNote.trim() || undefined,
         },
       });
-      setHubData((h) => ({ ...h, transactions: [...h.transactions, transaction] }));
+      setHubData((h) => ({
+        ...h,
+        transactions: [...h.transactions, transaction],
+      }));
       setTxnAmount("");
       setTxnCategory("");
       setTxnNote("");
@@ -790,6 +834,43 @@ function UnifiedDailyDashboard() {
     );
   }
 
+  useEffect(() => {
+    const checkIn = dailyPlan?.eveningCheckIn;
+    if (!checkIn) return;
+    setCheckInEnergy(checkIn.energy);
+    setCheckInRating(checkIn.dayRating);
+    setCheckInWin(checkIn.win ?? "");
+    setCheckInFriction(checkIn.friction ?? "");
+  }, [dailyPlan?.eveningCheckIn]);
+
+  async function submitEveningCheckIn() {
+    if (!isToday || checkInSaving) return;
+    if (
+      ![checkInEnergy, checkInRating].every(
+        (value) => Number.isInteger(value) && value >= 1 && value <= 5,
+      )
+    )
+      return;
+    setCheckInSaving(true);
+    try {
+      await saveEveningCheckIn({
+        data: {
+          date: selectedDate,
+          checkIn: {
+            energy: checkInEnergy as 1 | 2 | 3 | 4 | 5,
+            dayRating: checkInRating as 1 | 2 | 3 | 4 | 5,
+            win: checkInWin.trim() || undefined,
+            friction: checkInFriction.trim() || undefined,
+            completedAt: Date.now(),
+          },
+        },
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedDate) });
+    } finally {
+      setCheckInSaving(false);
+    }
+  }
+
   const headline =
     coaching?.headline ||
     (isToday
@@ -885,6 +966,25 @@ function UnifiedDailyDashboard() {
             </div>
           </div>
         </div>
+
+        {isToday && (
+          <Reveal>
+            <Card className="mb-6 border-l-4 border-l-primary" aria-live="polite">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Next best action · {nextBestAction.domain}
+                  </div>
+                  <div className="mt-1 font-semibold">{nextBestAction.title}</div>
+                  <p className="mt-1 text-sm text-muted-foreground">{nextBestAction.reason}</p>
+                </div>
+                <Button asChild className="shrink-0">
+                  <Link to={nextBestAction.href}>Take action</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </Reveal>
+        )}
 
         {/* Primary Headline: rings + synthesis */}
         <Reveal>
@@ -1480,6 +1580,34 @@ function UnifiedDailyDashboard() {
                   : `No transactions imported for ${selectedMonth}`}
               </div>
 
+              {financeHub?.safeToSpend && (
+                <div
+                  className={`mt-3 rounded-md border px-2.5 py-2 text-xs ${
+                    financeHub.safeToSpend.status === "on-track"
+                      ? "border-emerald-500/25 bg-emerald-500/5"
+                      : financeHub.safeToSpend.status === "over-plan"
+                        ? "border-destructive/30 bg-destructive/5"
+                        : financeHub.safeToSpend.status === "tight"
+                          ? "border-amber-500/30 bg-amber-500/5"
+                          : "border-border bg-muted/20"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">Monthly budget guardrail</span>
+                    {financeHub.safeToSpend.status !== "unavailable" && (
+                      <span className="tabular-nums">
+                        ${financeHub.safeToSpend.safeToSpendThisMonth.toLocaleString()} this month ·
+                        ${financeHub.safeToSpend.safeToSpendPerDay.toLocaleString()}
+                        /day
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {financeHub.safeToSpend.explanation} Not available cash or net worth.
+                  </p>
+                </div>
+              )}
+
               {finance?.accounts?.length ? (
                 <ul className="mt-2 space-y-1 text-sm">
                   {finance.accounts.map((a, i) => (
@@ -1636,6 +1764,63 @@ function UnifiedDailyDashboard() {
             </CardContent>
           </Card>
         </Reveal>
+
+        {isToday && (
+          <Reveal delay={revealDelay(7)}>
+            <Card className="mb-6 border-primary/25">
+              <CardHeader>
+                <CardTitle className="text-base">Evening check-in</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1 text-sm">
+                    <span>Energy (1–5)</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={checkInEnergy}
+                      onChange={(e) => setCheckInEnergy(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Day rating (1–5)</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={checkInRating}
+                      onChange={(e) => setCheckInRating(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Today’s win</span>
+                    <Input
+                      value={checkInWin}
+                      onChange={(e) => setCheckInWin(e.target.value)}
+                      placeholder="What went well?"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Friction or blocker</span>
+                    <Input
+                      value={checkInFriction}
+                      onChange={(e) => setCheckInFriction(e.target.value)}
+                      placeholder="What got in the way?"
+                    />
+                  </label>
+                </div>
+                <Button onClick={submitEveningCheckIn} disabled={checkInSaving}>
+                  {checkInSaving
+                    ? "Saving…"
+                    : dailyPlan?.eveningCheckIn
+                      ? "Update check-in"
+                      : "Save check-in"}
+                </Button>
+              </CardContent>
+            </Card>
+          </Reveal>
+        )}
 
         <div className="flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground/60">
           {selectedDate} • TanStack Start + R2 {syncing && "• syncing…"} {isLoading && "• loading…"}

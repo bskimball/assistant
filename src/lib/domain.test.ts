@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addDaysISO,
+  assertValidWorkoutSessionDate,
   isBillSubscription,
   isCuttableSubscription,
   loanPayoffMonths,
@@ -8,6 +9,7 @@ import {
   recurringKindOf,
   resolveVoiceTargetDate,
   toISODate,
+  type PerformedExercise,
 } from "@/lib/domain";
 
 describe("addDaysISO", () => {
@@ -54,6 +56,34 @@ describe("resolveVoiceTargetDate", () => {
 describe("toISODate", () => {
   it("returns a YYYY-MM-DD day key", () => {
     expect(toISODate(new Date())).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("workout execution fields", () => {
+  it("permits optional actual performance fields and retains a substitution plan name", () => {
+    const exercise: PerformedExercise = {
+      name: "Goblet Squat",
+      plannedName: "Back Squat",
+      actualSets: 3,
+      actualReps: 10,
+      actualWeightLb: 50,
+      rpe: 8,
+    };
+
+    expect(exercise).toMatchObject({
+      name: "Goblet Squat",
+      plannedName: "Back Squat",
+      actualSets: 3,
+      actualReps: 10,
+      actualWeightLb: 50,
+      rpe: 8,
+    });
+  });
+
+  it("rejects future workout sessions", () => {
+    expect(() => assertValidWorkoutSessionDate(101, 100)).toThrow(
+      "WorkoutSession.performedAt cannot be in the future",
+    );
   });
 });
 
