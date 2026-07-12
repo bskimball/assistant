@@ -34,8 +34,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Reveal, revealDelay } from "@/components/motion";
-import { appendWorkoutSession, deleteWorkoutSession } from "@/server/domain";
+import { appendWorkoutSession, deleteWorkoutSession, loadDailyPlan } from "@/server/domain";
 import {
+  addDaysISO,
   todayISO,
   type ExercisePhase,
   type PerformedExercise,
@@ -44,6 +45,8 @@ import {
   type WorkoutVariant,
 } from "@/lib/domain";
 import { deriveWorkoutVariant } from "@/lib/workout-variants";
+import { assessWorkoutReadiness, type WorkoutReadinessAssessment } from "@/lib/workout-readiness";
+import { buildMovementHistory, recommendProgressiveOverload } from "@/lib/progressive-overload";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 
 export const Route = createFileRoute("/workouts")({
@@ -87,6 +90,7 @@ type CompletionExercise = {
 type PlannedCompletionReview = {
   session: PlannedWorkoutSession;
   variant: WorkoutVariant;
+  readiness: WorkoutReadinessAssessment;
   durationMinutes: string;
   effortRating: string;
   sorenessRating: string;
@@ -188,12 +192,16 @@ function WorkoutsPage() {
     }
   }
 
-  function startPlannedReview(session: PlannedWorkoutSession, variant: WorkoutVariant = "full") {
-    if (busy) return;
+  function buildPlannedReview(
+    session: PlannedWorkoutSession,
+    variant: WorkoutVariant,
+    readiness: WorkoutReadinessAssessment,
+  ): PlannedCompletionReview {
     const derived = deriveWorkoutVariant(session, variant);
-    setPlannedReview({
+    return {
       session,
       variant,
+      readiness,
       durationMinutes: String(derived.estimatedMinutes),
       effortRating: "3",
       sorenessRating: "",
@@ -206,7 +214,35 @@ function WorkoutsPage() {
         actualWeightLb: numericField(planned.weightLb),
         rpe: "",
       })),
+    };
+  }
+
+  async function startPlannedReview(session: PlannedWorkoutSession) {
+    if (busy) return;
+    let yesterdayEnergy: number | undefined;
+    try {
+      const yesterday = await loadDailyPlan({ data: addDaysISO(today, -1) });
+      yesterdayEnergy = yesterday?.eveningCheckIn?.energy;
+    } catch (error) {
+      console.error("[workouts] readiness check-in load failed", error);
+    }
+
+    const latestSession = history[0];
+    const readiness = assessWorkoutReadiness({
+      yesterdayEnergy,
+      latestEffortRating: latestSession?.effortRating,
+      latestSorenessRating: latestSession?.sorenessRating,
+      daysSinceLastSession: latestSession
+        ? Math.max(0, (Date.now() - latestSession.performedAt) / 86_400_000)
+        : undefined,
     });
+    setPlannedReview(buildPlannedReview(session, readiness.recommendedVariant, readiness));
+  }
+
+  function setPlannedReviewVariant(variant: WorkoutVariant) {
+    setPlannedReview((current) =>
+      current ? buildPlannedReview(current.session, variant, current.readiness) : current,
+    );
   }
 
   async function completePlannedReview() {
@@ -494,7 +530,7 @@ function WorkoutsPage() {
                             variant={isToday ? "default" : "outline"}
                             className="h-8 shrink-0 gap-1 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
                             disabled={busy}
-                            onClick={() => startPlannedReview(session)}
+                            onClick={() => void startPlannedReview(session)}
                           >
                             <Plus className="size-3.5" /> Log
                           </Button>
@@ -541,6 +577,10 @@ function WorkoutsPage() {
               <p className="text-sm text-muted-foreground">
                 Adjust what you actually did before saving. Sets and reps start from your plan.
               </p>
+              <p className="text-xs text-muted-foreground">
+                Readiness: {plannedReview.readiness.reasons.join(" ")} Recommended:{" "}
+                {plannedReview.readiness.recommendedVariant} workout.
+              </p>
               <div className="flex flex-wrap gap-2" aria-label="Workout length">
                 {(["full", "short", "minimum"] as const).map((variant) => {
                   const derived = deriveWorkoutVariant(plannedReview.session, variant);
@@ -552,7 +592,7 @@ function WorkoutsPage() {
                       variant={plannedReview.variant === variant ? "default" : "outline"}
                       aria-pressed={plannedReview.variant === variant}
                       disabled={busy}
-                      onClick={() => startPlannedReview(plannedReview.session, variant)}
+                      onClick={() => setPlannedReviewVariant(variant)}
                     >
                       {derived.label} · {derived.estimatedMinutes} min
                     </Button>
@@ -562,117 +602,137 @@ function WorkoutsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {plannedReview.exercises.map((exercise, index) => (
-                  <div key={index} className="rounded-lg border border-border p-3">
-                    <div className="mb-2 text-xs font-medium text-muted-foreground">
-                      Planned: {exercise.planned.name}
+                {plannedReview.exercises.map((exercise, index) => {
+                  const history = buildMovementHistory(sessions, exercise.planned.name);
+                  const lastLog = history[0];
+                  const overload = recommendProgressiveOverload(
+                    sessions,
+                    exercise.planned.name,
+                    exercise.planned.reps,
+                  );
+                  const lastLogText = lastLog?.actualWeightLb
+                    ? `Last: ${lastLog.actualWeightLb} lb${lastLog.actualReps !== undefined ? ` × ${lastLog.actualReps} reps` : ""}.`
+                    : "No previous weight logged.";
+                  const suggestionText = overload.nextWeightLb
+                    ? `${overload.suggestion}: ${overload.nextWeightLb} lb.`
+                    : `${overload.suggestion}: hold.`;
+                  return (
+                    <div key={index} className="rounded-lg border border-border p-3">
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">
+                        Planned: {exercise.planned.name}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-5">
+                        <Input
+                          value={exercise.name}
+                          onChange={(e) =>
+                            setPlannedReview((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    exercises: current.exercises.map((item, itemIndex) =>
+                                      itemIndex === index
+                                        ? { ...item, name: e.target.value }
+                                        : item,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                          aria-label={`Performed exercise name for ${exercise.planned.name}`}
+                          placeholder="Exercise name"
+                          disabled={busy}
+                          className="sm:col-span-2"
+                        />
+                        <Input
+                          value={exercise.actualSets}
+                          onChange={(e) =>
+                            setPlannedReview((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    exercises: current.exercises.map((item, itemIndex) =>
+                                      itemIndex === index
+                                        ? { ...item, actualSets: e.target.value }
+                                        : item,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                          inputMode="numeric"
+                          aria-label={`Actual sets for ${exercise.planned.name}`}
+                          placeholder="Sets"
+                          disabled={busy}
+                        />
+                        <Input
+                          value={exercise.actualReps}
+                          onChange={(e) =>
+                            setPlannedReview((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    exercises: current.exercises.map((item, itemIndex) =>
+                                      itemIndex === index
+                                        ? { ...item, actualReps: e.target.value }
+                                        : item,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                          aria-label={`Actual reps for ${exercise.planned.name}`}
+                          placeholder="Reps"
+                          disabled={busy}
+                        />
+                        <Input
+                          value={exercise.actualWeightLb}
+                          onChange={(e) =>
+                            setPlannedReview((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    exercises: current.exercises.map((item, itemIndex) =>
+                                      itemIndex === index
+                                        ? { ...item, actualWeightLb: e.target.value }
+                                        : item,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                          inputMode="decimal"
+                          aria-label={`Actual weight in pounds for ${exercise.planned.name}`}
+                          placeholder="Weight lb"
+                          disabled={busy}
+                        />
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {lastLogText} {suggestionText} {overload.reason}
+                      </p>
+                      <div className="mt-2 max-w-32">
+                        <Input
+                          value={exercise.rpe}
+                          onChange={(e) =>
+                            setPlannedReview((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    exercises: current.exercises.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, rpe: e.target.value } : item,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
+                          inputMode="numeric"
+                          aria-label={`RPE for ${exercise.planned.name}`}
+                          placeholder="RPE 1–10"
+                          disabled={busy}
+                        />
+                      </div>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-5">
-                      <Input
-                        value={exercise.name}
-                        onChange={(e) =>
-                          setPlannedReview((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  exercises: current.exercises.map((item, itemIndex) =>
-                                    itemIndex === index ? { ...item, name: e.target.value } : item,
-                                  ),
-                                }
-                              : current,
-                          )
-                        }
-                        aria-label={`Performed exercise name for ${exercise.planned.name}`}
-                        placeholder="Exercise name"
-                        disabled={busy}
-                        className="sm:col-span-2"
-                      />
-                      <Input
-                        value={exercise.actualSets}
-                        onChange={(e) =>
-                          setPlannedReview((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  exercises: current.exercises.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, actualSets: e.target.value }
-                                      : item,
-                                  ),
-                                }
-                              : current,
-                          )
-                        }
-                        inputMode="numeric"
-                        aria-label={`Actual sets for ${exercise.planned.name}`}
-                        placeholder="Sets"
-                        disabled={busy}
-                      />
-                      <Input
-                        value={exercise.actualReps}
-                        onChange={(e) =>
-                          setPlannedReview((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  exercises: current.exercises.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, actualReps: e.target.value }
-                                      : item,
-                                  ),
-                                }
-                              : current,
-                          )
-                        }
-                        aria-label={`Actual reps for ${exercise.planned.name}`}
-                        placeholder="Reps"
-                        disabled={busy}
-                      />
-                      <Input
-                        value={exercise.actualWeightLb}
-                        onChange={(e) =>
-                          setPlannedReview((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  exercises: current.exercises.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, actualWeightLb: e.target.value }
-                                      : item,
-                                  ),
-                                }
-                              : current,
-                          )
-                        }
-                        inputMode="decimal"
-                        aria-label={`Actual weight in pounds for ${exercise.planned.name}`}
-                        placeholder="Weight lb"
-                        disabled={busy}
-                      />
-                    </div>
-                    <div className="mt-2 max-w-32">
-                      <Input
-                        value={exercise.rpe}
-                        onChange={(e) =>
-                          setPlannedReview((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  exercises: current.exercises.map((item, itemIndex) =>
-                                    itemIndex === index ? { ...item, rpe: e.target.value } : item,
-                                  ),
-                                }
-                              : current,
-                          )
-                        }
-                        inputMode="numeric"
-                        aria-label={`RPE for ${exercise.planned.name}`}
-                        placeholder="RPE 1–10"
-                        disabled={busy}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 <div className="grid gap-2 sm:grid-cols-3">
                   <Input
