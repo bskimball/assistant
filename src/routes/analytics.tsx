@@ -115,7 +115,7 @@ function Analytics() {
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Analytics</div>
+            <div className="text-xs tracking-tight text-muted-foreground">Analytics</div>
             <div className="text-balance text-3xl font-semibold tracking-tighter">Trends</div>
           </div>
           <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1 ring-1 ring-foreground/10">
@@ -182,10 +182,6 @@ function Analytics() {
           </Card>
         ) : points.length === 0 ? (
           <Card className="relative overflow-hidden shadow-sm">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-size-[8px_8px] opacity-25"
-            />
             <CardContent className="relative py-10 text-center text-sm text-muted-foreground">
               No data yet. Log a few days from the dashboard.
             </CardContent>
@@ -293,7 +289,7 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="overflow-hidden bg-linear-to-br from-primary/4 via-card to-card shadow-sm">
+    <Card className="overflow-hidden bg-card shadow-sm">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -351,18 +347,18 @@ function LineChart({
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.22} />
-            <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.02} />
+            <stop offset="0%" stopColor="var(--ring)" stopOpacity={0.22} />
+            <stop offset="100%" stopColor="var(--ring)" stopOpacity={0.02} />
           </linearGradient>
         </defs>
         <path d={area} fill={`url(#${gradientId})`} />
-        <path d={line} className="stroke-primary" strokeWidth={2} fill="none" />
+        <path d={line} stroke="var(--ring)" strokeWidth={2} fill="none" />
         {coords.map(([x, yy], i) => {
           const isLatest = i === coords.length - 1;
           return (
             <g key={i}>
-              {isLatest && <circle cx={x} cy={yy} r={5} className="fill-primary/20" />}
-              <circle cx={x} cy={yy} r={isLatest ? 2.5 : 2} className="fill-primary" />
+              {isLatest && <circle cx={x} cy={yy} r={5} fill="var(--ring)" fillOpacity={0.2} />}
+              <circle cx={x} cy={yy} r={isLatest ? 2.5 : 2} fill="var(--ring)" />
             </g>
           );
         })}

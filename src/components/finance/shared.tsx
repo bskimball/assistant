@@ -327,7 +327,7 @@ export function MiniStat({
 }) {
   const body = (
     <>
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[10px] text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
     </>
   );
@@ -470,7 +470,7 @@ export function Stat({
   return (
     <Card className={hero ? "border-primary/40 bg-primary/3" : undefined}>
       <CardContent className="pt-4">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className="text-[11px] text-muted-foreground">{label}</div>
         <div
           className={`mt-1 font-semibold tabular-nums ${hero ? "text-3xl" : "text-2xl"} ${
             tone === "up"
@@ -534,12 +534,7 @@ export function BudgetBar({
   const barColor =
     state === "bad" ? "bg-destructive" : state === "warn" ? "bg-amber-500" : "bg-emerald-500";
   const plannedBarColor =
-    state === "bad"
-      ? "bg-destructive/35"
-      : state === "warn"
-        ? "bg-amber-500/35"
-        : "bg-emerald-500/35";
-  const emptyTrack = goal === "save" && actual <= 0;
+    state === "bad" ? "bg-destructive" : state === "warn" ? "bg-amber-500" : "bg-emerald-500";
 
   // Plain-language status so the eye lands on the number that matters.
   const note =
@@ -584,19 +579,13 @@ export function BudgetBar({
           </span>
         </div>
         <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
-          {emptyTrack && (
-            <span
-              className="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-size-[8px_8px] opacity-25"
-              aria-hidden
-            />
-          )}
           <div
             className={`absolute inset-y-0 left-0 transition-[width] duration-300 ease-out ${barColor}`}
             style={{ width: `${statementPct}%` }}
           />
           {plannedPct > 0 && (
             <div
-              className={`absolute inset-y-0 transition-[left,width] duration-300 ease-out ${plannedBarColor} bg-[linear-gradient(135deg,rgba(255,255,255,.28)_25%,transparent_25%,transparent_50%,rgba(255,255,255,.28)_50%,rgba(255,255,255,.28)_75%,transparent_75%,transparent)] bg-size-[8px_8px]`}
+              className={`absolute inset-y-0 opacity-40 transition-[left,width] duration-300 ease-out ${plannedBarColor}`}
               style={{ left: `${statementPct}%`, width: `${plannedPct}%` }}
             />
           )}

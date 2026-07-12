@@ -401,14 +401,14 @@ function ProfilePage() {
     <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6">
-          <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Settings</div>
+          <div className="text-xs tracking-tight text-muted-foreground">Settings</div>
           <div className="text-balance text-3xl font-semibold tracking-tighter">Your Profile</div>
           <p className="mt-1 text-pretty text-sm text-muted-foreground">
             Everything here personalizes your coach — it respects your injuries and dietary
             restrictions, uses your own targets, and references your goals. All fields are optional.
           </p>
           {!loading && (
-            <Reveal className="mt-4 overflow-hidden rounded-xl border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-4 shadow-sm">
+            <Reveal className="mt-4 overflow-hidden rounded-xl border border-primary/20 bg-card p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="flex items-center gap-2.5 font-medium">
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -801,7 +801,7 @@ function ProfilePage() {
               {/* WHAT YOUR COACH REMEMBERS (ADR-020) — display/manage only,
                   not part of the form/save flow. */}
               <Item>
-                <Card className="overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+                <Card className="overflow-hidden border-primary/20 bg-card shadow-sm">
                   <CardHeader>
                     <SectionTitle Icon={Brain}>What your coach remembers</SectionTitle>
                   </CardHeader>

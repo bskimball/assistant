@@ -83,7 +83,7 @@ function NotFound() {
         <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border bg-card">
           <Compass className="size-7 text-primary" />
         </div>
-        <div className="text-xs uppercase tracking-[2px] text-muted-foreground">404</div>
+        <div className="text-xs tracking-tight text-muted-foreground">404</div>
         <h1 className="mt-1 text-2xl font-semibold tracking-tighter sm:text-3xl">
           This page wandered off.
         </h1>

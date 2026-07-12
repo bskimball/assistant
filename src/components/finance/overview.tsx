@@ -300,7 +300,7 @@ export function OverviewTab({
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <span className="truncate">{a.account}</span>
               <span
-                className="inline-flex shrink-0 items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+                className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground"
                 title={synced ? "Synced from your bank connection" : "Entered manually"}
               >
                 <span
@@ -395,7 +395,7 @@ export function OverviewTab({
               {accountGroups.map(({ type, label, Icon, rows, subtotal }) => (
                 <section key={type}>
                   <div className="mb-0.5 flex items-center justify-between gap-2 border-b border-border/60 pb-1">
-                    <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                       <Icon className="size-3.5" />
                       {label}
                     </h3>
@@ -579,9 +579,7 @@ function CoachSuggestions({
           <Sparkles className="size-4 text-primary" />
           Next moves
         </span>
-        <span className="text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
-          Coach
-        </span>
+        <span className="text-[11px] font-normal text-muted-foreground">Coach</span>
       </CardTitle>
     </CardHeader>
   );
@@ -594,7 +592,7 @@ function CoachSuggestions({
       <Card
         role="status"
         aria-busy="true"
-        className="overflow-hidden border-primary/25 bg-linear-to-br from-primary/8 via-card to-card shadow-sm"
+        className="overflow-hidden border-primary/25 bg-card shadow-sm"
       >
         <span className="sr-only">Loading coach suggestions…</span>
         {header}
@@ -632,7 +630,7 @@ function CoachSuggestions({
   }
 
   return (
-    <Card className="overflow-hidden border-primary/25 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+    <Card className="overflow-hidden border-primary/25 bg-card shadow-sm">
       {header}
       <CardContent className="pt-0">
         <ul className="divide-y divide-border/50">
@@ -648,9 +646,7 @@ function CoachSuggestions({
                   <meta.Icon className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {meta.label}
-                  </div>
+                  <div className="text-[10px] font-medium text-muted-foreground">{meta.label}</div>
                   <p className="mt-0.5 text-pretty text-sm leading-6">
                     {renderHighlightedAdvice(item.text)}
                   </p>

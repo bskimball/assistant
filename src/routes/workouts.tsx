@@ -240,7 +240,7 @@ function WorkoutsPage() {
         {/* Header */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Fitness</div>
+            <div className="text-xs tracking-tight text-muted-foreground">Fitness</div>
             <h1 className="text-balance text-3xl font-semibold tracking-tighter">Workouts</h1>
             <p className="mt-2 max-w-xl text-pretty text-sm text-muted-foreground">
               Your week of training — warm-up, main work, core, and cooldown stretch — plus a full
@@ -294,7 +294,7 @@ function WorkoutsPage() {
         )}
 
         {/* This week's plan */}
-        <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+        <Card className="mb-6 overflow-hidden border-primary/20 bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
               <span className="flex items-center gap-2">
@@ -695,13 +695,7 @@ function StatTile({
     : 0;
   const tone = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-500" : "bg-primary";
   return (
-    <Card
-      className={
-        hero
-          ? "border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm"
-          : undefined
-      }
-    >
+    <Card className={hero ? "border-primary/20 bg-card shadow-sm" : undefined}>
       <CardContent className="pt-4">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}

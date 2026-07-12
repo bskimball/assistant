@@ -120,9 +120,7 @@ export function InvestmentsTab({
   return (
     <div className="space-y-4">
       <div className="rounded-xl bg-card px-4 py-4 ring-1 ring-foreground/10">
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Holdings total value
-        </div>
+        <div className="text-xs font-medium text-muted-foreground">Holdings total value</div>
         <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
           {fmtMoney(total)}
         </div>
@@ -173,7 +171,7 @@ export function InvestmentsTab({
             <div className="overflow-x-auto">
               <table className="w-full min-w-120 text-sm">
                 <thead>
-                  <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b text-[11px] text-muted-foreground">
                     <th className="py-1.5 pr-2 text-left font-medium">Symbol</th>
                     <th className="px-2 py-1.5 text-right font-medium">Qty</th>
                     <th className="px-2 py-1.5 text-right font-medium">Price</th>

@@ -250,7 +250,7 @@ function KanbanBoard() {
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
+            <div className="text-xs tracking-tight text-muted-foreground">
               Tasks &amp; Reminders
             </div>
             <div className="text-balance text-3xl font-semibold tracking-tighter">Kanban Board</div>
@@ -325,7 +325,7 @@ function KanbanBoard() {
               {!isToday && (
                 <Badge
                   variant="secondary"
-                  className="gap-1 rounded-full text-[10px] uppercase tracking-wide text-muted-foreground"
+                  className="gap-1 rounded-full text-[10px] text-muted-foreground"
                 >
                   <Lock className="size-2.5" /> Read-only
                 </Badge>
@@ -336,7 +336,7 @@ function KanbanBoard() {
 
         {/* Quick add */}
         {isToday && (
-          <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-primary/20 bg-card shadow-sm">
             <CardContent className="pt-4">
               <form onSubmit={handleQuickAdd} className="space-y-2">
                 <div className="flex gap-2">

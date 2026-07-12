@@ -316,9 +316,7 @@ function Weekly() {
       <div className="mx-auto w-full max-w-page">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
-              Weekly Review
-            </div>
+            <div className="text-xs tracking-tight text-muted-foreground">Weekly Review</div>
             <div className="text-3xl font-semibold tracking-tighter tabular-nums">{week}</div>
             <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{weekLabel}</div>
           </div>
@@ -486,7 +484,7 @@ function Weekly() {
           </Card>
 
           {/* AI review */}
-          <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-primary/20 bg-card shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center justify-between text-base">
                 <span className="flex items-center gap-2">
@@ -609,7 +607,7 @@ function StatTile({
     <div
       className={`rounded-xl p-3 ring-1 ${
         hero
-          ? "border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm ring-transparent"
+          ? "border border-primary/20 bg-card shadow-sm ring-transparent"
           : "bg-card ring-foreground/10"
       }`}
     >

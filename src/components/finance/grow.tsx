@@ -184,7 +184,7 @@ export function GrowTab({
                           <meta.Icon className="size-4" />
                         </div>
                         <div className="min-w-0">
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          <div className="text-[11px] font-medium text-muted-foreground">
                             {meta.label}
                           </div>
                           <div className="text-pretty text-sm leading-6">
@@ -324,9 +324,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-3 rounded-lg bg-background/55 px-3 py-3 ring-1 ring-foreground/10 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Projected ending cash
-            </div>
+            <div className="text-xs font-medium text-muted-foreground">Projected ending cash</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
               {fmtMoney(projection.endingCash)}
             </div>
@@ -354,7 +352,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
           <div className="mt-3 grid gap-2 sm:grid-cols-4">
             {nextMonths.map((month) => (
               <div key={month.month} className="rounded-md bg-background/50 px-2 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="text-[10px] text-muted-foreground">
                   {formatMonthLabel(month.month).slice(0, 3)}
                 </div>
                 <div

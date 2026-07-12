@@ -807,9 +807,7 @@ function PaymentCheckRow({
       </div>
       {showCandidates && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-6">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Link charge
-          </span>
+          <span className="text-[10px] font-medium text-muted-foreground">Link charge</span>
           {candidates!.map((t) => (
             <Button
               key={t.id}
@@ -1068,7 +1066,7 @@ function MonthlyPaymentCheckCard({
             <div className="mt-2 space-y-3">
               {pendingItems.length > 0 && (
                 <section>
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="mb-1 text-[10px] font-medium text-muted-foreground">
                     Still expected
                   </div>
                   <ul className="divide-y divide-border rounded-lg bg-muted/20 px-2 ring-1 ring-foreground/10">
@@ -1089,9 +1087,7 @@ function MonthlyPaymentCheckCard({
               )}
               {matchedItems.length > 0 && (
                 <section>
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Matched
-                  </div>
+                  <div className="mb-1 text-[10px] font-medium text-muted-foreground">Matched</div>
                   <ul className="divide-y divide-border/60 rounded-lg px-2 ring-1 ring-foreground/10">
                     {matchedItems.map((item) => (
                       <PaymentCheckRow
@@ -1690,7 +1686,7 @@ export function RecurringTab({ hub, onChange, flash }: FinanceTabProps) {
                 return (
                   <section key={k}>
                     <div className="mb-1 flex items-center justify-between">
-                      <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                         <Icon className="size-3.5" />
                         {label} · {hint}
                       </h3>

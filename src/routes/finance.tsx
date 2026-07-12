@@ -88,13 +88,11 @@ function FinancePage() {
     <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         <div className="mb-5">
-          <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Money</div>
+          <div className="text-xs tracking-tight text-muted-foreground">Money</div>
           <div className="flex items-end justify-between gap-3">
             <div className="text-balance text-3xl font-semibold tracking-tighter">Finance Hub</div>
             <div className="rounded-xl bg-card px-3 py-2 text-right ring-1 ring-foreground/10">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Net worth
-              </div>
+              <div className="text-[10px] text-muted-foreground">Net worth</div>
               <div className="text-2xl font-semibold tabular-nums">{fmtMoney(netWorth)}</div>
             </div>
           </div>

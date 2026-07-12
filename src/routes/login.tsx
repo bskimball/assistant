@@ -57,7 +57,7 @@ function LoginPage() {
         className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-linear-to-b from-primary/6 to-transparent"
       />
       <div className="relative mx-auto w-full max-w-sm">
-        <div className="rounded-2xl border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-6 text-center shadow-sm ring-1 ring-foreground/10 sm:p-8">
+        <div className="rounded-2xl border-primary/20 bg-card p-6 text-center shadow-sm ring-1 ring-foreground/10 sm:p-8">
           <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-background/70 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10">
             <img src="/compass.svg" alt="" className="size-12 rounded-xl" />
           </div>

@@ -250,7 +250,7 @@ function NutritionPage() {
         {/* Header + date nav */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Nutrition</div>
+            <div className="text-xs tracking-tight text-muted-foreground">Nutrition</div>
             <div className="text-balance text-3xl font-semibold tracking-tighter">{dateLabel}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
@@ -393,7 +393,7 @@ function NutritionPage() {
         </Card>
 
         {/* Add food */}
-        <Card className="mb-6 border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+        <Card className="mb-6 border-primary/20 bg-card shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -472,7 +472,7 @@ function NutritionPage() {
                             {m.estimateConfidence && (
                               <Badge
                                 variant="secondary"
-                                className="text-[10px] uppercase tracking-wide text-muted-foreground"
+                                className="text-[10px] text-muted-foreground"
                               >
                                 {m.estimateConfidence}
                               </Badge>
@@ -642,13 +642,7 @@ function MacroTile({
   hero?: boolean;
 }) {
   return (
-    <Card
-      className={
-        hero
-          ? "border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm"
-          : undefined
-      }
-    >
+    <Card className={hero ? "border-primary/20 bg-card shadow-sm" : undefined}>
       <CardContent className="pt-4">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}

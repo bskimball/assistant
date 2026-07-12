@@ -520,7 +520,7 @@ function ChatPage() {
         {/* Header — eyebrow + title, consistent with the other pages */}
         <div className="flex items-end justify-between gap-3 pb-4">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">Coach</div>
+            <div className="text-xs tracking-tight text-muted-foreground">Coach</div>
             <h1 className="text-3xl font-semibold tracking-tighter">Chat</h1>
           </div>
 
@@ -612,7 +612,7 @@ function ChatPage() {
                 }`}
               >
                 {empty ? (
-                  <div className="mt-6 rounded-2xl border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-6 text-center shadow-sm">
+                  <div className="mt-6 rounded-2xl border border-primary/20 bg-card p-6 text-center shadow-sm">
                     <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       <Sparkles className="size-6" />
                     </div>

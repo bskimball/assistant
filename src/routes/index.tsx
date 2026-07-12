@@ -802,9 +802,7 @@ function UnifiedDailyDashboard() {
         {/* Top nav + date */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs uppercase tracking-[2px] text-muted-foreground">
-              Daily Dashboard
-            </div>
+            <div className="text-xs tracking-tight text-muted-foreground">Daily Dashboard</div>
             <div className="text-balance text-3xl font-semibold tracking-tighter">
               How am I doing?
             </div>
@@ -879,7 +877,7 @@ function UnifiedDailyDashboard() {
               {!isToday && (
                 <Badge
                   variant="secondary"
-                  className="gap-1 rounded-full text-[10px] uppercase tracking-wide text-muted-foreground"
+                  className="gap-1 rounded-full text-[10px] text-muted-foreground"
                 >
                   <Lock className="size-2.5" /> Read-only
                 </Badge>
@@ -890,12 +888,7 @@ function UnifiedDailyDashboard() {
 
         {/* Primary Headline: rings + synthesis */}
         <Reveal>
-          <div className="relative mb-6 overflow-hidden rounded-2xl border border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-5 shadow-sm">
-            {/* Dot-grid texture, faded from the corner so it reads as paper, not noise */}
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,var(--muted-foreground)_1px,transparent_1.5px)] bg-size-[8px_8px] opacity-25 [mask-image:radial-gradient(320px_circle_at_top_right,black,transparent)]"
-            />
+          <div className="aurora-hero relative mb-6 overflow-hidden rounded-2xl border border-border p-5 shadow-sm">
             <div className="relative flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
               <div className="flex items-center gap-6">
                 <ProgressRing
@@ -940,7 +933,7 @@ function UnifiedDailyDashboard() {
             </div>
 
             {(voiceStatus || isVoiceProcessing) && (
-              <div className="relative mt-3 text-center text-[10px] uppercase tracking-[1px] text-muted-foreground/70">
+              <div className="relative mt-3 text-center text-[10px] text-muted-foreground/70">
                 {voiceStatus}
               </div>
             )}
@@ -1003,7 +996,7 @@ function UnifiedDailyDashboard() {
 
         {/* AI COACH SUGGESTIONS */}
         <Reveal delay={revealDelay(1)}>
-          <Card className="mb-6 overflow-hidden border-indigo-500/20 bg-linear-to-br from-indigo-500/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
@@ -1094,7 +1087,7 @@ function UnifiedDailyDashboard() {
 
         {/* WORKOUT SUGGESTION */}
         <Reveal delay={revealDelay(2)}>
-          <Card className="mb-6 overflow-hidden border-emerald-500/20 bg-linear-to-br from-emerald-500/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
@@ -1150,7 +1143,7 @@ function UnifiedDailyDashboard() {
 
         {/* FOCUS & TASKS */}
         <Reveal delay={revealDelay(3)}>
-          <Card className="mb-6 overflow-hidden border-primary/20 bg-linear-to-br from-primary/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
@@ -1226,7 +1219,7 @@ function UnifiedDailyDashboard() {
 
         {/* NUTRITION */}
         <Reveal delay={revealDelay(4)}>
-          <Card className="mb-6 overflow-hidden border-amber-500/20 bg-linear-to-br from-amber-500/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
@@ -1345,9 +1338,7 @@ function UnifiedDailyDashboard() {
 
               {(nutrition?.mealLogs?.length ?? 0) > 0 && (
                 <div className="mt-3">
-                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Recent logs
-                  </div>
+                  <div className="mb-1 text-[10px] text-muted-foreground">Recent logs</div>
                   <ul className="space-y-1 text-sm">
                     {nutrition!.mealLogs
                       .filter((m) => !m.deletedAt)
@@ -1442,7 +1433,7 @@ function UnifiedDailyDashboard() {
 
         {/* FINANCE — first-class snapshot */}
         <Reveal delay={revealDelay(5)}>
-          <Card className="mb-6 overflow-hidden border-green-500/20 bg-linear-to-br from-green-500/8 via-card to-card shadow-sm">
+          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <Link
@@ -1457,9 +1448,7 @@ function UnifiedDailyDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Net worth
-              </div>
+              <div className="text-[10px] text-muted-foreground">Net worth</div>
               <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                 <div className="rounded bg-muted px-2 py-1">
                   <div className="text-muted-foreground">Cash flow (mo)</div>

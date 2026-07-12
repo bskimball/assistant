@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap");
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -55,86 +55,88 @@
   --container-page: 64rem;
 }
 
-/* Jewel palette — light mode on a warm TAUPE ground.
-   Primary Navy (complement to taupe). Domain hues live in --chart-*. */
+/* Compass v2 — cool near-white ground, one indigo brand family, single
+   cyan-teal accent. Same hue family as dark mode (no brand flip). Domain
+   hues live in --chart-* and are used semantically only. */
 :root {
-  --background: oklch(0.965 0.006 75); /* taupe 50 */
-  --foreground: oklch(0.24 0.012 60);
-  --card: oklch(0.992 0.003 75);
-  --card-foreground: oklch(0.24 0.012 60);
-  --popover: oklch(0.992 0.003 75);
-  --popover-foreground: oklch(0.24 0.012 60);
-  --primary: oklch(0.42 0.15 258); /* deep navy, complement to warm taupe */
-  --primary-foreground: oklch(0.99 0.005 75);
-  --secondary: oklch(0.93 0.006 75); /* calm taupe surface */
-  --secondary-foreground: oklch(0.24 0.012 60);
-  --muted: oklch(0.935 0.005 75);
-  --muted-foreground: oklch(0.52 0.012 65);
-  --accent: oklch(0.93 0.03 258); /* soft navy tint */
-  --accent-foreground: oklch(0.3 0.12 258);
-  --destructive: oklch(0.55 0.2 28); /* orange-red */
-  --destructive-foreground: oklch(0.99 0.005 75);
-  --border: oklch(0.9 0.006 75);
-  --input: oklch(0.9 0.006 75);
-  --ring: oklch(0.42 0.15 258);
+  --background: oklch(0.985 0.003 255); /* cool near-white */
+  --foreground: oklch(0.22 0.02 262);
+  --card: oklch(0.998 0.002 255);
+  --card-foreground: oklch(0.22 0.02 262);
+  --popover: oklch(0.998 0.002 255);
+  --popover-foreground: oklch(0.22 0.02 262);
+  --primary: oklch(0.48 0.15 262); /* deep indigo brand */
+  --primary-foreground: oklch(0.99 0.005 255);
+  --secondary: oklch(0.955 0.004 255);
+  --secondary-foreground: oklch(0.26 0.02 262);
+  --muted: oklch(0.955 0.004 255);
+  --muted-foreground: oklch(0.52 0.02 260);
+  --accent: oklch(0.92 0.05 205); /* pale cyan wash */
+  --accent-foreground: oklch(0.42 0.1 220);
+  --destructive: oklch(0.58 0.2 25);
+  --destructive-foreground: oklch(0.99 0.005 255);
+  --border: oklch(0.915 0.005 258);
+  --input: oklch(0.915 0.005 258);
+  --ring: oklch(0.68 0.13 196); /* cyan-teal accent / focus */
   --radius: 0.625rem;
   --ledger-done: oklch(0.62 0.14 160); /* success green */
-  /* Per-domain hues: rose / emerald / amber / indigo / violet */
-  --chart-1: oklch(0.62 0.21 13);
-  --chart-2: oklch(0.7 0.15 165);
-  --chart-3: oklch(0.8 0.15 80);
-  --chart-4: oklch(0.55 0.2 268);
-  --chart-5: oklch(0.62 0.2 300);
-  --sidebar: oklch(0.965 0.006 75);
-  --sidebar-foreground: oklch(0.24 0.012 60);
-  --sidebar-primary: oklch(0.42 0.15 258);
-  --sidebar-primary-foreground: oklch(0.99 0.005 75);
-  --sidebar-accent: oklch(0.935 0.005 75);
-  --sidebar-accent-foreground: oklch(0.24 0.012 60);
-  --sidebar-border: oklch(0.9 0.006 75);
-  --sidebar-ring: oklch(0.42 0.15 258);
+  /* Domain / data hues: rose / emerald / amber / indigo / ultraviolet */
+  --chart-1: oklch(0.62 0.21 15);
+  --chart-2: oklch(0.68 0.15 165);
+  --chart-3: oklch(0.78 0.15 78);
+  --chart-4: oklch(0.55 0.18 262);
+  --chart-5: oklch(0.58 0.19 300);
+  --sidebar: oklch(0.985 0.003 255);
+  --sidebar-foreground: oklch(0.22 0.02 262);
+  --sidebar-primary: oklch(0.48 0.15 262);
+  --sidebar-primary-foreground: oklch(0.99 0.005 255);
+  --sidebar-accent: oklch(0.955 0.004 255);
+  --sidebar-accent-foreground: oklch(0.26 0.02 262);
+  --sidebar-border: oklch(0.915 0.005 258);
+  --sidebar-ring: oklch(0.68 0.13 196);
 
-  /* Fonts — modernized to an all-sans system */
-  --font-display: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  /* Fonts — Space Grotesk display, Inter body (tabular figures) */
+  --font-display: "Space Grotesk", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Jewel palette — dark mode on a cool MIST ground (deep blue-slate).
-   Rose lifts for contrast; indigo/amber/emerald domain hues stay vivid. */
+/* Compass v2 — near-black indigo "space age" ground. Same brand family as
+   light (no rose flip); primary lifts to bright indigo, accent is electric
+   cyan-teal. */
 .dark {
-  --background: oklch(0.175 0.024 264); /* mist 950 */
-  --foreground: oklch(0.96 0.008 250);
-  --card: oklch(0.215 0.025 264); /* mist 900 */
-  --card-foreground: oklch(0.96 0.008 250);
-  --popover: oklch(0.215 0.025 264);
-  --popover-foreground: oklch(0.96 0.008 250);
-  --primary: oklch(0.63 0.21 14); /* rose, lifted for dark */
-  --primary-foreground: oklch(0.99 0.01 14);
-  --secondary: oklch(0.27 0.022 264);
-  --secondary-foreground: oklch(0.95 0.008 250);
-  --muted: oklch(0.255 0.022 264);
-  --muted-foreground: oklch(0.7 0.015 255);
-  --accent: oklch(0.32 0.05 8); /* rose tint on mist */
-  --accent-foreground: oklch(0.95 0.008 250);
-  --destructive: oklch(0.62 0.2 28);
-  --destructive-foreground: oklch(0.99 0.005 75);
-  --border: oklch(0.3 0.022 264);
-  --input: oklch(0.3 0.022 264);
-  --ring: oklch(0.63 0.21 14);
+  --background: oklch(0.155 0.022 264); /* near-black indigo */
+  --foreground: oklch(0.95 0.006 250);
+  --card: oklch(0.225 0.026 264);
+  --card-foreground: oklch(0.95 0.006 250);
+  --popover: oklch(0.225 0.026 264);
+  --popover-foreground: oklch(0.95 0.006 250);
+  --primary: oklch(0.62 0.16 262); /* bright indigo */
+  --primary-foreground: oklch(0.14 0.02 264);
+  --secondary: oklch(0.25 0.022 264);
+  --secondary-foreground: oklch(0.94 0.006 250);
+  --muted: oklch(0.24 0.02 264);
+  --muted-foreground: oklch(0.74 0.02 258);
+  --accent: oklch(0.3 0.06 205); /* cyan tint on indigo */
+  --accent-foreground: oklch(0.9 0.06 200);
+  --destructive: oklch(0.64 0.2 25);
+  --destructive-foreground: oklch(0.99 0.005 255);
+  --border: oklch(0.33 0.022 264);
+  --input: oklch(0.33 0.022 264);
+  --ring: oklch(0.74 0.14 196); /* electric cyan-teal accent / focus */
   --ledger-done: oklch(0.7 0.13 162); /* success green */
-  --chart-1: oklch(0.66 0.2 14);
+  --chart-1: oklch(0.66 0.2 15);
   --chart-2: oklch(0.74 0.14 165);
   --chart-3: oklch(0.82 0.14 82);
-  --chart-4: oklch(0.66 0.18 268);
+  --chart-4: oklch(0.66 0.16 262);
   --chart-5: oklch(0.7 0.18 300);
-  --sidebar: oklch(0.175 0.024 264);
-  --sidebar-foreground: oklch(0.96 0.008 250);
-  --sidebar-primary: oklch(0.63 0.21 14);
-  --sidebar-primary-foreground: oklch(0.99 0.01 14);
-  --sidebar-accent: oklch(0.255 0.022 264);
-  --sidebar-accent-foreground: oklch(0.95 0.008 250);
-  --sidebar-border: oklch(0.3 0.022 264);
-  --sidebar-ring: oklch(0.63 0.21 14);
+  --sidebar: oklch(0.16 0.022 264);
+  --sidebar-foreground: oklch(0.95 0.006 250);
+  --sidebar-primary: oklch(0.62 0.16 262);
+  --sidebar-primary-foreground: oklch(0.14 0.02 264);
+  --sidebar-accent: oklch(0.24 0.02 264);
+  --sidebar-accent-foreground: oklch(0.94 0.006 250);
+  --sidebar-border: oklch(0.29 0.02 264);
+  --sidebar-ring: oklch(0.74 0.14 196);
 }
 
 @layer base {
@@ -210,6 +212,30 @@
   to {
     transform: translateX(250%);
   }
+}
+
+/* Signature aurora glow — used on the dashboard hero card ONLY. Cyan-teal
+   core + indigo undertone over the card surface, with a faint grain overlay
+   to stop the gradient banding on wide displays. */
+.aurora-hero {
+  position: relative;
+  background:
+    radial-gradient(140% 120% at 85% 0%, oklch(0.74 0.14 196 / 0.12), transparent 55%),
+    radial-gradient(120% 120% at 0% 100%, oklch(0.55 0.18 262 / 0.1), transparent 50%), var(--card);
+}
+.dark .aurora-hero {
+  background:
+    radial-gradient(140% 120% at 85% 0%, oklch(0.74 0.14 196 / 0.22), transparent 55%),
+    radial-gradient(120% 120% at 0% 100%, oklch(0.55 0.18 262 / 0.18), transparent 50%), var(--card);
+}
+.aurora-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Typography hierarchy — modernized all-sans, flat surfaces */

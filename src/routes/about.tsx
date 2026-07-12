@@ -74,8 +74,8 @@ function About() {
     <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         {/* Hero */}
-        <div className="mb-8 rounded-2xl border-primary/20 bg-linear-to-br from-primary/8 via-card to-card p-6 shadow-sm ring-1 ring-foreground/10 sm:p-8">
-          <div className="text-xs uppercase tracking-[2px] text-muted-foreground">About</div>
+        <div className="mb-8 rounded-2xl border-primary/20 bg-card p-6 shadow-sm ring-1 ring-foreground/10 sm:p-8">
+          <div className="text-xs tracking-tight text-muted-foreground">About</div>
           <h1 className="mt-1 text-balance text-3xl font-semibold tracking-tighter sm:text-4xl">
             Your personal life-improvement assistant
           </h1>
@@ -107,9 +107,7 @@ function About() {
         </div>
 
         {/* Pillars */}
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          What it helps with
-        </h2>
+        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">What it helps with</h2>
         <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {PILLARS.map(({ Icon, title, body }) => (
             <Card
@@ -132,9 +130,7 @@ function About() {
         </div>
 
         {/* Principles */}
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          How it works
-        </h2>
+        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">How it works</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {PRINCIPLES.map(({ Icon, title, body }) => (
             <div
