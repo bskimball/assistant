@@ -187,6 +187,11 @@ export const saveBudget = createServerFn({ method: "POST" })
         monthlyTakeHome: number;
         targets: { needs: number; wants: number; savings: number };
         categoryLimits?: Record<string, number>;
+        paySchedule?: {
+          cadence: "monthly" | "semimonthly" | "biweekly" | "weekly";
+          anchorDate?: string;
+          payDays?: number[];
+        };
       };
     }) => data,
   )

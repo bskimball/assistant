@@ -1,7 +1,7 @@
 import { GroupPicker, MonthNav } from "@/components/finance/shared";
 import { fmtMoney } from "@/components/finance/shared";
 import type { FinanceTabProps } from "@/components/finance/shared";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Upload, RefreshCw, Check, Pencil, ListChecks, Receipt } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,10 +70,23 @@ const INSTITUTIONS = ["Bank of America", "M&T Bank", "Capital One", "Robinhood",
 
 export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { month: string }) {
   const [takeHome, setTakeHome] = useState(moneyInputValue(hub.budget?.monthlyTakeHome));
+  const [cadence, setCadence] = useState<
+    "monthly" | "semimonthly" | "biweekly" | "weekly" | "none"
+  >(hub.budget?.paySchedule?.cadence ?? "none");
+  const [anchorDate, setAnchorDate] = useState(hub.budget?.paySchedule?.anchorDate ?? "");
+  const [payDaysRaw, setPayDaysRaw] = useState(hub.budget?.paySchedule?.payDays?.join(", ") ?? "");
   const [busy, setBusy] = useState(false);
   const [showAllInsightLines, setShowAllInsightLines] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [institution, setInstitution] = useState(INSTITUTIONS[0]);
+
+  useEffect(() => {
+    setTakeHome(moneyInputValue(hub.budget?.monthlyTakeHome));
+    setCadence(hub.budget?.paySchedule?.cadence ?? "none");
+    setAnchorDate(hub.budget?.paySchedule?.anchorDate ?? "");
+    setPayDaysRaw(hub.budget?.paySchedule?.payDays?.join(", ") ?? "");
+  }, [hub.budget]);
+
   // Which month the plan + expense sorter show. Defaults to the current month;
   // the arrows in the header let the user step back to months that actually have
   // imported statements. Next is capped at the current month (no future).
@@ -213,23 +226,40 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     })
     .filter((g) => g.items.length > 0);
 
-  async function saveTakeHome() {
+  async function saveBudgetSettings() {
     const v = Number(takeHome);
     if (!Number.isFinite(v) || v <= 0) return;
     setBusy(true);
     try {
+      const payDays = payDaysRaw
+        ? payDaysRaw
+            .split(",")
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => Number.isInteger(n) && n >= 1 && n <= 31)
+        : undefined;
+
       await saveBudget({
         data: {
           budget: {
             monthlyTakeHome: v,
             targets: hub.budget?.targets ?? { ...DEFAULT_BUDGET_TARGETS },
             categoryLimits: hub.budget?.categoryLimits,
+            paySchedule:
+              cadence === "none"
+                ? undefined
+                : {
+                    cadence,
+                    anchorDate: anchorDate || undefined,
+                    payDays: payDays && payDays.length > 0 ? payDays : undefined,
+                  },
           },
         },
       });
-      setTakeHome(moneyInputValue(v));
       await onChange();
-      flash("Budget saved.");
+      flash("Budget settings saved.");
+    } catch (err) {
+      console.error(err);
+      flash("Failed to save budget settings.");
     } finally {
       setBusy(false);
     }
@@ -303,14 +333,20 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button type="button" variant="ghost" size="sm" className="gap-1.5">
-                      <Pencil className="size-3.5" /> Edit take-home
+                      <Pencil className="size-3.5" /> Edit budget settings
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="w-72">
-                    <TakeHomeEditor
-                      value={takeHome}
-                      onChange={setTakeHome}
-                      onSave={saveTakeHome}
+                  <PopoverContent align="end" className="w-80">
+                    <BudgetSettingsEditor
+                      monthlyTakeHome={takeHome}
+                      setMonthlyTakeHome={setTakeHome}
+                      cadence={cadence}
+                      setCadence={setCadence}
+                      anchorDate={anchorDate}
+                      setAnchorDate={setAnchorDate}
+                      payDaysRaw={payDaysRaw}
+                      setPayDaysRaw={setPayDaysRaw}
+                      onSave={saveBudgetSettings}
                       busy={busy}
                     />
                   </PopoverContent>
@@ -333,7 +369,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                   <Button
                     type="button"
                     size="sm"
-                    onClick={saveTakeHome}
+                    onClick={saveBudgetSettings}
                     disabled={busy || !takeHome}
                     className="gap-1 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
                   >
@@ -725,43 +761,139 @@ function BudgetBreakdownDialog({
   );
 }
 
-function TakeHomeEditor({
-  value,
-  onChange,
+function BudgetSettingsEditor({
+  monthlyTakeHome,
+  setMonthlyTakeHome,
+  cadence,
+  setCadence,
+  anchorDate,
+  setAnchorDate,
+  payDaysRaw,
+  setPayDaysRaw,
   onSave,
   busy,
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  monthlyTakeHome: string;
+  setMonthlyTakeHome: (v: string) => void;
+  cadence: "monthly" | "semimonthly" | "biweekly" | "weekly" | "none";
+  setCadence: (v: "monthly" | "semimonthly" | "biweekly" | "weekly" | "none") => void;
+  anchorDate: string;
+  setAnchorDate: (v: string) => void;
+  payDaysRaw: string;
+  setPayDaysRaw: (v: string) => void;
   onSave: () => void;
   busy: boolean;
 }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor="th-popover" className="text-xs">
-        After-tax pay per month
-      </Label>
-      <div className="flex items-center gap-2">
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label htmlFor="take-home" className="text-xs font-medium">
+          Monthly Take-home Pay
+        </Label>
         <Input
-          id="th-popover"
+          id="take-home"
           type="number"
           step="0.01"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Take-home"
+          value={monthlyTakeHome}
+          onChange={(e) => setMonthlyTakeHome(e.target.value)}
+          placeholder="e.g. 5000"
           className="tabular-nums"
           disabled={busy}
         />
-        <Button
-          type="button"
-          size="sm"
-          onClick={onSave}
-          disabled={busy || !value}
-          className="gap-1"
-        >
-          <Check className="size-3.5" /> Save
-        </Button>
       </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="pay-cadence" className="text-xs font-medium">
+          Payday Frequency
+        </Label>
+        <Select
+          value={cadence}
+          onValueChange={(val) =>
+            setCadence(val as "monthly" | "semimonthly" | "biweekly" | "weekly" | "none")
+          }
+          disabled={busy}
+        >
+          <SelectTrigger id="pay-cadence" className="w-full">
+            <SelectValue placeholder="Select frequency" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Default (1st of month)</SelectItem>
+            <SelectItem value="monthly">Monthly</SelectItem>
+            <SelectItem value="semimonthly">Semimonthly</SelectItem>
+            <SelectItem value="biweekly">Biweekly</SelectItem>
+            <SelectItem value="weekly">Weekly</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {cadence !== "none" && (
+        <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
+          {(cadence === "weekly" || cadence === "biweekly") && (
+            <div className="space-y-1.5">
+              <Label htmlFor="anchor-date" className="text-xs font-medium">
+                Anchor Payday (First weekly/biweekly date)
+              </Label>
+              <Input
+                id="anchor-date"
+                type="date"
+                value={anchorDate}
+                onChange={(e) => setAnchorDate(e.target.value)}
+                className="w-full"
+                disabled={busy}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Projections roll forward in increments from this date.
+              </p>
+            </div>
+          )}
+
+          {(cadence === "monthly" || cadence === "semimonthly") && (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="pay-days" className="text-xs font-medium">
+                  Payday Numbers (Comma-separated days)
+                </Label>
+                <Input
+                  id="pay-days"
+                  type="text"
+                  value={payDaysRaw}
+                  onChange={(e) => setPayDaysRaw(e.target.value)}
+                  placeholder={cadence === "semimonthly" ? "1, 15" : "1"}
+                  className="w-full"
+                  disabled={busy}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Days of the month when you are paid, separated by commas (e.g. 15, 30).
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="fallback-anchor" className="text-xs font-medium">
+                  Fallback Anchor Date (Optional)
+                </Label>
+                <Input
+                  id="fallback-anchor"
+                  type="date"
+                  value={anchorDate}
+                  onChange={(e) => setAnchorDate(e.target.value)}
+                  className="w-full"
+                  disabled={busy}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <Button
+        type="button"
+        className="w-full gap-1.5"
+        onClick={onSave}
+        disabled={busy || !monthlyTakeHome}
+      >
+        {busy ? <RefreshCw className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+        Save Settings
+      </Button>
     </div>
   );
 }
