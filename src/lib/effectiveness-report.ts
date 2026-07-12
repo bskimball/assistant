@@ -7,6 +7,7 @@ export interface EffectivenessBreakdown {
   accepted: number;
   completed: number;
   dismissed: number;
+  snoozed: number;
   helpfulYes: number;
   helpfulNo: number;
   completionRate: number;
@@ -26,6 +27,7 @@ function emptyBreakdown(): EffectivenessBreakdown {
     accepted: 0,
     completed: 0,
     dismissed: 0,
+    snoozed: 0,
     helpfulYes: 0,
     helpfulNo: 0,
     completionRate: 0,

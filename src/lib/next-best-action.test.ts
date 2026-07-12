@@ -27,4 +27,12 @@ describe("selectNextBestAction", () => {
   it("falls back deterministically", () => {
     expect(selectNextBestAction({})).toMatchObject({ domain: "general", href: "/weekly" });
   });
+
+  it("surfaces an overdue reason when the top task is past due", () => {
+    expect(
+      selectNextBestAction({
+        incompleteTopTask: { title: "Pay the bill", overdue: true },
+      }).reason,
+    ).toMatch(/overdue/i);
+  });
 });

@@ -216,7 +216,11 @@ function UnifiedDailyDashboard() {
   const [checkInRating, setCheckInRating] = useState(3);
   const [checkInWin, setCheckInWin] = useState("");
   const [checkInFriction, setCheckInFriction] = useState("");
+  const [checkInNote, setCheckInNote] = useState("");
   const [checkInSaving, setCheckInSaving] = useState(false);
+  const [suggestionFeedback, setSuggestionFeedback] = useState<
+    Record<string, "helpful" | "not-helpful" | "dismissed" | "snoozed">
+  >({});
 
   // Finance quick-add
   const [acctName, setAcctName] = useState("");
@@ -279,7 +283,16 @@ function UnifiedDailyDashboard() {
   const orderedTopTask = dailyPlan?.topTaskIds
     .map((id) => activeTasks.find((task) => task.id === id))
     .find(Boolean);
+  const overdueTasks = activeTasks
+    .filter((task) => !!task.due && task.due < selectedDate)
+    .sort(
+      (a, b) =>
+        (a.due || "").localeCompare(b.due || "") ||
+        (a.priority ?? 4) - (b.priority ?? 4) ||
+        a.createdAt - b.createdAt,
+    );
   const topTask =
+    overdueTasks[0] ??
     orderedTopTask ??
     [...activeTasks].sort(
       (a, b) => (a.priority ?? 4) - (b.priority ?? 4) || a.createdAt - b.createdAt,
@@ -289,7 +302,12 @@ function UnifiedDailyDashboard() {
     (session) => session.performedAt >= selectedDayStart && session.performedAt <= selectedDayEnd,
   );
   const nextBestAction = selectNextBestAction({
-    incompleteTopTask: topTask ? { title: topTask.text, overdue: false } : undefined,
+    incompleteTopTask: topTask
+      ? {
+          title: topTask.text,
+          overdue: !!topTask.due && topTask.due < selectedDate,
+        }
+      : undefined,
     plannedWorkoutIncomplete: !!todaysPlannedWorkout && !workoutCompletedToday,
     plannedWorkoutTitle: todaysPlannedWorkout?.title,
     hourLocal: isToday ? new Date().getHours() : 0,
@@ -406,7 +424,10 @@ function UnifiedDailyDashboard() {
     await persistTasks(selectedDate);
   }
 
-  async function recordNextBestActionOutcome(status: "completed" | "dismissed") {
+  async function recordNextBestActionOutcome(
+    status: "completed" | "dismissed" | "snoozed",
+    helpful?: boolean,
+  ) {
     if (!isToday || hiddenNextBestActionDate === selectedDate) return;
     setSyncing(true);
     try {
@@ -417,11 +438,52 @@ function UnifiedDailyDashboard() {
           source: "next-best-action",
           text: nextBestActionText,
           status,
+          helpful,
         },
       });
       setHiddenNextBestActionDate(selectedDate);
     } catch (e) {
       console.error("[dashboard] next-best-action outcome failed", e);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function recordCoachSuggestionOutcome(
+    text: string,
+    status: "dismissed" | "snoozed" | "completed",
+    helpful?: boolean,
+  ) {
+    if (!isToday || !text.trim()) return;
+    const id = stableRecommendationId(selectedDate, "coach-daily", text);
+    const feedbackKey: "helpful" | "not-helpful" | "dismissed" | "snoozed" =
+      helpful === true
+        ? "helpful"
+        : helpful === false
+          ? "not-helpful"
+          : status === "snoozed"
+            ? "snoozed"
+            : "dismissed";
+    setSuggestionFeedback((prev) => ({ ...prev, [id]: feedbackKey }));
+    setSyncing(true);
+    try {
+      await recordRecommendationOutcome({
+        data: {
+          id,
+          date: selectedDate,
+          source: "coach-daily",
+          text,
+          status,
+          helpful,
+        },
+      });
+    } catch (e) {
+      console.error("[dashboard] coach suggestion outcome failed", e);
+      setSuggestionFeedback((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     } finally {
       setSyncing(false);
     }
@@ -866,6 +928,7 @@ function UnifiedDailyDashboard() {
     setCheckInRating(checkIn.dayRating);
     setCheckInWin(checkIn.win ?? "");
     setCheckInFriction(checkIn.friction ?? "");
+    setCheckInNote(checkIn.note ?? "");
   }, [dailyPlan?.eveningCheckIn]);
 
   async function submitEveningCheckIn() {
@@ -886,6 +949,7 @@ function UnifiedDailyDashboard() {
             dayRating: checkInRating as 1 | 2 | 3 | 4 | 5,
             win: checkInWin.trim() || undefined,
             friction: checkInFriction.trim() || undefined,
+            note: checkInNote.trim() || undefined,
             completedAt: Date.now(),
           },
         },
@@ -1003,11 +1067,19 @@ function UnifiedDailyDashboard() {
                   <div className="mt-1 font-semibold">{nextBestAction.title}</div>
                   <p className="mt-1 text-sm text-muted-foreground">{nextBestAction.reason}</p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => recordNextBestActionOutcome("dismissed")}
+                    onClick={() => recordNextBestActionOutcome("snoozed")}
+                    disabled={syncing}
+                  >
+                    Later
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => recordNextBestActionOutcome("dismissed", false)}
                     disabled={syncing}
                   >
                     Skip
@@ -1015,7 +1087,7 @@ function UnifiedDailyDashboard() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => recordNextBestActionOutcome("completed")}
+                    onClick={() => recordNextBestActionOutcome("completed", true)}
                     disabled={syncing}
                   >
                     Done
@@ -1162,6 +1234,12 @@ function UnifiedDailyDashboard() {
                 <ul className="space-y-2">
                   {coaching.suggestions.map((s, i) => {
                     const Icon = DOMAIN_ICON[s.domain] || Brain;
+                    const suggestionId = stableRecommendationId(
+                      selectedDate,
+                      "coach-daily",
+                      s.text,
+                    );
+                    const feedback = suggestionFeedback[suggestionId];
                     return (
                       <Reveal
                         as="li"
@@ -1172,12 +1250,72 @@ function UnifiedDailyDashboard() {
                         <Icon
                           className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-indigo-500"}`}
                         />
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <span>{s.text}</span>
                           {s.action && isToday && (
                             <span className="ml-1 text-xs text-muted-foreground">
                               — try “{s.action.trim()}”
                             </span>
+                          )}
+                          {isToday && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {feedback ? (
+                                <span className="text-[10px] text-muted-foreground">
+                                  {feedback === "helpful"
+                                    ? "Marked helpful"
+                                    : feedback === "not-helpful"
+                                      ? "Marked not helpful"
+                                      : feedback === "snoozed"
+                                        ? "Snoozed"
+                                        : "Dismissed"}
+                                </span>
+                              ) : (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px]"
+                                    disabled={syncing}
+                                    onClick={() =>
+                                      recordCoachSuggestionOutcome(s.text, "completed", true)
+                                    }
+                                  >
+                                    Helpful
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px]"
+                                    disabled={syncing}
+                                    onClick={() =>
+                                      recordCoachSuggestionOutcome(s.text, "dismissed", false)
+                                    }
+                                  >
+                                    Not helpful
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px]"
+                                    disabled={syncing}
+                                    onClick={() => recordCoachSuggestionOutcome(s.text, "snoozed")}
+                                  >
+                                    Later
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[11px]"
+                                    disabled={syncing}
+                                    onClick={() =>
+                                      recordCoachSuggestionOutcome(s.text, "dismissed")
+                                    }
+                                  >
+                                    Dismiss
+                                  </Button>
+                                </>
+                              )}
+                            </div>
                           )}
                         </div>
                       </Reveal>
@@ -1850,6 +1988,14 @@ function UnifiedDailyDashboard() {
                       value={checkInFriction}
                       onChange={(e) => setCheckInFriction(e.target.value)}
                       placeholder="What got in the way?"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm sm:col-span-2">
+                    <span>Optional note</span>
+                    <Input
+                      value={checkInNote}
+                      onChange={(e) => setCheckInNote(e.target.value)}
+                      placeholder="Anything else worth remembering?"
                     />
                   </label>
                 </div>

@@ -9,6 +9,12 @@ import {
   mlToFlOz,
   todayISO,
 } from "@/lib/domain";
+import {
+  isAvoidedRecommendation,
+  recommendationLearningBlock,
+  summarizeRecommendationLearning,
+  type RecommendationLearning,
+} from "@/lib/recommendation-learning";
 import { stableRecommendationId } from "@/lib/recommendation-id";
 import {
   loadCoachMemoriesImpl,
@@ -24,7 +30,10 @@ import {
   saveProductivityTasksForDayImpl,
 } from "@/server/domain-impl";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
-import { recordRecommendationOutcomeImpl } from "@/server/recommendation-outcomes-impl";
+import {
+  loadRecommendationOutcomesImpl,
+  recordRecommendationOutcomeImpl,
+} from "@/server/recommendation-outcomes-impl";
 import { memoriesBlock } from "@/server/context";
 import { fallbackWorkout, getOrCreateWeeklyWorkout } from "@/server/coach-workout-impl";
 
@@ -210,11 +219,47 @@ export async function collectTrend(
   };
 }
 
+function emptyLearning(): RecommendationLearning {
+  return {
+    latest: [],
+    completedTexts: [],
+    helpfulTexts: [],
+    notHelpfulTexts: [],
+    dismissedTexts: [],
+    snoozedTexts: [],
+  };
+}
+
+async function loadRecentRecommendationLearning(
+  date: ISODate,
+  days = 14,
+): Promise<RecommendationLearning> {
+  const dates: ISODate[] = [];
+  for (let i = 0; i < days; i++) dates.push(addDaysISO(date, -i));
+  try {
+    const outcomes = await loadRecommendationOutcomesImpl(dates);
+    return summarizeRecommendationLearning(outcomes);
+  } catch (e) {
+    console.warn("[coach] failed to load recommendation outcomes", e);
+    return emptyLearning();
+  }
+}
+
+function pushSuggestion(
+  suggestions: CoachSuggestion[],
+  suggestion: CoachSuggestion,
+  learning: RecommendationLearning,
+) {
+  if (isAvoidedRecommendation(suggestion.text, learning)) return;
+  suggestions.push(suggestion);
+}
+
 function fallbackCoaching(
   signals: DaySignals,
   profile: UserProfile,
   trend: TrendSignals,
   plannedWorkout?: WorkoutSuggestion,
+  learning: RecommendationLearning = emptyLearning(),
 ): CoachingResult {
   const suggestions: CoachSuggestion[] = [];
   const waterTarget = profile.waterTargetMl ?? 2500;
@@ -223,48 +268,76 @@ function fallbackCoaching(
 
   // FOCUS / PRODUCTIVITY
   if (signals.tasksTotal === 0) {
-    suggestions.push({
-      domain: "focus",
-      text: "No tasks yet today — name your top 3 outcomes so the day has direction.",
-      action: "add task ",
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "focus",
+        text: "No tasks yet today — name your top 3 outcomes so the day has direction.",
+        action: "add task ",
+      },
+      learning,
+    );
   } else if (signals.tasksDone === 0) {
-    suggestions.push({
-      domain: "focus",
-      text: `You have ${signals.tasksTotal} task(s) queued. Knock out the smallest one first to build momentum.`,
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "focus",
+        text: `You have ${signals.tasksTotal} task(s) queued. Knock out the smallest one first to build momentum.`,
+      },
+      learning,
+    );
   } else if (signals.tasksDone < signals.tasksTotal) {
-    suggestions.push({
-      domain: "focus",
-      text: `${signals.tasksDone}/${signals.tasksTotal} done — protect a 25-min focus block to clear one more.`,
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "focus",
+        text: `${signals.tasksDone}/${signals.tasksTotal} done — protect a 25-min focus block to clear one more.`,
+      },
+      learning,
+    );
   } else {
-    suggestions.push({
-      domain: "focus",
-      text: "All tasks complete. Bank the win and set tomorrow’s top priority tonight.",
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "focus",
+        text: "All tasks complete. Bank the win and set tomorrow’s top priority tonight.",
+      },
+      learning,
+    );
   }
 
   // NUTRITION (trainer + dietitian)
   const proteinGap = signals.proteinTarget - signals.proteinCurrent;
   if (proteinGap > 0) {
-    suggestions.push({
-      domain: "nutrition",
-      text: `Protein is ${signals.proteinCurrent}g of ${signals.proteinTarget}g — ${proteinGap}g to go. A lean meat, Greek yogurt, or shake closes the gap.`,
-      action: "log 40g protein ",
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "nutrition",
+        text: `Protein is ${signals.proteinCurrent}g of ${signals.proteinTarget}g — ${proteinGap}g to go. A lean meat, Greek yogurt, or shake closes the gap.`,
+        action: "log 40g protein ",
+      },
+      learning,
+    );
   } else {
-    suggestions.push({
-      domain: "nutrition",
-      text: `Protein target hit (${signals.proteinCurrent}g). Keep portions steady and prioritize whole foods.`,
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "nutrition",
+        text: `Protein target hit (${signals.proteinCurrent}g). Keep portions steady and prioritize whole foods.`,
+      },
+      learning,
+    );
   }
   if (signals.waterMl < waterTarget) {
-    suggestions.push({
-      domain: "nutrition",
-      text: `Hydration at ${waterCurrentOz} fl oz — aim for ~${waterTargetOz} fl oz. Grab a glass now.`,
-      action: "add water 12 oz",
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "nutrition",
+        text: `Hydration at ${waterCurrentOz} fl oz — aim for ~${waterTargetOz} fl oz. Grab a glass now.`,
+        action: "add water 12 oz",
+      },
+      learning,
+    );
   }
 
   // FITNESS
@@ -277,18 +350,26 @@ function fallbackCoaching(
     trend.workouts < weeklyTarget
       ? `${trend.workouts}/${weeklyTarget} workouts this week — today's suggested session: ${w.title} (~${w.estimatedMinutes} min). Schedule it before the day fills up.${injuryNote}`
       : `You've hit ${trend.workouts} workouts this week. Today: ${w.title} (~${w.estimatedMinutes} min) or active recovery if you're sore.${injuryNote}`;
-  suggestions.push({
-    domain: "fitness",
-    text: fitnessText,
-    action: "add workout " + w.estimatedMinutes + " min",
-  });
+  pushSuggestion(
+    suggestions,
+    {
+      domain: "fitness",
+      text: fitnessText,
+      action: "add workout " + w.estimatedMinutes + " min",
+    },
+    learning,
+  );
 
   // FINANCE (advisor)
   if (!signals.hasFinance) {
-    suggestions.push({
-      domain: "finance",
-      text: "Add your account balances to start a net-worth baseline — you can’t improve what you don’t measure.",
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "finance",
+        text: "Add your account balances to start a net-worth baseline — you can’t improve what you don’t measure.",
+      },
+      learning,
+    );
   } else {
     const trendNote =
       trend.netWorthChange !== 0
@@ -301,18 +382,26 @@ function fallbackCoaching(
     const savingsNote = profile.monthlySavingsGoal
       ? ` Toward your $${profile.monthlySavingsGoal.toLocaleString()}/mo savings goal, automate one transfer now.`
       : " Automate one transfer to savings/investments this week and review recurring subscriptions.";
-    suggestions.push({
-      domain: "finance",
-      text: `Net worth tracked at $${signals.netWorth.toLocaleString()}.${trendNote}${cashflowNote}${savingsNote}`,
-    });
+    pushSuggestion(
+      suggestions,
+      {
+        domain: "finance",
+        text: `Net worth tracked at $${signals.netWorth.toLocaleString()}.${trendNote}${cashflowNote}${savingsNote}`,
+      },
+      learning,
+    );
   }
 
   // FAMILY / LIFE
-  suggestions.push({
-    domain: "family",
-    text: "Block 20 distraction-free minutes with family today — presence compounds more than productivity.",
-    action: "add family time 20 min",
-  });
+  pushSuggestion(
+    suggestions,
+    {
+      domain: "family",
+      text: "Block 20 distraction-free minutes with family today — presence compounds more than productivity.",
+      action: "add family time 20 min",
+    },
+    learning,
+  );
 
   // MOMENTUM (trend-aware, general)
   if (trend.activeDays >= 2) {
@@ -322,7 +411,17 @@ function fallbackCoaching(
         : trend.taskCompletionPct >= 70
           ? `Strong week — ${trend.taskCompletionPct}% task completion across ${trend.activeDays} active days. Protect what's working.`
           : `You've shown up ${trend.activeDays}/${trend.days} days. Consistency beats intensity — keep the streak alive.`;
-    suggestions.push({ domain: "general", text: momentum });
+    pushSuggestion(suggestions, { domain: "general", text: momentum }, learning);
+  }
+
+  // If learning filtered everything, still surface one constructive default.
+  if (!suggestions.length) {
+    suggestions.push({
+      domain: "general",
+      text: learning.helpfulTexts[0]
+        ? `Double down on what worked recently: ${learning.helpfulTexts[0]}`
+        : "Pick one meaningful win and protect a short focus block for it.",
+    });
   }
 
   // HEADLINE
@@ -409,16 +508,19 @@ function buildCoachPrompt(
   trend: TrendSignals,
   plannedWorkout: WorkoutSuggestion,
   memories: CoachMemory[],
+  learning: RecommendationLearning = emptyLearning(),
 ): string {
   const name = profile.displayName || "Brian";
   const waterOz = mlToFlOz(signals.waterMl) ?? 0;
   const avgWaterOz = mlToFlOz(trend.avgWaterMl) ?? 0;
   const remembered = memoriesBlock(memories);
+  const outcomeLearning = recommendationLearningBlock(learning);
   return `You are ${name}'s personal advisory board: an elite life coach, a certified strength & conditioning coach, and a CFP-level financial advisor whose mandate covers BOTH sides of the ledger: optimizing spending/saving AND growing household income through ${name}'s own monetizable skills (consulting, productized services, and passive/semi-passive income built on what he already knows). Give concise, actionable coaching for TODAY based on real data. Personalize every suggestion to the profile and the 7-day trend — never contradict injuries or dietary restrictions.
 
 User profile:
 ${profileBlock(profile)}
 ${remembered ? `\nWhat you remember about the member:\n${remembered}\n` : ""}
+${outcomeLearning ? `\nRecent recommendation outcomes (learn from these):\n${outcomeLearning}\n` : ""}
 
 Today's data (${signals.date}, weekday index ${signals.dayOfWeek} where 0=Sunday):
 - Tasks: ${signals.tasksDone}/${signals.tasksTotal} complete
@@ -465,7 +567,8 @@ Rules:
 - Be specific and encouraging. No fluff, no disclaimers.
 - Finance suggestions: alternate between two modes across days — (a) save/optimize using his actual numbers, and (b) EARN MORE. On even weekday indexes use mode (a); on odd weekday indexes use mode (b). Earn-more ideas must be built strictly from the "Monetizable skills" list in the profile: a concrete freelance/consulting offer he could pitch, a productized service, or a passive/semi-passive asset (e.g. a template, tool, course, or retainer built from those skills). Name the skill you're building on. Never suggest a generic side hustle unrelated to his listed skills, and never invent income projections you can't know. No hustle-culture tone.
 - Household framing: Brian is the client. His wife is a stay-at-home parent with her hands full raising their kids — her time is NOT spare capacity. Never propose that his wife start a business, sell products, or take on income work. If a suggestion involves her at all, it must be something they choose together, fit inside her existing constraints, and put the execution burden on Brian.
-- One earn-more idea at a time, sized as a first step he could take THIS WEEK (e.g. "draft the one-page offer", "list the automation you'd productize"), not a business plan. If a previous earn-more idea already appears in the remembered-member notes above, advance THAT idea to its next step instead of proposing a brand-new one.`;
+- One earn-more idea at a time, sized as a first step he could take THIS WEEK (e.g. "draft the one-page offer", "list the automation you'd productize"), not a business plan. If a previous earn-more idea already appears in the remembered-member notes above, advance THAT idea to its next step instead of proposing a brand-new one.
+- Learn from recent recommendation outcomes: reinforce patterns marked helpful/completed; never re-offer dismissed or not-helpful items; defer snoozed items.`;
 }
 
 async function aiCoaching(
@@ -475,6 +578,7 @@ async function aiCoaching(
   apiKey: string,
   plannedWorkout: WorkoutSuggestion,
   memories: CoachMemory[],
+  learning: RecommendationLearning = emptyLearning(),
 ): Promise<CoachingResult> {
   const parsed = await completeJSON<any>(apiKey, {
     model: await getGrokJsonModel(),
@@ -485,7 +589,7 @@ async function aiCoaching(
       },
       {
         role: "user",
-        content: buildCoachPrompt(signals, profile, trend, plannedWorkout, memories),
+        content: buildCoachPrompt(signals, profile, trend, plannedWorkout, memories, learning),
       },
     ],
     temperature: 0.5,
@@ -493,19 +597,22 @@ async function aiCoaching(
   });
 
   const workout = plannedWorkout;
-  const fbCoaching = fallbackCoaching(signals, profile, trend, plannedWorkout);
-  const suggestions: CoachSuggestion[] = Array.isArray(parsed.suggestions)
+  const fbCoaching = fallbackCoaching(signals, profile, trend, plannedWorkout, learning);
+  const rawSuggestions: CoachSuggestion[] = Array.isArray(parsed.suggestions)
     ? parsed.suggestions.slice(0, 6).map((s: any) => ({
         domain: (s.domain || "general") as CoachDomain,
         text: String(s.text || "").trim(),
         action: s.action ? String(s.action) : undefined,
       }))
     : fbCoaching.suggestions;
+  const suggestions = rawSuggestions.filter(
+    (s) => s.text && !isAvoidedRecommendation(s.text, learning),
+  );
 
   return {
     date: signals.date,
     headline: String(parsed.headline || fbCoaching.headline),
-    suggestions: suggestions.filter((s) => s.text),
+    suggestions: suggestions.length ? suggestions : fbCoaching.suggestions,
     workout,
     generatedBy: "ai",
     updatedAt: Date.now(),
@@ -529,9 +636,10 @@ export async function generateCoachingImpl(data: {
     };
   }
 
-  const [profile, memoriesStore] = await Promise.all([
+  const [profile, memoriesStore, learning] = await Promise.all([
     loadUserProfileImpl(),
     loadCoachMemoriesImpl(),
+    loadRecentRecommendationLearning(date),
   ]);
   const signals = await collectSignals(date, profile);
   const trend = await collectTrend(date, signals.proteinTarget);
@@ -548,13 +656,14 @@ export async function generateCoachingImpl(data: {
         apiKey,
         weeklyWorkout.workout,
         memoriesStore.memories,
+        learning,
       );
     } catch (e) {
       console.warn("[coach] Grok coaching failed, using fallback", e);
-      result = fallbackCoaching(signals, profile, trend, weeklyWorkout.workout);
+      result = fallbackCoaching(signals, profile, trend, weeklyWorkout.workout, learning);
     }
   } else {
-    result = fallbackCoaching(signals, profile, trend, weeklyWorkout.workout);
+    result = fallbackCoaching(signals, profile, trend, weeklyWorkout.workout, learning);
   }
 
   // Persist into the DailyPlan so reloads are free.
@@ -570,6 +679,7 @@ export async function generateCoachingImpl(data: {
       },
       voiceNoteIds: existing?.voiceNoteIds,
       notes: existing?.notes,
+      eveningCheckIn: existing?.eveningCheckIn,
       acceptedAt: existing?.acceptedAt,
       acceptedSuggestionIds: existing?.acceptedSuggestionIds,
       aiSuggestions: result.suggestions.map(
@@ -664,6 +774,7 @@ export async function acceptDailyCoachingPlanImpl(data: {
       ),
     aiCoaching: existingPlan?.aiCoaching,
     voiceNoteIds: existingPlan?.voiceNoteIds,
+    eveningCheckIn: existingPlan?.eveningCheckIn,
     notes: existingPlan?.notes,
   });
 

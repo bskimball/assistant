@@ -9,7 +9,12 @@ const SOURCES = new Set<RecommendationOutcome["source"]>([
   "coach-weekly",
   "next-best-action",
 ]);
-const STATUSES = new Set<RecommendationOutcome["status"]>(["accepted", "dismissed", "completed"]);
+const STATUSES = new Set<RecommendationOutcome["status"]>([
+  "accepted",
+  "dismissed",
+  "snoozed",
+  "completed",
+]);
 
 export type RecordRecommendationOutcomeInput = Omit<RecommendationOutcome, "recordedAt">;
 

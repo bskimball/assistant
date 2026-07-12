@@ -25,6 +25,7 @@ import {
   loadProductivityTasksForDay,
   loadWorkoutSessions,
   loadWeeklyReview,
+  recordRecommendationOutcome,
   saveProductivityTasksForDay,
   saveWeeklyReview,
 } from "@/server/domain";
@@ -38,6 +39,7 @@ import {
   toISOWeek,
   type ISODate,
 } from "@/lib/domain";
+import { stableRecommendationId } from "@/lib/recommendation-id";
 
 const weeklyDataQueryOptions = (anchor: ISODate) =>
   queryOptions({
@@ -309,19 +311,31 @@ function Weekly() {
       nextMonday.setDate(nextMonday.getDate() + 7);
       const targetDate = toISODate(nextMonday);
       const existing = await loadProductivityTasksForDay({ data: targetDate });
-      const tasks = [
-        ...(existing?.tasks || []),
-        ...lines.map((line, index) =>
-          createProductivityTask({
-            text: `Next week: ${line}`,
-            date: targetDate,
-            tags: ["weekly-review", "coach-plan"],
-            priority: index === 0 ? 1 : 2,
-            source: "ai",
+      const newTasks = lines.map((line, index) =>
+        createProductivityTask({
+          text: `Next week: ${line}`,
+          date: targetDate,
+          tags: ["weekly-review", "coach-plan"],
+          priority: index === 0 ? 1 : 2,
+          source: "ai",
+        }),
+      );
+      const tasks = [...(existing?.tasks || []), ...newTasks];
+      await saveProductivityTasksForDay({ data: { date: targetDate, tasks } });
+      await Promise.all(
+        lines.map((line, index) =>
+          recordRecommendationOutcome({
+            data: {
+              id: stableRecommendationId(targetDate, "coach-weekly", line),
+              date: targetDate,
+              source: "coach-weekly",
+              text: line,
+              status: "accepted",
+              taskId: newTasks[index]?.id,
+            },
           }),
         ),
-      ];
-      await saveProductivityTasksForDay({ data: { date: targetDate, tasks } });
+      );
       setScheduledAt(Date.now());
       setTimeout(() => setScheduledAt(null), 2500);
     } catch (e) {

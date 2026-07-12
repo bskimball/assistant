@@ -49,5 +49,14 @@ Personal tasks, check-ins, workout, nutrition, profile, and feedback remain pers
 
 - Pure tests cover next-action priority and empty states.
 - A saved evening check-in reloads only for the authenticated member.
-- Weekly actions continue to create correctly scoped tasks.
+- Weekly actions continue to create correctly scoped tasks and record `coach-weekly` outcomes.
+- Coach generation consumes recent recommendation outcomes (avoid dismissed/not-helpful; reinforce helpful/completed).
 - `npm run check`, `npm run test`, and `npm run build` pass.
+
+## Implementation notes (2026-07-12)
+
+- Dashboard wires real overdue (`task.due < selectedDate`) into `selectNextBestAction`.
+- Next-best-action and coach suggestions support completed / dismissed / snoozed plus optional helpfulness.
+- Evening check-in includes optional `note`.
+- Weekly schedule path records accepted outcomes with stable ids and task linkage.
+- `src/lib/recommendation-learning.ts` reduces personal outcome history for coach prompts and fallback filtering.

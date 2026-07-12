@@ -327,11 +327,12 @@ function EffectivenessCard({
           </div>
         ) : (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
               <EffectivenessMetric label="Total" value={report.total} />
               <EffectivenessMetric label="Accepted" value={report.accepted} />
               <EffectivenessMetric label="Completed" value={report.completed} />
               <EffectivenessMetric label="Dismissed" value={report.dismissed} />
+              <EffectivenessMetric label="Snoozed" value={report.snoozed} />
               <EffectivenessMetric
                 label="Helpful"
                 value={`Yes ${report.helpfulYes} · No ${report.helpfulNo}`}

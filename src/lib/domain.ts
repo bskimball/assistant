@@ -662,7 +662,9 @@ export interface RecommendationOutcome {
   date: ISODate;
   source: "coach-daily" | "coach-weekly" | "next-best-action";
   text: string;
-  status: "accepted" | "dismissed" | "completed";
+  /** Lifecycle of the recommendation; helpful/not-helpful is the optional `helpful` flag. */
+  status: "accepted" | "dismissed" | "snoozed" | "completed";
+  /** true = helpful, false = not-helpful; omit when unknown. */
   helpful?: boolean;
   taskId?: string;
   recordedAt: Timestamp;
