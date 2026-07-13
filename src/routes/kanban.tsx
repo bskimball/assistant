@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { VoiceInput } from "@/components/VoiceInput";
+import { VoiceInput } from "@/components/voice-input";
 import { Reveal, revealDelay } from "@/components/motion";
 import {
   Trash2,

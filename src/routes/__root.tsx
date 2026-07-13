@@ -12,7 +12,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { LayoutDashboard, Compass } from "lucide-react";
-import { AppNav } from "@/components/AppNav";
+import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { getSessionState } from "@/server/session";
 

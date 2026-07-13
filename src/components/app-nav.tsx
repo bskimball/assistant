@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import ThemeToggle from "@/components/ThemeToggle";
+import ThemeToggle from "@/components/theme-toggle";
 import { signIn, signOut, useSession } from "@/lib/auth-client";
 
 type Leaf = { to: string; label: string; Icon: typeof LayoutDashboard };

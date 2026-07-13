@@ -30,8 +30,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { VoiceInput, speakAssistant } from "@/components/VoiceInput";
-import { WorkoutCarousel } from "@/components/WorkoutCarousel";
+import { VoiceInput, speakAssistant } from "@/components/voice-input";
+import { WorkoutCarousel } from "@/components/workout-carousel";
 import {
   processVoiceInput,
   saveProductivityTasksForDay,
