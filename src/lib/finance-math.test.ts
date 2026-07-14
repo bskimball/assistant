@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Subscription, Transaction, UserProfile } from "@/lib/domain";
+import {
+  summarizeCashFlow,
+  type Subscription,
+  type Transaction,
+  type UserProfile,
+} from "@/lib/domain";
 import {
   addUnseenRecurringToBuckets,
   buildBudgetInsight,
@@ -22,7 +27,7 @@ import {
 } from "@/lib/finance-math";
 
 const jan = Date.UTC(2026, 0, 15);
-const feb = Date.UTC(2026, 1, 1);
+const feb = Date.UTC(2026, 1, 1, 12);
 
 function txn(partial: Partial<Transaction>): Transaction {
   return {
@@ -1040,7 +1045,7 @@ describe("finance math", () => {
       }),
     ];
     const txns = [txn({ amount: -15, category: "Netflix", categoryGroup: "wants" })];
-    const items = recurringItemsForMonth(subscriptions, txns);
+    const items = recurringItemsForMonth(subscriptions, txns, undefined, "2026-01");
     const buckets = { needs: 1000, wants: 15, savings: 200 };
 
     const additions = addUnseenRecurringToBuckets(buckets, subscriptions, txns);
@@ -1064,7 +1069,7 @@ describe("finance math", () => {
       txn({ id: "week-1", amount: -100, category: "Cleaner" }),
       txn({ id: "week-2", amount: -100, category: "Cleaner" }),
     ];
-    const items = recurringItemsForMonth(subscriptions, txns);
+    const items = recurringItemsForMonth(subscriptions, txns, undefined, "2026-01");
     const weekly = items.needs[0];
     const additions = addUnseenRecurringToBuckets(
       { needs: 200, wants: 0, savings: 0 },
@@ -1077,6 +1082,42 @@ describe("finance math", () => {
     expect(weekly.matchedAmount).toBe(200);
     expect(weekly.remainingMonthlyAmount).toBeCloseTo((100 * 52) / 12 - 200);
     expect(additions.needs).toBeCloseTo((100 * 52) / 12 - 200);
+  });
+
+  it("expects five weekly charges when the selected month contains five anchored weekdays", () => {
+    const subscriptions = [
+      sub({
+        id: "weekly",
+        name: "Cleaner",
+        amount: 100,
+        cadence: "weekly",
+        kind: "bill",
+        nextChargeDate: "2026-01-02",
+      }),
+    ];
+    const txns = [
+      txn({ id: "week-1", timestamp: Date.UTC(2026, 0, 2, 12), amount: -100, category: "Cleaner" }),
+      txn({ id: "week-2", timestamp: Date.UTC(2026, 0, 9, 12), amount: -100, category: "Cleaner" }),
+      txn({
+        id: "week-3",
+        timestamp: Date.UTC(2026, 0, 16, 12),
+        amount: -100,
+        category: "Cleaner",
+      }),
+      txn({
+        id: "week-4",
+        timestamp: Date.UTC(2026, 0, 23, 12),
+        amount: -100,
+        category: "Cleaner",
+      }),
+    ];
+
+    const weekly = recurringItemsForMonth(subscriptions, txns, undefined, "2026-01").needs[0];
+
+    expect(weekly.expectedThisMonth).toBe(5);
+    expect(weekly.monthlyAmount).toBeCloseTo((100 * 52) / 12);
+    expect(weekly.expectedAmountThisMonth).toBe(500);
+    expect(weekly.remainingMonthlyAmount).toBe(100);
   });
 
   it("treats a manual cash/Venmo charge linked by recurringId as paid with no remaining plan", () => {
@@ -1102,7 +1143,7 @@ describe("finance math", () => {
         recurringMatchSource: "user",
       }),
     ];
-    const items = recurringItemsForMonth(subscriptions, txns);
+    const items = recurringItemsForMonth(subscriptions, txns, undefined, "2026-01");
     const lawn = items.needs.find((item) => item.id === "lawn");
 
     expect(lawn?.seenThisMonth).toBe(true);
@@ -1138,7 +1179,7 @@ describe("finance math", () => {
       }),
     ];
 
-    const items = recurringItemsForMonth(subscriptions, txns);
+    const items = recurringItemsForMonth(subscriptions, txns, undefined, "2026-01");
     const netflix = items.wants.find((item) => item.id === "netflix");
     const gym = items.wants.find((item) => item.id === "gym");
 
@@ -1179,7 +1220,7 @@ describe("finance math", () => {
       }),
     ];
 
-    const items = recurringItemsForMonth(subscriptions, [], priorTxns);
+    const items = recurringItemsForMonth(subscriptions, [], priorTxns, "2026-01");
     const netflix = items.wants.find((item) => item.id === "netflix");
 
     expect(netflix?.seenThisMonth).toBe(false);
@@ -1194,7 +1235,7 @@ describe("finance math", () => {
 
   it("omits lastPaidTxn when no prior transactions are provided", () => {
     const subscriptions = [sub({ id: "netflix", name: "Netflix", amount: 15, group: "wants" })];
-    const items = recurringItemsForMonth(subscriptions, []);
+    const items = recurringItemsForMonth(subscriptions, [], undefined, "2026-01");
     expect(items.wants[0]?.lastPaidTxn).toBeUndefined();
   });
 
@@ -1216,7 +1257,7 @@ describe("finance math", () => {
       }),
     ];
 
-    const jeep = recurringItemsForMonth(subscriptions, txns).needs[0];
+    const jeep = recurringItemsForMonth(subscriptions, txns, undefined, "2026-01").needs[0];
 
     expect(jeep.seenThisMonth).toBe(true);
     expect(jeep.remainingMonthlyAmount).toBe(0);
@@ -1269,10 +1310,36 @@ describe("finance math", () => {
     }
   });
 
-  it("filters transactions by stable UTC month key", () => {
+  it("filters transactions by the household-local month", () => {
     expect(
-      transactionsForMonth([txn({ timestamp: jan }), txn({ timestamp: feb })], "2026-01"),
-    ).toHaveLength(1);
+      transactionsForMonth(
+        [
+          txn({ id: "jan", timestamp: jan }),
+          txn({ id: "local-jan", timestamp: Date.parse("2026-02-01T02:00:00Z") }),
+          txn({ id: "feb", timestamp: feb }),
+        ],
+        "2026-01",
+      ).map((t) => t.id),
+    ).toEqual(["jan", "local-jan"]);
+  });
+
+  it("subtracts refunds from spending instead of counting them as income", () => {
+    const transactions = [
+      txn({ id: "purchase", amount: -100, categoryGroup: "wants" }),
+      txn({ id: "refund", amount: 25, categoryGroup: "wants" }),
+      txn({ id: "pay", amount: 1000, categoryGroup: "income" }),
+    ];
+
+    expect(rollupMonth(transactions, "2026-01")).toMatchObject({
+      income: 1000,
+      wants: 75,
+    });
+    expect(summarizeCashFlow(transactions)).toEqual({
+      income: 1000,
+      spend: 75,
+      cashFlow: 925,
+      importedIncome: 1000,
+    });
   });
 
   it("builds payday-aware cash-flow calendars across every supported cadence", () => {

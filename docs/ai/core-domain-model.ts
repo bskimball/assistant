@@ -191,6 +191,8 @@ export interface Position {
   quantity: number;
   price: number;
   value: number;
+  /** False when a synced account balance already includes this holding. */
+  includedInNetWorth?: boolean;
 }
 
 export interface DailyFinanceSnapshot extends BaseEntity {

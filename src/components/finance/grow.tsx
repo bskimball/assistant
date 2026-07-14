@@ -21,7 +21,12 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { acceptFinanceActions, type FinanceHubPayload } from "@/server/finance";
-import { spendBucketOf, DEFAULT_BUDGET_TARGETS, type FinanceAdviceItem } from "@/lib/domain";
+import {
+  spendAmountOf,
+  spendBucketOf,
+  DEFAULT_BUDGET_TARGETS,
+  type FinanceAdviceItem,
+} from "@/lib/domain";
 import {
   buildCashFlowProjection,
   recurringAdditionsForMonth,
@@ -273,9 +278,9 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
   for (const t of monthTxns) {
     if (t.excludeFromBudget) continue;
     const bucket = spendBucketOf(t.categoryGroup);
-    if (bucket) buckets[bucket] += Math.abs(t.amount);
+    if (bucket) buckets[bucket] += spendAmountOf(t);
   }
-  const recurring = recurringAdditionsForMonth(hub.subscriptions, monthTxns);
+  const recurring = recurringAdditionsForMonth(hub.subscriptions, monthTxns, startMonth);
   const monthlyBuckets =
     takeHome > 0
       ? {
@@ -399,7 +404,7 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
   const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const savings = monthTxns
     .filter((t) => spendBucketOf(t.categoryGroup) === "savings" && !t.excludeFromBudget)
-    .reduce((s, t) => s + Math.abs(t.amount), 0);
+    .reduce((s, t) => s + spendAmountOf(t), 0);
   const sideIncome = monthTxns
     .filter((t) => t.amount > 0 && t.categoryGroup === "income" && !isPaycheckLike(t))
     .reduce((s, t) => s + t.amount, 0);

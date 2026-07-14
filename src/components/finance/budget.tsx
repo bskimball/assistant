@@ -33,6 +33,7 @@ import {
   dismissOneTimeSuggestion,
 } from "@/server/finance";
 import {
+  spendAmountOf,
   spendBucketOf,
   cleanMerchantName,
   DEFAULT_BUDGET_TARGETS,
@@ -123,7 +124,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     const b = moveOverrides[t.id] ?? spendBucketOf(t.categoryGroup);
     if (!b) continue;
     bucketTxns[b].push(t);
-    if (!t.excludeFromBudget) buckets[b] += Math.abs(t.amount);
+    if (!t.excludeFromBudget) buckets[b] += spendAmountOf(t);
   }
   for (const b of ["needs", "wants", "savings"] as const) {
     bucketTxns[b].sort((a, c) => Math.abs(c.amount) - Math.abs(a.amount));
@@ -171,6 +172,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     hub.subscriptions,
     monthTxns,
     transactionsBeforeMonth(hub.transactions, selectedMonth),
+    selectedMonth,
   );
   const recurringAdditions = recurringAdditionsFromItems(recurringItems);
   for (const b of ["needs", "wants", "savings"] as const) {
@@ -204,7 +206,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
       return {
         key: b,
         label: GROUP_LABELS[b],
-        subtotal: txns.reduce((s, t) => s + Math.abs(t.amount), 0),
+        subtotal: txns.reduce((s, t) => s + spendAmountOf(t), 0),
         txns,
       };
     })
@@ -911,7 +913,7 @@ const SORTER_BUCKETS: { key: BudgetBucket; label: string; accent: string }[] = [
 // Sum imported transactions only. Budget bars may also include recurring
 // commitments that are not visible in statement data yet.
 function bucketSum(txns: Transaction[]): number {
-  return txns.reduce((s, t) => (t.excludeFromBudget ? s : s + Math.abs(t.amount)), 0);
+  return txns.reduce((s, t) => (t.excludeFromBudget ? s : s + spendAmountOf(t)), 0);
 }
 
 function ExpenseSorter({

@@ -78,11 +78,13 @@ describe("parseMoney", () => {
     expect(parseMoney("$1,234.56")).toBe(1234.56);
     expect(parseMoney("-42.00")).toBe(-42);
     expect(parseMoney("(42.00)")).toBe(-42); // accounting-style negative
+    expect(parseMoney("42.00-")).toBe(-42); // trailing-minus bank export
   });
 
   it("returns 0 for empty or non-numeric cells", () => {
     expect(parseMoney("")).toBe(0);
     expect(parseMoney("n/a")).toBe(0);
+    expect(parseMoney("12-34")).toBe(0);
   });
 });
 
@@ -97,6 +99,8 @@ describe("parseDate", () => {
     expect(parseDate("")).toBeNull();
     expect(parseDate("pending")).toBeNull();
     expect(parseDate("--")).toBeNull();
+    expect(parseDate("02/30/2026")).toBeNull();
+    expect(parseDate("2026-02-30")).toBeNull();
   });
 });
 

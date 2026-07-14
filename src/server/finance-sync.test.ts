@@ -5,6 +5,7 @@ import {
   isBackfilledTransaction,
   loanOptionsForStatus,
   mergeAccountBalances,
+  netWorthAfterSync,
   mergePositions,
   parseSimplefinMoney,
   positionsFromHoldings,
@@ -303,5 +304,26 @@ describe("holdings → positions", () => {
       { symbol: "MSFT", quantity: 1, price: 400, value: 400 },
       { symbol: "401K", quantity: 1, price: 5000, value: 5000 },
     ]);
+  });
+
+  it("counts manual holdings in net worth without double-counting synced holdings", () => {
+    expect(
+      netWorthAfterSync(
+        [
+          { account: "Checking", amount: 10000, currency: "USD" },
+          { account: "Robinhood", amount: 5000, currency: "USD" },
+        ],
+        [
+          {
+            symbol: "MSFT",
+            quantity: 10,
+            price: 500,
+            value: 5000,
+            includedInNetWorth: false,
+          },
+          { symbol: "401K", quantity: 1, price: 8000, value: 8000 },
+        ],
+      ),
+    ).toBe(23000);
   });
 });

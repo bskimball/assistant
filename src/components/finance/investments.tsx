@@ -46,7 +46,7 @@ export function InvestmentsTab({
       // a typo, a delisted name) keeps its last manual price.
       const updated = positions.map((p) => {
         const live = prices[p.symbol.toUpperCase()];
-        if (!Number.isFinite(live)) return p;
+        if (!Number.isFinite(live) || live <= 0 || p.quantity <= 0) return p;
         return {
           ...p,
           price: live,
@@ -84,7 +84,7 @@ export function InvestmentsTab({
     e.preventDefault();
     const q = Number(qty);
     const pr = Number(price);
-    if (!symbol.trim() || !Number.isFinite(q) || !Number.isFinite(pr)) return;
+    if (!symbol.trim() || !Number.isFinite(q) || q <= 0 || !Number.isFinite(pr) || pr <= 0) return;
     setBusy(true);
     try {
       const next: Position[] = [...positions];
@@ -273,7 +273,19 @@ export function InvestmentsTab({
                 className="w-28"
                 disabled={busy}
               />
-              <Button type="submit" size="sm" className="gap-1" disabled={busy || !symbol.trim()}>
+              <Button
+                type="submit"
+                size="sm"
+                className="gap-1"
+                disabled={
+                  busy ||
+                  !symbol.trim() ||
+                  !Number.isFinite(Number(qty)) ||
+                  Number(qty) <= 0 ||
+                  !Number.isFinite(Number(price)) ||
+                  Number(price) <= 0
+                }
+              >
                 <Plus className="size-4" /> Save
               </Button>
             </form>

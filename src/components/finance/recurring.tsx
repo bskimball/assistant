@@ -883,6 +883,7 @@ function MonthlyPaymentCheckCard({
     subscriptions,
     monthTxns,
     transactionsBeforeMonth(transactions, selectedMonth),
+    selectedMonth,
   );
   const items = (["needs", "wants", "savings"] as const).flatMap((bucket) => monthItems[bucket]);
   const verifiableItems = items.filter((i) => i.bucket !== "savings");
@@ -1350,6 +1351,7 @@ export function RecurringTab({ hub, onChange, flash }: FinanceTabProps) {
     hub.subscriptions,
     currentMonthTxns,
     transactionsBeforeMonth(hub.transactions, currentMonth),
+    currentMonth,
   );
   const chargeStatusById = new Map(
     (["needs", "wants", "savings"] as const)

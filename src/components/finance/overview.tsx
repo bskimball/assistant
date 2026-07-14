@@ -22,6 +22,7 @@ import { saveDailyFinance } from "@/server/domain";
 import { acceptFinanceActions, type FinanceHubPayload } from "@/server/finance";
 import {
   subscriptionMonthlyCost,
+  spendAmountOf,
   spendBucketOf,
   recurringBudgetBucket,
   cleanMerchantName,
@@ -151,6 +152,10 @@ export function OverviewTab({
     const amt = Number(editAmount);
     const currency = editCurrency.trim().toUpperCase() || "USD";
     if (!trimmedName || !Number.isFinite(amt)) return;
+    if (currency !== "USD") {
+      flash("Finance totals currently support USD accounts only.");
+      return;
+    }
 
     const duplicate = accounts.some(
       (a) =>
@@ -188,7 +193,11 @@ export function OverviewTab({
   const usePlannedIncome = takeHome > 0;
   // Shared definition so Today / Finance / Analytics agree (transfers excluded).
   const { income, spend } = summarizeCashFlow(monthTxns, takeHome);
-  const recurringAdditions = recurringAdditionsForMonth(hub.subscriptions, monthTxns);
+  const recurringAdditions = recurringAdditionsForMonth(
+    hub.subscriptions,
+    monthTxns,
+    today.slice(0, 7),
+  );
   const plannedRecurring =
     recurringAdditions.needs + recurringAdditions.wants + recurringAdditions.savings;
   const knownOutflow = spend + plannedRecurring;
@@ -196,7 +205,7 @@ export function OverviewTab({
   const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const monthlyNeedsFromStatements = monthTxns
     .filter((t) => spendBucketOf(t.categoryGroup) === "needs" && !t.excludeFromBudget)
-    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    .reduce((sum, t) => sum + spendAmountOf(t), 0);
   const monthlyEssentialExpenses = Math.max(
     monthlyNeedsFromStatements + recurringAdditions.needs,
     takeHome > 0 ? takeHome * targets.needs : 0,
@@ -266,6 +275,7 @@ export function OverviewTab({
                 aria-label="Currency"
                 className="h-10 uppercase sm:h-8"
                 maxLength={3}
+                disabled
               />
             </div>
             <div className="mt-2 flex shrink-0 items-center gap-1 sm:mt-0 sm:pl-2">
@@ -421,8 +431,9 @@ export function OverviewTab({
               {Math.round(hub.snapshot.netWorth) !== Math.round(accountsTotal) && (
                 <p className="mt-1! text-[11px] text-muted-foreground">
                   Net worth {fmtMoney(hub.snapshot.netWorth)} also counts{" "}
-                  {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of holdings tracked on the
-                  Investments tab.
+                  {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of manual holdings tracked on
+                  the Investments tab. Synced holdings are already included in their account
+                  balances.
                 </p>
               )}
             </div>

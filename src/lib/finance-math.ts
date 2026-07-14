@@ -12,8 +12,10 @@ import {
   DEFAULT_BUDGET_TARGETS,
   recurringBudgetBucket,
   recurringKindOf,
+  spendAmountOf,
   spendBucketOf,
   subscriptionMonthlyCost,
+  toISODate,
 } from "@/lib/domain";
 
 export type BudgetBucket = "needs" | "wants" | "savings";
@@ -169,6 +171,7 @@ export type BudgetRecurringItem = {
   matchedCount: number;
   matchedAmount: number;
   expectedThisMonth: number;
+  expectedAmountThisMonth: number;
   remainingMonthlyAmount: number;
   /**
    * The best matching charge for this item in the month (most recent when
@@ -289,7 +292,7 @@ function addMonthsKey(month: string, offset: number): string {
 }
 
 export function monthKey(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 7);
+  return toISODate(timestamp).slice(0, 7);
 }
 
 /**
@@ -723,7 +726,7 @@ export function detectOneTimeCandidates(input: {
   );
   const expenseAbs = monthTxns
     .filter((t) => t.amount < 0 && !t.excludeFromBudget && !!spendBucketOf(t.categoryGroup))
-    .map((t) => Math.abs(t.amount));
+    .map((t) => spendAmountOf(t));
   const fallbackFloor = 3 * median(expenseAbs);
   const sizeFloor = Math.max(
     100,
@@ -753,7 +756,7 @@ export function detectOneTimeCandidates(input: {
       );
       if (distinctMonths.size > 1) return [];
 
-      const amount = Math.abs(t.amount);
+      const amount = spendAmountOf(t);
       if (amount < sizeFloor) return [];
 
       const atLeastDouble = amount >= 2 * sizeFloor;
@@ -792,7 +795,7 @@ export function buildBudgetInsight(input: {
     (t) => !t.deletedAt,
   );
   const planBuckets = rollupMonth(monthTxns, input.month);
-  const recurring = recurringAdditionsForMonth(input.subscriptions, monthTxns);
+  const recurring = recurringAdditionsForMonth(input.subscriptions, monthTxns, input.month);
   const plannedRecurring = dollars(recurring.needs + recurring.wants + recurring.savings);
   const planSpend = dollars(planBuckets.needs + planBuckets.wants + planBuckets.savings);
   const activeSubscriptions = input.subscriptions.filter(
@@ -805,14 +808,14 @@ export function buildBudgetInsight(input: {
         (t) =>
           !t.recurringId && !activeSubscriptions.some((sub) => recurringMatchesTransaction(sub, t)),
       )
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0),
+      .reduce((sum, t) => sum + spendAmountOf(t), 0),
   );
   const fixedPlanSpend = dollars(Math.max(0, planSpend - variablePlanSpend));
   const committedPlan = dollars(planSpend + plannedRecurring);
   const oneTimeTxns = monthTxns.filter(
     (t) => t.amount < 0 && t.excludeFromBudget && !!spendBucketOf(t.categoryGroup),
   );
-  const oneTimeSpend = dollars(oneTimeTxns.reduce((sum, t) => sum + Math.abs(t.amount), 0));
+  const oneTimeSpend = dollars(oneTimeTxns.reduce((sum, t) => sum + spendAmountOf(t), 0));
   const totalSpent = dollars(planSpend + oneTimeSpend);
   const takeHome = positive(input.takeHome);
   const actualNeeds = dollars(planBuckets.needs + recurring.needs);
@@ -1134,7 +1137,7 @@ export function buildCashFlowProjection(input: CashFlowProjectionInput): CashFlo
     const wants = dollars(input.monthlyBuckets?.wants ?? rolled.wants);
     const savings = dollars(input.monthlyBuckets?.savings ?? rolled.savings);
     const recurring = includeRecurring
-      ? recurringAdditionsForMonth(subscriptions, monthTxns)
+      ? recurringAdditionsForMonth(subscriptions, monthTxns, month)
       : { needs: 0, wants: 0, savings: 0 };
     const recurringNeeds = dollars(recurring.needs);
     const recurringWants = dollars(recurring.wants);
@@ -1187,29 +1190,56 @@ export function rollupMonth(transactions: Transaction[], month: string): MonthBu
     if (t.deletedAt || monthKey(t.timestamp) !== month) continue;
     if (t.excludeFromBudget) continue;
     if (t.categoryGroup === "income") {
-      buckets.income += Math.abs(t.amount);
+      buckets.income += t.amount;
       continue;
     }
     const bucket = spendBucketOf(t.categoryGroup);
-    if (bucket) buckets[bucket] += Math.abs(t.amount);
+    if (bucket) buckets[bucket] += spendAmountOf(t);
   }
   return buckets;
 }
 
-function expectedPaymentsForMonth(cadence: Subscription["cadence"]): number {
-  if (cadence === "weekly") return 4;
-  if (cadence === "monthly") return 1;
-  return 0;
+function weeklyPaymentsInMonth(month: string, anchorDate?: ISODate): number | null {
+  if (!anchorDate) return null;
+  const targetWeekday = new Date(`${anchorDate}T12:00:00Z`).getUTCDay();
+  const days = daysInISOMonth(month);
+  let count = 0;
+  for (let day = 1; day <= days; day++) {
+    const date = dateInMonth(month, day);
+    if (new Date(`${date}T12:00:00Z`).getUTCDay() === targetWeekday) count++;
+  }
+  return count;
+}
+
+function weeklyAnchorDate(sub: Subscription, priorTxns?: Transaction[]): ISODate | undefined {
+  const latestPrior = priorTxns
+    ?.filter((transaction) => recurringMatchesTransaction(sub, transaction))
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  return (
+    sub.nextChargeDate ??
+    (latestPrior ? toISODate(latestPrior.timestamp) : undefined) ??
+    (sub.lastSeen ? toISODate(sub.lastSeen) : undefined)
+  );
+}
+
+function expectedPaymentsForMonth(
+  sub: Subscription,
+  month: string,
+  priorTxns?: Transaction[],
+): number {
+  if (sub.cadence === "monthly") return 1;
+  if (sub.cadence !== "weekly") return 0;
+  return weeklyPaymentsInMonth(month, weeklyAnchorDate(sub, priorTxns)) ?? 4;
 }
 
 function remainingRecurringAmount(
   sub: Subscription,
-  monthlyAmount: number,
+  expectedAmount: number,
   matchedAmount: number,
   seenThisMonth: boolean,
 ): number {
-  if (sub.cadence === "weekly") return Math.max(0, monthlyAmount - matchedAmount);
-  return seenThisMonth ? 0 : monthlyAmount;
+  if (sub.cadence === "weekly") return Math.max(0, expectedAmount - matchedAmount);
+  return seenThisMonth ? 0 : expectedAmount;
 }
 
 export function recurringItemsForMonth(
@@ -1220,7 +1250,10 @@ export function recurringItemsForMonth(
   // so pending rows can show when they were last paid. Optional so callers that
   // only need monthly totals skip the extra sweep.
   priorTxns?: Transaction[],
+  requestedMonth?: string,
 ): Record<BudgetBucket, BudgetRecurringItem[]> {
+  const month =
+    requestedMonth ?? (monthTxns[0] ? monthKey(monthTxns[0].timestamp) : monthKey(Date.now()));
   const items: Record<BudgetBucket, BudgetRecurringItem[]> = {
     needs: [],
     wants: [],
@@ -1246,7 +1279,14 @@ export function recurringItemsForMonth(
           null,
         )
       : null;
+    const expectedThisMonth = expectedPaymentsForMonth(sub, month, priorTxns);
     const monthlyAmount = subscriptionMonthlyCost(sub);
+    const exactWeeklyPayments =
+      sub.cadence === "weekly"
+        ? weeklyPaymentsInMonth(month, weeklyAnchorDate(sub, priorTxns))
+        : null;
+    const expectedAmountThisMonth =
+      exactWeeklyPayments !== null ? dollars(sub.amount * exactWeeklyPayments) : monthlyAmount;
     const matchedAmount = matches.reduce((sum, t) => sum + Math.abs(t.amount), 0);
     const seenThisMonth = matched !== null;
     items[bucket].push({
@@ -1260,10 +1300,11 @@ export function recurringItemsForMonth(
       seenThisMonth,
       matchedCount: matches.length,
       matchedAmount,
-      expectedThisMonth: expectedPaymentsForMonth(sub.cadence),
+      expectedThisMonth,
+      expectedAmountThisMonth,
       remainingMonthlyAmount: remainingRecurringAmount(
         sub,
-        monthlyAmount,
+        expectedAmountThisMonth,
         matchedAmount,
         seenThisMonth,
       ),
@@ -1306,8 +1347,11 @@ export function recurringAdditionsFromItems(
 export function recurringAdditionsForMonth(
   subscriptions: Subscription[],
   monthTxns: Transaction[],
+  month?: string,
 ): Record<BudgetBucket, number> {
-  return recurringAdditionsFromItems(recurringItemsForMonth(subscriptions, monthTxns));
+  return recurringAdditionsFromItems(
+    recurringItemsForMonth(subscriptions, monthTxns, undefined, month),
+  );
 }
 
 export function addUnseenRecurringToBuckets(

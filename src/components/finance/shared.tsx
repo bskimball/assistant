@@ -30,8 +30,15 @@ export type FinanceTabProps = {
   flash: (msg: string, ms?: number) => void;
 };
 
+const usdFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
 export function fmtMoney(n: number): string {
-  return `$${Math.round(n).toLocaleString()}`;
+  return usdFormatter.format(Number.isFinite(n) ? n : 0);
 }
 
 export function CollapsibleCard({
@@ -514,8 +521,9 @@ export function BudgetBar({
   const [open, setOpen] = useState(false);
   const statementActual = Math.max(0, actual - recurringPlanned);
   const ratio = target > 0 ? actual / target : 0;
-  const pct = Math.min(100, Math.round(ratio * 100));
-  const statementPct = target > 0 ? Math.min(100, Math.round((statementActual / target) * 100)) : 0;
+  const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  const statementPct =
+    target > 0 ? Math.max(0, Math.min(100, Math.round((statementActual / target) * 100))) : 0;
   const plannedPct = Math.max(0, pct - statementPct);
   const remaining = target - actual;
 

@@ -97,11 +97,14 @@ export function findHeaderIndex(rows: string[][]): number {
 }
 
 export function parseMoney(raw: string): number {
-  if (!raw) return 0;
-  const neg = /^\(.*\)$/.test(raw.trim()) || raw.trim().startsWith("-");
-  const n = Number(raw.replace(/[^0-9.]/g, ""));
-  if (!Number.isFinite(n)) return 0;
-  return neg ? -n : n;
+  const trimmed = raw.trim();
+  if (!trimmed) return 0;
+  const negative = /^\(.*\)$/.test(trimmed) || trimmed.startsWith("-") || trimmed.endsWith("-");
+  const normalized = trimmed.replace(/[,$()\s]/g, "").replace(/^-|-$/g, "");
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return 0;
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount)) return 0;
+  return negative ? -amount : amount;
 }
 
 /**
@@ -109,16 +112,30 @@ export function parseMoney(raw: string): number {
  * skips (and reports) the row rather than mis-filing it under today's date.
  */
 export function parseDate(raw: string): number | null {
-  const t = Date.parse(raw.trim());
-  if (Number.isFinite(t)) return t;
-  // Fallback for MM/DD/YYYY without explicit timezone parsing oddities.
-  const m = raw.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (m) {
-    const [, mo, d, y] = m;
-    const year = y.length === 2 ? 2000 + Number(y) : Number(y);
-    return new Date(year, Number(mo) - 1, Number(d)).getTime();
+  const value = raw.trim();
+  const iso = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const us = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  const match = iso ?? us;
+  if (match) {
+    const year = iso
+      ? Number(match[1])
+      : match[3].length === 2
+        ? 2000 + Number(match[3])
+        : Number(match[3]);
+    const month = iso ? Number(match[2]) : Number(match[1]);
+    const day = iso ? Number(match[3]) : Number(match[2]);
+    const timestamp = Date.UTC(year, month - 1, day, 12);
+    const parsed = new Date(timestamp);
+    if (
+      parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() !== month - 1 ||
+      parsed.getUTCDate() !== day
+    )
+      return null;
+    return timestamp;
   }
-  return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 /* ============================================================

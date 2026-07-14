@@ -57,7 +57,7 @@ Adopt **SimpleFIN Bridge** as the live-sync source for the finance hub, behind t
 ### 5. Snapshot & net-worth semantics
 
 - The sync writes `DailyFinanceSnapshot.accounts[]` from synced balances (liabilities as **negative** amounts) merged with any manually tracked accounts not covered by SimpleFIN.
-- `netWorth` is set **explicitly** by the sync as the sum of account balances. `positions[]` (manual holdings + Yahoo quotes) remain for allocation display but are **not re-added** to net worth when their brokerage account balance is synced — prevents double-counting Robinhood.
+- `netWorth` is set **explicitly** by the sync as account balances plus manual-only positions. Holdings supplied by SimpleFIN are tagged `includedInNetWorth: false` because their brokerage account balance already includes them; this prevents double-counting Robinhood while preserving manual holdings such as an unconnected 401(k).
 
 ### 6. Failure posture
 
@@ -93,7 +93,7 @@ Consistent with every external path in this app: a failed or partial sync (Bridg
 
 Two post-ship corrections to the original scope:
 
-1. **Brokerage holdings sync.** "Robinhood share counts stay manual" turned out to be wrong: the Bridge's v2 payload includes a `holdings[]` array (symbol, shares, market_value) for brokerage and crypto accounts. Each sync now maps holdings into `DailyFinanceSnapshot.positions[]` — synced symbols replace manual entries, manual-only positions (e.g. ADP 401k) pass through, and symbols that disappear from holdings (sold) are dropped via a `lastSyncedSymbols` record in `simplefin.json`. §5's rule is unchanged: `netWorth` still sums account balances only; positions remain display-only, so no double-counting.
+1. **Brokerage holdings sync.** "Robinhood share counts stay manual" turned out to be wrong: the Bridge's v2 payload includes a `holdings[]` array (symbol, shares, market_value) for brokerage and crypto accounts. Each sync now maps holdings into `DailyFinanceSnapshot.positions[]` — synced symbols replace manual entries, manual-only positions (e.g. ADP 401k) pass through, and symbols that disappear from holdings (sold) are dropped via a `lastSyncedSymbols` record in `simplefin.json`. Synced positions are display-only (`includedInNetWorth: false`) because their account balance already includes them; manual-only positions remain part of net worth.
 2. **Per-account history backfill.** The single global cutover date starves recurring-charge detection for accounts linked without CSV history (a new account contributes days, not months, of transactions). `simplefin.json` gains `accountCutovers` (account id → ISO date), and a per-account **"Import 90-day history"** action in the Connections card fetches the Bridge's maximum window (90 days) and ingests that one account's transactions from an earlier cutover. Deliberately explicit, not automatic: backfill is only safe for accounts whose statements were never CSV-imported (SimpleFIN ids can't dedupe against CSV hash keys), and the UI says so.
 
 Also fixed here: the sync previously seeded today's snapshot from `loadDailyFinanceImpl(today)`, which returns an empty snapshot on a new day — wiping manually entered positions. It now reads through the same carry-forward loader as the finance hub (`loadLatestDailyFinanceImpl`).
@@ -153,7 +153,7 @@ Written for hand-off. Read `docs/ai/architecture.md` and ADR-015/017 first. Two 
   2. `fetchAccounts` (Phase 2: `balances-only=1`).
   3. Map accounts through `aliases` (default alias = `"{org.name} {name}"`); liabilities (loan-linked or negative-balance accounts) stored as **negative** `AccountBalance.amount`.
   4. Merge with the current snapshot via `loadDailyFinanceImpl(todayISO())` (`src/server/domain-impl.ts:310`): synced accounts replace same-name entries, manually tracked accounts and `positions[]` pass through untouched.
-  5. Compute `netWorth` **explicitly** = sum of merged account amounts (do NOT let the derive-from-accounts+positions path re-add position values — that double-counts Robinhood) and persist via `saveDailyFinanceImpl` (`domain-impl.ts:325`). Check its signature; if it re-derives netWorth, pass the explicit value or extend it minimally.
+  5. Compute `netWorth` **explicitly** = merged account amounts + positions whose `includedInNetWorth` is not false. Synced holdings are false because their brokerage account balance already includes them; manual-only positions remain true/undefined. Persist via `saveDailyFinanceImpl` without double-counting Robinhood.
   6. Record per-account results + `lastSync` in `simplefin.json`.
 - Server fn `syncSimplefinNow()` — rejects if `lastSync.at` is < 1 h old (manual rate limit). Wire a "Sync now" button + per-account "as of `balance-date`" staleness into the Connections card; stale (>48 h) accounts get a visual flag.
 - Day-key discipline: compute "today" with the `HOUSEHOLD_TIMEZONE` helpers in `src/lib/domain.ts` (`todayISO`), never raw `new Date().toISOString()` — Workers run UTC.

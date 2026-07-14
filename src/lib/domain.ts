@@ -310,6 +310,8 @@ export interface Position {
   quantity: number;
   price: number;
   value: number;
+  /** False when the containing synced account balance already includes this holding. */
+  includedInNetWorth?: boolean;
 }
 
 export interface DailyFinanceSnapshot extends BaseEntity {
@@ -531,11 +533,11 @@ export interface FinanceAdviceItem {
 export function subscriptionMonthlyCost(sub: Pick<Subscription, "amount" | "cadence">): number {
   switch (sub.cadence) {
     case "weekly":
-      return (sub.amount * 52) / 12;
+      return Math.round(((sub.amount * 52) / 12) * 100) / 100;
     case "annual":
-      return sub.amount / 12;
+      return Math.round((sub.amount / 12) * 100) / 100;
     default:
-      return sub.amount;
+      return Math.round(sub.amount * 100) / 100;
   }
 }
 
@@ -577,6 +579,15 @@ export function spendBucketOf(
 }
 
 /**
+ * Net spending contribution for a categorized transaction. Withdrawals are
+ * positive spend; refunds/credits are negative spend and therefore offset the
+ * original expense instead of being misreported as new income.
+ */
+export function spendAmountOf(transaction: Pick<Transaction, "amount" | "categoryGroup">): number {
+  return spendBucketOf(transaction.categoryGroup) ? -transaction.amount : 0;
+}
+
+/**
  * Single source of truth for cash flow so every page (Today, Finance, Analytics)
  * reports the same number for the same transactions. Caller pre-filters the list
  * to the period it cares about (a month, a rolling window, a day).
@@ -594,8 +605,18 @@ export function summarizeCashFlow(
   let spend = 0;
   for (const t of transactions) {
     if (t.deletedAt || t.categoryGroup === "transfer") continue;
+    if (t.categoryGroup === "income") {
+      importedIncome += t.amount;
+      continue;
+    }
+    const bucket = spendBucketOf(t.categoryGroup);
+    if (bucket) {
+      spend += spendAmountOf(t);
+      continue;
+    }
+    // Preserve sensible behavior for legacy uncategorized transactions.
     if (t.amount > 0) importedIncome += t.amount;
-    else spend += Math.abs(t.amount);
+    else spend -= t.amount;
   }
   const income = monthlyTakeHome > 0 ? monthlyTakeHome : importedIncome;
   return { income, spend, cashFlow: income - spend, importedIncome };

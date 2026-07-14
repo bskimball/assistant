@@ -73,12 +73,18 @@ export async function saveDailyFinanceImpl(data: {
   };
 }): Promise<DailyFinancePayload> {
   const now = Date.now();
+  for (const account of data.finance.accounts || []) {
+    if ((account.currency || "USD").toUpperCase() !== "USD") {
+      throw new Error("Finance totals currently support USD accounts only.");
+    }
+  }
   const accountsTotal = (data.finance.accounts || []).reduce(
     (s, a: { amount?: number }) => s + (a.amount || 0),
     0,
   );
   const positionsTotal = (data.finance.positions || []).reduce(
-    (s, p: { value?: number }) => s + (p.value || 0),
+    (s, p: { value?: number; includedInNetWorth?: boolean }) =>
+      s + (p.includedInNetWorth === false ? 0 : p.value || 0),
     0,
   );
   const full: DailyFinancePayload = {

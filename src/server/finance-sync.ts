@@ -93,6 +93,19 @@ export interface SimplefinSyncResult {
   transactionCount: number;
 }
 
+/**
+ * Synced brokerage balances already include their holdings, while manual-only
+ * positions still need to contribute to net worth.
+ */
+export function netWorthAfterSync(accounts: AccountBalance[], positions: Position[]): number {
+  return (
+    accounts.reduce((sum, account) => sum + account.amount, 0) +
+    positions
+      .filter((position) => position.includedInNetWorth !== false)
+      .reduce((sum, position) => sum + position.value, 0)
+  );
+}
+
 function emptyState(): SimplefinState {
   return {
     aliases: {},
@@ -313,9 +326,9 @@ export function parseSimplefinMoney(value: string): number {
 
 /**
  * Flatten brokerage holdings across all accounts into snapshot positions,
- * aggregating duplicate symbols. Positions are display-only (allocation +
- * quote refresh); net worth still comes from account balances alone (ADR-019
- * §5), so this never double-counts.
+ * aggregating duplicate symbols. The sync marks these positions
+ * `includedInNetWorth: false` because their account balance already includes
+ * them; manual-only positions continue to contribute to net worth.
  */
 export function positionsFromHoldings(payload: SimplefinPayload): Position[] {
   const bySymbol = new Map<string, Position>();
@@ -641,13 +654,13 @@ export async function runSimplefinSyncImpl(args: {
     .filter((prev) => syncedIds.has(prev.id))
     .map((prev) => prev.displayName);
   const accounts = mergeAccountBalances(syncedBalances, currentSnapshot.accounts || [], staleNames);
-  const netWorth = accounts.reduce((sum, account) => sum + account.amount, 0);
   const syncedPositions = positionsFromHoldings(fetchResult.payload);
   const positions = mergePositions(
-    syncedPositions,
+    syncedPositions.map((position) => ({ ...position, includedInNetWorth: false })),
     currentSnapshot.positions || [],
     state.lastSyncedSymbols ?? [],
   );
+  const netWorth = netWorthAfterSync(accounts, positions);
   await saveDailyFinanceImpl({
     date: today,
     finance: {
