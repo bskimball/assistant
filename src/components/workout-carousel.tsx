@@ -217,9 +217,9 @@ function ExerciseCard({ ex, phase }: { ex: CarouselExercise; phase: ExercisePhas
 
   return (
     <div className="overflow-hidden rounded-xl bg-card shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06),0_2px_4px_0_rgba(0,0,0,0.04)] transition-[box-shadow] hover:shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.08),0_2px_4px_0_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)] dark:hover:shadow-[0_0_0_1px_rgba(255,255,255,0.13)]">
-      {/* Silhouette media frame — neutral warm-charcoal so one art style reads in
-          both themes without a cold blue cast. */}
-      <div className="relative aspect-square w-full bg-[oklch(0.24_0.008_150)] outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
+      {/* Photography media frame — warm neutral placeholder tone while the real
+          exercise photo loads; the image fills the tile edge-to-edge. */}
+      <div className="relative aspect-square w-full bg-muted outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
         {state !== "error" && (
           <img
             src={exerciseImageUrl(ex.name)}
@@ -228,7 +228,7 @@ function ExerciseCard({ ex, phase }: { ex: CarouselExercise; phase: ExercisePhas
             decoding="async"
             onLoad={() => setState("loaded")}
             onError={() => setState("error")}
-            className={`size-full object-contain transition-opacity duration-300 ${
+            className={`size-full object-cover transition-opacity duration-300 ${
               state === "loaded" ? "opacity-100" : "opacity-0"
             }`}
           />
@@ -239,6 +239,10 @@ function ExerciseCard({ ex, phase }: { ex: CarouselExercise; phase: ExercisePhas
               className={`size-7 ${meta.text} ${state === "loading" ? "animate-pulse opacity-50" : "opacity-40"}`}
             />
           </div>
+        )}
+        {/* Legibility scrim so the phase chip reads over any photo */}
+        {state === "loaded" && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/35 to-transparent" />
         )}
         {/* Phase tag */}
         <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/90 backdrop-blur-sm">

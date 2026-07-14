@@ -223,6 +223,105 @@
   }
 }
 
+/* === Contextual Zen Stack: ambient daypart washes ===========================
+   THEME (light/dark via .dark) and CONTEXT (data-daypart) are independent.
+   The wash is a very subtle full-page tint keyed to (theme x daypart); it only
+   shifts hue, never brightness, and content stays highly readable. Each combo
+   sets two radial glows layered over the base --background. A faint grain sits
+   on top via ::before. */
+.zen-ambient {
+  position: relative;
+  min-height: 100dvh;
+  /* defaults (light-morning) overridden per data-daypart below */
+  --wash-1: oklch(0.9 0.05 70 / 0.5);
+  --wash-2: oklch(0.93 0.03 30 / 0.45);
+  --wash-pos-1: 20% 0%;
+  --wash-pos-2: 90% 12%;
+  background-color: var(--background);
+  background-image:
+    radial-gradient(120% 90% at var(--wash-pos-1), var(--wash-1), transparent 60%),
+    radial-gradient(110% 80% at var(--wash-pos-2), var(--wash-2), transparent 62%);
+  background-attachment: fixed;
+}
+
+/* Light · morning — warm peach / mist sunrise */
+.zen-ambient[data-daypart="morning"] {
+  --wash-1: oklch(0.9 0.055 68 / 0.55);
+  --wash-2: oklch(0.92 0.035 28 / 0.4);
+  --wash-pos-1: 18% 0%;
+  --wash-pos-2: 88% 8%;
+}
+/* Light · midday — airy clear neutral, faint green freshness */
+.zen-ambient[data-daypart="midday"] {
+  --wash-1: oklch(0.94 0.03 150 / 0.4);
+  --wash-2: oklch(0.95 0.02 200 / 0.35);
+  --wash-pos-1: 50% 0%;
+  --wash-pos-2: 100% 100%;
+}
+/* Light · evening — pale lavender / rose dusk on linen */
+.zen-ambient[data-daypart="evening"] {
+  --wash-1: oklch(0.9 0.04 330 / 0.5);
+  --wash-2: oklch(0.91 0.035 20 / 0.42);
+  --wash-pos-1: 12% 4%;
+  --wash-pos-2: 92% 96%;
+}
+
+/* Dark · morning — deep slate with faint warm ember glow from bottom */
+.dark .zen-ambient[data-daypart="morning"] {
+  --wash-1: oklch(0.42 0.07 55 / 0.35);
+  --wash-2: oklch(0.3 0.04 40 / 0.3);
+  --wash-pos-1: 50% 100%;
+  --wash-pos-2: 15% 90%;
+}
+/* Dark · midday — cool calm slate, faint green mist */
+.dark .zen-ambient[data-daypart="midday"] {
+  --wash-1: oklch(0.4 0.05 160 / 0.3);
+  --wash-2: oklch(0.36 0.04 200 / 0.28);
+  --wash-pos-1: 50% 0%;
+  --wash-pos-2: 100% 100%;
+}
+/* Dark · evening — twilight slate with soft aurora glow */
+.dark .zen-ambient[data-daypart="evening"] {
+  --wash-1: oklch(0.42 0.07 300 / 0.34);
+  --wash-2: oklch(0.44 0.06 200 / 0.3);
+  --wash-pos-1: 22% 8%;
+  --wash-pos-2: 88% 88%;
+}
+
+/* Faint grain over the wash so it reads as texture, not a flat gradient. */
+.zen-ambient::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.02;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.dark .zen-ambient::before {
+  opacity: 0.035;
+}
+
+/* Floating card for the Action Stack — soft shadow, generous radius, no heavy
+   border. Sits above the ambient wash (::before) via relative z-index. */
+.zen-card {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--radius-3xl);
+  background-color: color-mix(in oklch, var(--card) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 1px 2px oklch(0.2 0.02 150 / 0.04),
+    0 12px 32px -12px oklch(0.2 0.02 150 / 0.16);
+}
+.dark .zen-card {
+  background-color: color-mix(in oklch, var(--card) 80%, transparent);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.3),
+    0 16px 40px -16px oklch(0 0 0 / 0.5);
+}
+
 /* Signature hero surface — no gradient. A quiet raised card carrying a very
    subtle contour-dot pattern (topographic "map" texture, a nod to a compass /
    finding your way) plus a whisper of green only at the far corner. The pattern

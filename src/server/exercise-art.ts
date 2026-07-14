@@ -17,22 +17,28 @@ import { asArrayBuffer, base64ToBytes } from "@/server/encoding";
 
 const DEFAULT_CONTENT_TYPE = "image/png";
 
+// Bump when the art STYLE changes so cached images regenerate instead of
+// serving the old look. v2 = realistic photography (was v1 flat silhouettes).
+const ART_STYLE_VERSION = "v2";
+
 function artKey(slug: string): string {
-  // assistant/brian/exercise-art/{slug}.png
-  return getRefKey(`exercise-art/${slug}.png`);
+  // assistant/brian/exercise-art/{style}/{slug}.png
+  return getRefKey(`exercise-art/${ART_STYLE_VERSION}/${slug}.png`);
 }
 
 /**
- * Prompt tuned for a cohesive set: one light figure, dark slate backdrop, no
- * text or clutter. The UI always frames these on a dark tile so a single style
- * reads well in both light and dark mode.
+ * Prompt tuned for a cohesive set of warm, inviting exercise PHOTOGRAPHY. One
+ * real person mid-movement in soft natural light, calm neutral studio/home
+ * setting, shallow depth of field. The UI frames these edge-to-edge (object-
+ * cover) so the photo fills the tile in both themes.
  */
 function buildPrompt(name: string): string {
   return (
-    `A clean minimalist silhouette of a single athletic person performing the exercise "${name}". ` +
-    `Solid light-gray figure, full body, centered, side or three-quarter view that clearly shows the movement. ` +
-    `Flat modern fitness-app icon style on a smooth neutral dark charcoal background (warm-neutral, no blue tint). ` +
-    `High contrast, no text, no labels, no logos, no equipment branding, no border.`
+    `A warm, high-end fitness photograph of a single athletic person performing the exercise "${name}". ` +
+    `Real human, full or three-quarter body, side or three-quarter view that clearly shows the movement. ` +
+    `Soft natural morning light, calm minimalist home-gym or studio setting with warm neutral tones, ` +
+    `shallow depth of field, gentle film-like color grade, editorial wellness magazine aesthetic. ` +
+    `Centered composition suitable for a square crop. No text, no labels, no logos, no watermarks, no borders.`
   );
 }
 

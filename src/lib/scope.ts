@@ -48,3 +48,29 @@ export function greetingTimeWord(date = new Date()): string {
   if (h < 18) return "Afternoon";
   return "Evening";
 }
+
+/**
+ * Time-of-day *context* layer (Contextual Zen Stack). Independent of the
+ * light/dark theme — this only decides which content cards surface on the home
+ * Action Stack and the ambient background tint, never brightness.
+ *   morning  <11am
+ *   midday   11am-5pm
+ *   evening  >=5pm
+ */
+export type Daypart = "morning" | "midday" | "evening";
+
+export function getDaypart(date = new Date()): Daypart {
+  const h = date.getHours();
+  if (h < 11) return "morning";
+  if (h < 17) return "midday";
+  return "evening";
+}
+
+/** "Good morning/afternoon/evening" phrasing keyed to the content daypart. */
+export function daypartGreeting(daypart: Daypart): string {
+  return daypart === "morning"
+    ? "Good morning"
+    : daypart === "midday"
+      ? "Good afternoon"
+      : "Good evening";
+}

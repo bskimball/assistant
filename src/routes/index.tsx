@@ -33,7 +33,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { VoiceInput, speakAssistant } from "@/components/voice-input";
 import { WorkoutCarousel } from "@/components/workout-carousel";
 import { useSession } from "@/lib/auth-client";
-import { greetingTimeWord } from "@/lib/scope";
+import { getDaypart, daypartGreeting, type Daypart } from "@/lib/scope";
 import {
   processVoiceInput,
   saveProductivityTasksForDay,
@@ -173,6 +173,18 @@ function UnifiedDailyDashboard() {
   const isLoading = dashQuery.isPending;
   const [syncing, setSyncing] = useState(false);
   const [hiddenNextBestActionDate, setHiddenNextBestActionDate] = useState<ISODate | null>(null);
+
+  // Time-of-day CONTEXT layer (Contextual Zen Stack) — independent of the
+  // light/dark theme, which the user still controls. This only decides which
+  // domain cards surface on the home Action Stack and the ambient background
+  // tint, never brightness. Defaults to the clock; the daypart pills let you
+  // peek at another part of the day. Past days show their full recap.
+  const [daypartOverride, setDaypartOverride] = useState<Daypart | null>(null);
+  const daypart: Daypart = daypartOverride ?? getDaypart();
+  const showWorkout = !isToday || daypart === "morning";
+  const showNutrition = !isToday || daypart === "midday";
+  const showFinance = !isToday || daypart === "evening";
+  const showEvening = daypart === "evening";
 
   const reload = () =>
     Promise.all([
@@ -984,18 +996,52 @@ function UnifiedDailyDashboard() {
   const { data: greetSession } = useSession();
   const firstName = (greetSession?.user?.name || "").trim().split(/\s+/)[0];
   const greetingLead = isToday
-    ? `${greetingTimeWord()}${firstName ? `, ${firstName}` : ""}.`
+    ? `${daypartGreeting(daypart)}${firstName ? `, ${firstName}` : ""}.`
     : `${dateLabel} — a look back.`;
 
   return (
-    <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
-      <div className="mx-auto w-full max-w-page">
+    <div
+      className="zen-ambient px-4 pb-28 pt-8 sm:px-6 sm:pb-16"
+      data-daypart={daypart}
+    >
+      <div className="relative z-10 mx-auto w-full max-w-page">
         {/* Top nav + date */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="flex flex-col gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Today
             </div>
+            {isToday && (
+              <div
+                className="inline-flex w-fit items-center gap-0.5 rounded-full border border-border/60 bg-card/60 p-0.5 backdrop-blur"
+                role="tablist"
+                aria-label="Focus of the day"
+              >
+                {(
+                  [
+                    ["morning", "Morning"],
+                    ["midday", "Midday"],
+                    ["evening", "Evening"],
+                  ] as [Daypart, string][]
+                ).map(([part, label]) => {
+                  const active = daypart === part;
+                  return (
+                    <button
+                      key={part}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() =>
+                        setDaypartOverride(getDaypart() === part ? null : part)
+                      }
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
@@ -1397,9 +1443,10 @@ function UnifiedDailyDashboard() {
           </Card>
         </Reveal>
 
-        {/* WORKOUT SUGGESTION */}
+        {/* WORKOUT SUGGESTION — morning focus */}
+        {showWorkout && (
         <Reveal delay={revealDelay(2)}>
-          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
+          <Card className="zen-card mb-6 overflow-hidden border-0">
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
@@ -1452,13 +1499,14 @@ function UnifiedDailyDashboard() {
             </CardContent>
           </Card>
         </Reveal>
+        )}
 
         {/* TWO-COLUMN GRID FOR SECONDARY DOMAINS */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <div className="flex flex-col gap-4 md:gap-6">
-            {/* FOCUS & TASKS */}
+            {/* FOCUS & TASKS — available every daypart */}
             <Reveal delay={revealDelay(3)}>
-              <Card className="overflow-hidden border-border bg-card shadow-sm">
+              <Card className="zen-card overflow-hidden border-0">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
                     <span className="flex items-center gap-2">
@@ -1539,9 +1587,10 @@ function UnifiedDailyDashboard() {
               </Card>
             </Reveal>
 
-            {/* NUTRITION */}
+            {/* NUTRITION — midday focus */}
+            {showNutrition && (
             <Reveal delay={revealDelay(4)}>
-              <Card className="overflow-hidden border-border bg-card shadow-sm">
+              <Card className="zen-card overflow-hidden border-0">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
                     <span className="flex items-center gap-2">
@@ -1778,6 +1827,7 @@ function UnifiedDailyDashboard() {
                 </CardContent>
               </Card>
             </Reveal>
+            )}
 
             {/* RECENT ACTIVITY */}
             <Reveal delay={revealDelay(6)}>
@@ -1845,9 +1895,10 @@ function UnifiedDailyDashboard() {
           </div>
 
           <div className="flex flex-col gap-4 md:gap-6">
-            {/* FINANCE — first-class snapshot */}
+            {/* FINANCE — evening wrap-up */}
+            {showFinance && (
             <Reveal delay={revealDelay(5)}>
-              <Card className="overflow-hidden border-border bg-card shadow-sm">
+              <Card className="zen-card overflow-hidden border-0">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
                     <span className="flex items-center gap-2">
@@ -2055,10 +2106,12 @@ function UnifiedDailyDashboard() {
               </Card>
             </Reveal>
 
-            {/* EVENING CHECK-IN */}
-            {isToday && (
+            )}
+
+            {/* EVENING CHECK-IN — evening focus */}
+            {showEvening && isToday && (
               <Reveal delay={revealDelay(7)}>
-                <Card className="overflow-hidden border-border bg-card shadow-sm relative mb-6 md:mb-0">
+                <Card className="zen-card overflow-hidden border-0 relative mb-6 md:mb-0">
                   {dailyPlan?.eveningCheckIn && (
                     <div className="absolute right-0 top-0 w-24 h-24 bg-primary/5 rounded-bl-[100px] pointer-events-none" />
                   )}
