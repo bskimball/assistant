@@ -627,6 +627,10 @@ export function summarizeCashFlow(
 /**
  * ProductivityTask is the unified replacement for the legacy Todo and Kanban items.
  * It supports both list views and kanban board columns.
+ *
+ * Longevity (ADR-024): open tasks live on a durable board (`productivity-board.json`)
+ * until done/cancelled/deleted. `date` is the planned/created day for analytics;
+ * it is **not** the sole visibility key. Day archives store completed work only.
  */
 export type TaskStatus = "pending" | "in_progress" | "done" | "cancelled";
 
@@ -635,6 +639,10 @@ export interface ProductivityTask extends BaseEntity {
   status: TaskStatus;
   /** Convenience flag: true when status === 'done' */
   done: boolean;
+  /**
+   * Planned/created day. Open tasks remain on the board across midnights even
+   * when this is in the past. Completions are archived under the completion day.
+   */
   date: ISODate;
   completedAt?: Timestamp;
   due?: ISODate;

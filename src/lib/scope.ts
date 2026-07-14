@@ -40,3 +40,11 @@ export function scopeDisplayName(scope: string): string {
   if (scope === HOUSEHOLD_ID) return "Shared";
   return scope.charAt(0).toUpperCase() + scope.slice(1);
 }
+
+/** Time-of-day greeting word ("Morning" / "Afternoon" / "Evening"). */
+export function greetingTimeWord(date = new Date()): string {
+  const h = date.getHours();
+  if (h < 12) return "Morning";
+  if (h < 18) return "Afternoon";
+  return "Evening";
+}

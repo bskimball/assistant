@@ -681,12 +681,46 @@ describe("finance math", () => {
 
     expect(result).toMatchObject({
       status: "on-track",
+      monthlyTakeHome: 5000,
+      postedPlanSpend: 2900,
+      upcomingRecurring: 300,
+      oneTimeSpend: 600,
       remainingAfterCommitted: 1200,
+      savingsTarget: 1000,
+      savingsCommitted: 400,
       savingsReserve: 600,
       safeToSpendThisMonth: 600,
       safeToSpendPerDay: 35.29,
       remainingDays: 17,
     });
+  });
+
+  it("shows why no discretionary money remains when the savings target is uncommitted", () => {
+    const result = calculateSafeToSpend({
+      date: "2026-01-15",
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      subscriptions: [],
+      transactions: [
+        txn({ id: "needs", amount: -2300, categoryGroup: "needs" }),
+        txn({ id: "wants", amount: -1700, categoryGroup: "wants" }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: "tight",
+      postedPlanSpend: 4000,
+      remainingAfterCommitted: 1000,
+      savingsTarget: 1000,
+      savingsCommitted: 0,
+      savingsReserve: 1000,
+      safeToSpendThisMonth: 0,
+      safeToSpendPerDay: 0,
+    });
+    expect(result.explanation).toContain("$1,000 remains");
+    expect(result.explanation).toContain("$1,000 is still needed for the savings target");
   });
 
   it("marks a negative safe-to-spend plan as over-plan and never returns negative headroom", () => {

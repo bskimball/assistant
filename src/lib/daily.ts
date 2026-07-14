@@ -43,11 +43,26 @@ export function deleteProductivityTaskClient(id: string) {
   productivityTasksCollection.delete(id);
 }
 
-/** Return tasks for a specific date (caller filters view) */
+/**
+ * Tasks visible for a selected day (ADR-024).
+ *
+ * The collection is hydrated with the server payload for that day:
+ * - today → durable open board + today's archive
+ * - past day → that day's archive only
+ *
+ * Soft-deleted rows are hidden. We intentionally do **not** filter by
+ * `task.date === date` for open tasks — open board items persist across days
+ * regardless of when they were created.
+ */
 export function getTasksForDate(date: ISODate): ProductivityTask[] {
-  return Array.from(productivityTasksCollection.state.values()).filter(
-    (t) => t.date === date && !t.deletedAt,
-  ) as ProductivityTask[];
+  const today = todayISO();
+  return Array.from(productivityTasksCollection.state.values()).filter((t) => {
+    if (t.deletedAt) return false;
+    // Hydration is day-scoped by the server loader. For today, show everything
+    // hydrated (open board + today's archive). For past days, show archive rows.
+    if (date === today) return true;
+    return t.date === date;
+  }) as ProductivityTask[];
 }
 
 /**

@@ -31,7 +31,7 @@ function buildPrompt(name: string): string {
   return (
     `A clean minimalist silhouette of a single athletic person performing the exercise "${name}". ` +
     `Solid light-gray figure, full body, centered, side or three-quarter view that clearly shows the movement. ` +
-    `Flat modern fitness-app icon style on a smooth dark charcoal-slate background. ` +
+    `Flat modern fitness-app icon style on a smooth neutral dark charcoal background (warm-neutral, no blue tint). ` +
     `High contrast, no text, no labels, no logos, no equipment branding, no border.`
   );
 }

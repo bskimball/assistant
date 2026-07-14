@@ -28,11 +28,12 @@ import {
   Pencil,
   type LucideIcon,
 } from "lucide-react";
-import { saveProductivityTasksForDay } from "@/server/domain";
+import { loadProductivityTasksForDay, saveProductivityTasksForDay } from "@/server/domain";
 import type { ProductivityTask, ISODate } from "@/lib/domain";
 import { createProductivityTask, updateTaskStatus, todayISO, toISODate } from "@/lib/domain";
 import {
   productivityTasksCollection,
+  hydrateProductivityTasks,
   upsertProductivityTaskClient,
   deleteProductivityTaskClient,
   getTasksForDate,
@@ -77,7 +78,7 @@ function KanbanBoard() {
   const [quickShared, setQuickShared] = useState(false);
   const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "shared">("all");
   const [tasksVersion, setTasksVersion] = useState(0);
-  const [_isLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   // Visual drag state only — drop logic is unchanged.
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -88,6 +89,26 @@ function KanbanBoard() {
     const sub = productivityTasksCollection.subscribeChanges(() => setTasksVersion((v) => v + 1));
     return () => sub.unsubscribe();
   }, []);
+
+  // ADR-024: load durable board (today) or day archive (past) from the server
+  // whenever the selected date changes. Client collection alone is not enough
+  // because open tasks no longer live only in today-dated day files.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    loadProductivityTasksForDay({ data: selectedDate })
+      .then((payload) => {
+        if (cancelled) return;
+        hydrateProductivityTasks(payload.tasks || []);
+      })
+      .catch((e) => console.error(e))
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
 
   const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion]);
 
@@ -110,22 +131,24 @@ function KanbanBoard() {
     };
     for (const t of visibleTasks) {
       if (t.deletedAt) continue;
+      // Open tasks without a column stay on the board (inbox), not buried by
+      // an old planned date. "today" column is an explicit placement.
       let col =
-        (t.column as ColumnId) || (t.done ? "done" : t.date === selectedDate ? "today" : "inbox");
+        (t.column as ColumnId) ||
+        (t.done || t.status === "done" ? "done" : t.column === "today" ? "today" : "inbox");
       if (!map[col as ColumnId]) col = "inbox";
       map[col as ColumnId].push(t);
     }
     return map;
   }, [visibleTasks, selectedDate]);
 
-  // No need to reload on date for now - client collection + getTasksForDate handles it
-  // (data persists via the daily aggregate on changes)
-
   async function persistTasks(date: ISODate) {
     setSyncing(true);
     try {
       const current = getTasksForDate(date);
-      await saveProductivityTasksForDay({ data: { date, tasks: current } });
+      const saved = await saveProductivityTasksForDay({ data: { date, tasks: current } });
+      // Re-hydrate from server so board + archive stay consistent after save.
+      hydrateProductivityTasks(saved.tasks || current);
     } catch (e) {
       console.error(e);
     } finally {
@@ -254,6 +277,10 @@ function KanbanBoard() {
               Tasks &amp; Reminders
             </div>
             <div className="text-balance text-3xl font-semibold tracking-tighter">Kanban Board</div>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              Open tasks stay on the board until you finish them — they no longer reset each day.
+              {isLoading ? " Loading…" : syncing ? " Saving…" : ""}
+            </p>
           </div>
 
           <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
@@ -343,7 +370,7 @@ function KanbanBoard() {
                   <Input
                     value={taskInput}
                     onChange={(e) => setTaskInput(e.target.value)}
-                    placeholder="Add task for selected day..."
+                    placeholder="Add a task (stays open until done)…"
                     className="flex-1"
                   />
                   <Button type="submit" disabled={!taskInput.trim()}>

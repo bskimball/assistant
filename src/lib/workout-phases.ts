@@ -24,13 +24,13 @@ export const PHASE_META: Record<ExercisePhase, PhaseMeta> = {
   },
   core: {
     label: "Core",
-    dot: "bg-violet-500",
-    text: "text-violet-600 dark:text-violet-400",
+    dot: "bg-primary",
+    text: "text-primary",
   },
   cooldown: {
     label: "Cooldown",
-    dot: "bg-sky-500",
-    text: "text-sky-600 dark:text-sky-400",
+    dot: "bg-teal-600",
+    text: "text-teal-700 dark:text-teal-400",
   },
 };
 

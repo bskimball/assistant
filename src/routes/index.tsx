@@ -32,6 +32,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { VoiceInput, speakAssistant } from "@/components/voice-input";
 import { WorkoutCarousel } from "@/components/workout-carousel";
+import { useSession } from "@/lib/auth-client";
+import { greetingTimeWord } from "@/lib/scope";
 import {
   processVoiceInput,
   saveProductivityTasksForDay,
@@ -51,7 +53,7 @@ import {
   type CoachingResult,
   type CoachDomain,
 } from "@/server/coach";
-import type { DailyNutrition, ISODate, DailyFocusScore, DailyPlan } from "@/lib/domain";
+import type { DailyNutrition, ISODate, DailyPlan } from "@/lib/domain";
 import { selectNextBestAction } from "@/lib/next-best-action";
 import { stableRecommendationId } from "@/lib/recommendation-id";
 import {
@@ -102,14 +104,16 @@ const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
   general: Brain,
 };
 
-// Subtle per-domain icon colors (icons only — bars/cards stay neutral/primary).
+// Per-domain icon tint. Kept within the warm system: fern-green for the
+// "progress" domains, apricot for nourishment, berry for the personal/family
+// lens — no cold indigo/violet/blue that would fight the kitchen-table palette.
 const DOMAIN_COLOR: Record<CoachDomain, string> = {
-  focus: "text-rose-500",
-  fitness: "text-emerald-500",
-  nutrition: "text-amber-500",
-  finance: "text-green-600 dark:text-green-500",
-  family: "text-violet-500",
-  general: "text-indigo-500",
+  focus: "text-primary",
+  fitness: "text-primary",
+  nutrition: "text-[var(--voice-accent)]",
+  finance: "text-primary",
+  family: "text-[var(--chart-1)]",
+  general: "text-muted-foreground",
 };
 
 // Progress-bar fill color. `over` (e.g. calories past target) is the only "bad"
@@ -247,9 +251,6 @@ function UnifiedDailyDashboard() {
   // Derived headline signals (no extra LLM)
   const nutrition = dashboard?.nutrition as (DailyNutrition & { updatedAt?: number }) | null;
   const finance = financeHub?.snapshot ?? dashboard?.finance ?? null;
-  const focusScore = (dashboard?.focus || null) as
-    | (DailyFocusScore & { updatedAt?: number })
-    | null;
   const dailyPlan = (dashboard?.plan || null) as (DailyPlan & { updatedAt?: number }) | null;
 
   const proteinCurrent = nutrition?.totals?.protein ?? 0;
@@ -270,7 +271,6 @@ function UnifiedDailyDashboard() {
     Math.ceil(displayWaterOz / 4) * 4,
     8,
   );
-  const focusMinutes = focusScore?.focusMinutes ?? 0;
   const selectedDayStart = new Date(selectedDate + "T00:00:00").getTime();
   const selectedDayEnd = new Date(selectedDate + "T23:59:59.999").getTime();
   const recentWorkout = [...workoutSessions]
@@ -878,44 +878,57 @@ function UnifiedDailyDashboard() {
     startMainListening();
   }
 
-  // Progress ring component (focus + protein)
-  function ProgressRing({ value, label, sub }: { value: number; label: string; sub?: string }) {
-    const pct = Math.max(0, Math.min(100, value));
-    const r = 28;
+  // Signature "today's warmth" arc: one gentle gauge that blends the day's
+  // core signals (focus, protein, water) into a single sense of how warm/full
+  // the day feels so far. Deliberately not a grid of clinical percentages — a
+  // coach gives you one felt sense, not a scoreboard. The fill glows apricot as
+  // the day fills in.
+  function DayWarmthArc({
+    focusPct,
+    proteinPct,
+    waterPct,
+  }: {
+    focusPct: number;
+    proteinPct: number;
+    waterPct: number;
+  }) {
+    const warmth = Math.round((focusPct + proteinPct + waterPct) / 3);
+    // 270° arc (⅓ gap at the bottom), like a warm dial.
+    const r = 46;
+    const sweep = 0.75; // fraction of the circle the arc spans
     const c = 2 * Math.PI * r;
-    const off = c * (1 - pct / 100);
-    // These rings track "higher is better" goals (tasks done, protein), so the
-    // color rewards progress: green on track, amber partway, muted when barely started.
-    const tone =
-      pct >= 80 ? "text-emerald-500" : pct >= 40 ? "text-amber-500" : "text-muted-foreground";
+    const arcLen = c * sweep;
+    const fill = (arcLen * Math.max(0, Math.min(100, warmth))) / 100;
+    const label = warmth >= 66 ? "warming up" : warmth >= 33 ? "getting there" : "just starting";
     return (
-      <div className="flex flex-col items-center">
-        <svg width="68" height="68" className="-rotate-90">
+      <div className="relative size-36 shrink-0 sm:size-40">
+        <svg viewBox="0 0 120 120" className="size-full rotate-[135deg]">
           <circle
-            cx="34"
-            cy="34"
+            cx="60"
+            cy="60"
             r={r}
-            stroke="currentColor"
-            strokeOpacity={0.12}
-            strokeWidth="6"
+            stroke="var(--border)"
+            strokeWidth="11"
+            strokeLinecap="round"
             fill="none"
+            strokeDasharray={`${arcLen} ${c}`}
           />
           <circle
-            cx="34"
-            cy="34"
+            cx="60"
+            cy="60"
             r={r}
-            stroke="currentColor"
-            strokeWidth="6"
+            stroke="var(--voice-accent)"
+            strokeWidth="11"
+            strokeLinecap="round"
             fill="none"
-            strokeDasharray={c}
-            strokeDashoffset={off}
-            className={`${tone} transition-all`}
+            strokeDasharray={`${fill} ${c}`}
+            className="transition-[stroke-dasharray] duration-700 ease-out"
+            style={{ filter: "drop-shadow(0 0 6px var(--ring))" }}
           />
         </svg>
-        <div className="mt-1 text-center">
-          <div className={`text-sm font-medium tabular-nums ${tone}`}>{pct}%</div>
-          <div className="text-[10px] text-muted-foreground -mt-0.5">{label}</div>
-          {sub && <div className="text-[9px] text-muted-foreground/70 tabular-nums">{sub}</div>}
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-3xl font-semibold tabular-nums text-foreground">{warmth}%</div>
+          <div className="voice text-sm text-muted-foreground">{label}</div>
         </div>
       </div>
     );
@@ -966,15 +979,22 @@ function UnifiedDailyDashboard() {
       ? "Speak or tap to log progress — your coach is standing by."
       : "No activity recorded for this day.");
 
+  // Personal greeting: address the signed-in person by their first name (from
+  // Google auth). Each member sees their own dashboard.
+  const { data: greetSession } = useSession();
+  const firstName = (greetSession?.user?.name || "").trim().split(/\s+/)[0];
+  const greetingLead = isToday
+    ? `${greetingTimeWord()}${firstName ? `, ${firstName}` : ""}.`
+    : `${dateLabel} — a look back.`;
+
   return (
     <div className="bg-background px-4 pb-28 pt-8 sm:px-6 sm:pb-16">
       <div className="mx-auto w-full max-w-page">
         {/* Top nav + date */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-xs tracking-tight text-muted-foreground">Daily Dashboard</div>
-            <div className="text-balance text-3xl font-semibold tracking-tighter">
-              How am I doing?
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Today
             </div>
           </div>
 
@@ -1058,8 +1078,9 @@ function UnifiedDailyDashboard() {
 
         {isToday && hiddenNextBestActionDate !== selectedDate && (
           <Reveal>
-            <Card className="mb-6 border-l-4 border-l-primary" aria-live="polite">
-              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <Card className="mb-6 relative overflow-hidden" aria-live="polite">
+              <div className="absolute inset-0 bg-primary/5 pointer-events-none" />
+              <CardContent className="relative flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Next best action · {nextBestAction.domain}
@@ -1101,57 +1122,67 @@ function UnifiedDailyDashboard() {
           </Reveal>
         )}
 
-        {/* Primary Headline: rings + synthesis */}
+        {/* Signature hero: the coach greets the household by name (Fraunces
+            voice) over a warm sunrise wash. Voice-first — the mic is the
+            primary action; one soft "today's warmth" arc replaces clinical rings. */}
         <Reveal>
-          <div className="aurora-hero relative mb-6 overflow-hidden rounded-2xl border border-border p-5 shadow-sm">
-            <div className="relative flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-              <div className="flex items-center gap-6">
-                <ProgressRing
-                  value={focusProgress}
-                  label="Focus"
-                  sub={`${doneTasks.length}/${tasks.length} tasks`}
-                />
-                <ProgressRing
-                  value={proteinPct}
-                  label="Protein"
-                  sub={`${proteinCurrent}g / ${proteinTarget}g`}
-                />
-              </div>
-
-              <div className="max-w-105 text-center sm:text-left">
-                <div className="text-[13px] font-medium text-muted-foreground">
-                  Today at a glance
-                </div>
-                <div className="mt-1 text-xl leading-tight">
-                  {focusMinutes > 0 ? `${focusMinutes} min focus • ` : ""}
-                  {proteinCurrent > 0 ? `${proteinPct}% protein` : "Log nutrition or tasks"}
-                </div>
-                <Reveal key={headline} className="mt-2 line-clamp-3 text-sm text-muted-foreground">
+          <div className="aurora-hero relative mb-6 overflow-hidden rounded-3xl border border-border p-6 sm:p-8">
+            <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 max-w-xl">
+                <h1 className="voice-lg text-balance text-3xl text-foreground sm:text-[2.6rem]">
+                  {greetingLead}
+                </h1>
+                <Reveal
+                  key={headline}
+                  className="voice mt-3 line-clamp-3 text-lg leading-snug text-foreground/70"
+                >
                   {headline}
                 </Reveal>
+
+                {isToday && (
+                  <div className="mt-5 flex items-center gap-4">
+                    <div className="relative">
+                      {/* Active pulse ring behind the CTA to signal readiness */}
+                      {!isListening && !isVoiceProcessing && (
+                        <div className="absolute -inset-1 rounded-full bg-primary/20 animate-pulse pointer-events-none" />
+                      )}
+                      <button
+                        onClick={handleFabClick}
+                        disabled={isVoiceProcessing}
+                        className={`group relative flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-semibold shadow-md transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.97] ${isListening ? "bg-destructive text-destructive-foreground shadow-destructive/20" : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/20"}`}
+                        aria-label={isListening ? "Stop listening" : "Tap to talk to your coach"}
+                      >
+                        {isListening ? (
+                          <>
+                            <Square className="size-4 fill-current" /> Stop
+                          </>
+                        ) : (
+                          <>
+                            <Mic className="size-4.5" />
+                            Tap to talk
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    {(voiceStatus || isVoiceProcessing) && (
+                      <span className="min-w-0 truncate text-sm text-muted-foreground animate-in fade-in slide-in-from-left-2">
+                        {voiceStatus}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {isToday && (
-                <button
-                  onClick={handleFabClick}
-                  disabled={isVoiceProcessing}
-                  className={`flex size-16 shrink-0 items-center justify-center rounded-full border shadow-sm transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] ${isListening ? "border-red-500 bg-red-500 text-white shadow" : "border-border hover:border-primary hover:text-primary"}`}
-                  aria-label={isListening ? "Stop listening" : "Start voice input"}
-                >
-                  {isListening ? (
-                    <Square className="size-6 fill-current" />
-                  ) : (
-                    <Mic className="size-6" />
-                  )}
-                </button>
-              )}
+              {/* One soft "today's warmth" arc — overall day progress, not a
+                  clinical percentage grid. */}
+              <div className="flex shrink-0 items-center gap-5 sm:flex-col sm:items-end">
+                <DayWarmthArc
+                  focusPct={focusProgress}
+                  proteinPct={proteinPct}
+                  waterPct={waterPct}
+                />
+              </div>
             </div>
-
-            {(voiceStatus || isVoiceProcessing) && (
-              <div className="relative mt-3 text-center text-[10px] text-muted-foreground/70">
-                {voiceStatus}
-              </div>
-            )}
           </div>
         </Reveal>
 
@@ -1215,7 +1246,7 @@ function UnifiedDailyDashboard() {
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-indigo-500" /> Coach Suggestions
+                  <Sparkles className="size-4 text-primary" /> Coach Suggestions
                 </span>
                 <Button
                   variant="ghost"
@@ -1248,7 +1279,7 @@ function UnifiedDailyDashboard() {
                         className="flex gap-2.5 text-sm"
                       >
                         <Icon
-                          className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-indigo-500"}`}
+                          className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-primary"}`}
                         />
                         <div className="min-w-0 flex-1">
                           <span>{s.text}</span>
@@ -1372,7 +1403,7 @@ function UnifiedDailyDashboard() {
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  <Dumbbell className="size-4 text-emerald-500" /> Today’s Workout
+                  <Dumbbell className="size-4 text-primary" /> Today’s Workout
                 </span>
                 <Link to="/workouts" className="text-sm font-normal text-primary hover:underline">
                   Open workouts →
@@ -1422,596 +1453,700 @@ function UnifiedDailyDashboard() {
           </Card>
         </Reveal>
 
-        {/* FOCUS & TASKS */}
-        <Reveal delay={revealDelay(3)}>
-          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <ListTodo className="size-4 text-primary" /> Focus &amp; Tasks
-                </span>
-                <Link to="/kanban" className="text-sm font-normal text-primary hover:underline">
-                  Open full Kanban →
-                </Link>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isToday ? (
-                <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
-                  <Input
-                    value={taskInput}
-                    onChange={(e) => setTaskInput(e.target.value)}
-                    placeholder="Quick add task for today…"
-                    className="flex-1"
-                  />
-                  <Button type="submit" size="sm" disabled={!taskInput.trim()} className="gap-1">
-                    <Plus className="size-4" /> Add
-                  </Button>
-                  <VoiceInput onTranscript={handleVoiceTranscript} />
-                </form>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  Tasks for past days are view-only here. Use the full Kanban to edit.
-                </div>
-              )}
-              {tasks.length > 0 ? (
-                <ul className="mt-3 space-y-1 text-sm">
-                  {tasks.slice(0, 6).map((t, i) => (
-                    <Reveal
-                      as="li"
-                      key={t.id}
-                      delay={revealDelay(i)}
-                      className="flex items-center gap-2"
-                    >
-                      <span
-                        className={`flex size-4 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
+        {/* TWO-COLUMN GRID FOR SECONDARY DOMAINS */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <div className="flex flex-col gap-4 md:gap-6">
+            {/* FOCUS & TASKS */}
+            <Reveal delay={revealDelay(3)}>
+              <Card className="overflow-hidden border-border bg-card shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <ListTodo className="size-3.5" /> Focus &amp; Tasks
+                    </span>
+                    <Link to="/kanban" className="font-normal hover:text-primary transition-colors">
+                      Open full Kanban →
+                    </Link>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isToday ? (
+                    <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
+                      <Input
+                        value={taskInput}
+                        onChange={(e) => setTaskInput(e.target.value)}
+                        placeholder="Quick add task for today…"
+                        className="flex-1 text-sm bg-muted/30"
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={!taskInput.trim()}
+                        className="gap-1 h-9"
                       >
-                        {t.done && <Check className="size-3" />}
-                      </span>
-                      <span className={t.done ? "text-muted-foreground line-through" : ""}>
-                        {t.text}
-                      </span>
-                      {t.shared && (
-                        <Badge
-                          variant="secondary"
-                          className="gap-0.5 bg-primary/10 px-1 text-[10px] text-primary"
-                        >
-                          <Users className="size-2.5" /> Shared
-                        </Badge>
-                      )}
-                    </Reveal>
-                  ))}
-                </ul>
-              ) : isToday ? (
-                <div className="mt-3 text-sm text-muted-foreground">
-                  No tasks yet today — add one above or ask the coach for a plan.
-                </div>
-              ) : (
-                <div className="mt-3 text-sm text-muted-foreground">
-                  No tasks were logged for this day.
-                </div>
-              )}
-              <div className="mt-2 text-[10px] text-muted-foreground">
-                Voice/AI supported — try “add workout 30 min” or “remind me to call mom”.
-              </div>
-            </CardContent>
-          </Card>
-        </Reveal>
-
-        {/* NUTRITION */}
-        <Reveal delay={revealDelay(4)}>
-          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Utensils className="size-4 text-amber-500" /> Nutrition
-                </span>
-                <Link
-                  to="/nutrition"
-                  search={{ date: isToday ? undefined : selectedDate }}
-                  className="text-sm font-normal text-primary hover:underline"
-                >
-                  Open nutrition →
-                </Link>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/* Calories — headline number for the day */}
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <div>Calories</div>
-                <div className="tabular-nums text-muted-foreground">
-                  {caloriesCurrent} / {caloriesTarget} cal
-                </div>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-                <div
-                  className={`h-full transition-all ${fillTone(
-                    Math.min(
-                      100,
-                      Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100),
-                    ),
-                    caloriesCurrent > caloriesTarget * 1.05,
-                  )}`}
-                  style={{
-                    width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
-                  }}
-                />
-              </div>
-
-              {/* Protein */}
-              <div className="mb-2 mt-3 flex items-center justify-between text-sm">
-                <div>Protein</div>
-                <div className="tabular-nums text-muted-foreground">
-                  {proteinCurrent}g / {proteinTarget}g
-                </div>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-                <div
-                  className={`h-full transition-all ${fillTone(proteinPct)}`}
-                  style={{ width: `${proteinPct}%` }}
-                />
-              </div>
-
-              {/* Carbs / Fat */}
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded bg-muted px-2 py-1">
-                  <div className="text-muted-foreground">Carbs</div>
-                  <div className="font-medium tabular-nums">{carbsCurrent}g</div>
-                </div>
-                <div className="rounded bg-muted px-2 py-1">
-                  <div className="text-muted-foreground">Fat</div>
-                  <div className="font-medium tabular-nums">{fatCurrent}g</div>
-                </div>
-              </div>
-
-              {/* Water — draggable slider (same control as the nutrition page) */}
-              <div className="mt-3">
-                <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <Droplet className="size-3.5" /> Water
-                  </span>
-                  <span className="tabular-nums">
-                    {displayWaterOz} / {waterTargetOz} fl oz
-                  </span>
-                </div>
-                {isToday ? (
-                  <div className="flex items-center gap-3">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="size-9 shrink-0"
-                      disabled={foodEstimating || displayWaterOz <= 0}
-                      onClick={() => setWaterOz(waterOz - 4)}
-                      aria-label="Remove 4 fl oz"
-                    >
-                      <Minus className="size-4" />
-                    </Button>
-                    <WaterSlider
-                      value={displayWaterOz}
-                      target={waterTargetOz}
-                      max={waterSliderMax}
-                      disabled={foodEstimating}
-                      onDraft={setWaterDraft}
-                      onCommit={commitWaterDraft}
-                    />
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="size-9 shrink-0"
-                      disabled={foodEstimating}
-                      onClick={() => setWaterOz(waterOz + 4)}
-                      aria-label="Add 4 fl oz"
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-                    <div
-                      className={`h-full transition-all ${fillTone(waterPct)}`}
-                      style={{ width: `${waterPct}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {(nutrition?.mealLogs?.length ?? 0) > 0 && (
-                <div className="mt-3">
-                  <div className="mb-1 text-[10px] text-muted-foreground">Recent logs</div>
-                  <ul className="space-y-1 text-sm">
-                    {nutrition!.mealLogs
-                      .filter((m) => !m.deletedAt)
-                      .slice(-5)
-                      .reverse()
-                      .map((m, idx) => {
-                        const items = m.foodItems || [];
-                        const name =
-                          items.length > 1
-                            ? `${items[0]?.name || "meal"} +${items.length - 1}`
-                            : items[0]?.name || "meal";
-                        const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
-                        const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
-                        return (
-                          <Reveal
-                            as="li"
-                            key={m.id}
-                            delay={revealDelay(idx)}
-                            className="flex items-end gap-2"
-                          >
-                            <span className="min-w-0 truncate">
-                              <span className="text-muted-foreground">
-                                {new Date(m.timestamp).toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </span>{" "}
-                              {name}
-                            </span>
-                            <span className="mb-1 min-w-4 flex-1 border-b border-dotted border-muted-foreground/35" />
-                            <span className="ml-auto shrink-0 text-right tabular-nums text-muted-foreground">
-                              {cals} cal · {prot}g
-                            </span>
-                            {isToday && (
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
-                                disabled={foodEstimating}
-                                onClick={() => handleDeleteMeal(m.id)}
-                                aria-label={`Remove ${name}`}
-                                title="Remove food entry"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            )}
-                          </Reveal>
-                        );
-                      })}
-                  </ul>
-                </div>
-              )}
-
-              {isToday && (
-                <div className="mt-3 space-y-2">
-                  <form onSubmit={handleAddFood} className="flex items-center gap-2">
-                    <Input
-                      value={foodName}
-                      onChange={(e) => setFoodName(e.target.value)}
-                      placeholder="Add food (e.g. 6oz chicken breast)…"
-                      className="flex-1"
-                      disabled={foodEstimating}
-                    />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="gap-1"
-                      disabled={!foodName.trim() || foodEstimating}
-                    >
-                      {foodEstimating ? (
-                        <RefreshCw className="size-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="size-4" />
-                      )}
-                      {foodEstimating ? "Estimating…" : "Add food"}
-                    </Button>
-                  </form>
-                  {foodStatus ? (
-                    <div className="text-[11px] text-muted-foreground">{foodStatus}</div>
+                        <Plus className="size-4" /> Add
+                      </Button>
+                      <VoiceInput onTranscript={handleVoiceTranscript} />
+                    </form>
                   ) : (
-                    <div className="text-[10px] text-muted-foreground/70">
-                      Type any food — the AI fills in calories &amp; protein. Or say “log 40g
-                      protein chicken”.
+                    <div className="text-sm text-muted-foreground">
+                      Tasks for past days are view-only here. Use the full Kanban to edit.
                     </div>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </Reveal>
-
-        {/* FINANCE — first-class snapshot */}
-        <Reveal delay={revealDelay(5)}>
-          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <Link
-                  to="/finance"
-                  className="flex items-center gap-2 transition-colors hover:text-primary"
-                >
-                  <Wallet className="size-4 text-green-600 dark:text-green-500" /> Finance Snapshot
-                </Link>
-                <span className="text-lg font-semibold tabular-nums">
-                  ${(finance?.netWorth ?? 0).toLocaleString()}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-[10px] text-muted-foreground">Net worth</div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                <div className="rounded bg-muted px-2 py-1">
-                  <div className="text-muted-foreground">Cash flow (mo)</div>
-                  <div
-                    className={`font-medium tabular-nums ${
-                      financeCashFlow < 0
-                        ? "text-destructive"
-                        : "text-green-600 dark:text-green-500"
-                    }`}
-                  >
-                    {financeCashFlow < 0 ? "-" : "+"}$
-                    {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
+                  {tasks.length > 0 ? (
+                    <ul className="mt-4 space-y-2 text-sm">
+                      {tasks.slice(0, 6).map((t, i) => (
+                        <Reveal
+                          as="li"
+                          key={t.id}
+                          delay={revealDelay(i)}
+                          className="flex items-center gap-2.5"
+                        >
+                          <span
+                            className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
+                          >
+                            {t.done && <Check className="size-3" />}
+                          </span>
+                          <span
+                            className={`min-w-0 flex-1 truncate ${t.done ? "text-muted-foreground line-through" : ""}`}
+                          >
+                            {t.text}
+                          </span>
+                          {t.shared && (
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0 gap-0.5 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary border-0"
+                            >
+                              <Users className="size-2.5" /> Shared
+                            </Badge>
+                          )}
+                        </Reveal>
+                      ))}
+                    </ul>
+                  ) : isToday ? (
+                    <div className="mt-4 text-sm text-muted-foreground">
+                      No tasks yet today — add one above or ask the coach for a plan.
+                    </div>
+                  ) : (
+                    <div className="mt-4 text-sm text-muted-foreground">
+                      No tasks were logged for this day.
+                    </div>
+                  )}
+                  <div className="mt-4 text-[10px] text-muted-foreground/60 leading-relaxed">
+                    Voice/AI supported — try “add workout 30 min” or “remind me to call mom”.
                   </div>
-                </div>
-                <div className="rounded bg-muted px-2 py-1">
-                  <div className="text-muted-foreground">
-                    {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
-                  </div>
-                  <div className="font-medium tabular-nums">${financeIncome.toLocaleString()}</div>
-                </div>
-                <div className="rounded bg-muted px-2 py-1">
-                  <div className="text-muted-foreground">Spending (mo)</div>
-                  <div className="font-medium tabular-nums">${financeSpend.toLocaleString()}</div>
-                </div>
-              </div>
-              <div className="mt-1 text-[10px] text-muted-foreground">
-                {monthTransactions.length
-                  ? `${monthTransactions.length} transaction${monthTransactions.length === 1 ? "" : "s"} in ${selectedMonth}`
-                  : `No transactions imported for ${selectedMonth}`}
-              </div>
+                </CardContent>
+              </Card>
+            </Reveal>
 
-              {financeHub?.safeToSpend && (
-                <div
-                  className={`mt-3 rounded-md border px-2.5 py-2 text-xs ${
-                    financeHub.safeToSpend.status === "on-track"
-                      ? "border-emerald-500/25 bg-emerald-500/5"
-                      : financeHub.safeToSpend.status === "over-plan"
-                        ? "border-destructive/30 bg-destructive/5"
-                        : financeHub.safeToSpend.status === "tight"
-                          ? "border-amber-500/30 bg-amber-500/5"
-                          : "border-border bg-muted/20"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">Monthly budget guardrail</span>
-                    {financeHub.safeToSpend.status !== "unavailable" && (
-                      <span className="tabular-nums">
-                        ${financeHub.safeToSpend.safeToSpendThisMonth.toLocaleString()} this month ·
-                        ${financeHub.safeToSpend.safeToSpendPerDay.toLocaleString()}
-                        /day
+            {/* NUTRITION */}
+            <Reveal delay={revealDelay(4)}>
+              <Card className="overflow-hidden border-border bg-card shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Utensils className="size-3.5" /> Nutrition
+                    </span>
+                    <Link
+                      to="/nutrition"
+                      search={{ date: isToday ? undefined : selectedDate }}
+                      className="font-normal hover:text-primary transition-colors"
+                    >
+                      Open nutrition →
+                    </Link>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {/* Calories — headline number for the day */}
+                  <div className="mb-3 flex items-end justify-between">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Calories
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-semibold tabular-nums tracking-tight">
+                        {caloriesCurrent}
                       </span>
+                      <span className="text-sm font-medium text-muted-foreground">
+                        / {caloriesTarget}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted/50">
+                    <div
+                      className={`h-full transition-all ${fillTone(
+                        Math.min(
+                          100,
+                          Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100),
+                        ),
+                        caloriesCurrent > caloriesTarget * 1.05,
+                      )}`}
+                      style={{
+                        width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
+                      }}
+                    />
+                  </div>
+
+                  {/* Protein */}
+                  <div className="mb-3 mt-6 flex items-end justify-between">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Protein
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xl font-semibold tabular-nums tracking-tight">
+                        {proteinCurrent}g
+                      </span>
+                      <span className="text-sm font-medium text-muted-foreground">
+                        / {proteinTarget}g
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted/50">
+                    <div
+                      className={`h-full transition-all ${fillTone(proteinPct)}`}
+                      style={{ width: `${proteinPct}%` }}
+                    />
+                  </div>
+
+                  {/* Carbs / Fat */}
+                  <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
+                    <div className="rounded-lg bg-muted/30 p-2.5">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Carbs
+                      </div>
+                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
+                        {carbsCurrent}g
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-muted/30 p-2.5">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Fat
+                      </div>
+                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
+                        {fatCurrent}g
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Water — draggable slider */}
+                  <div className="mt-6">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        <Droplet className="size-3.5" /> Water
+                      </span>
+                      <span className="text-sm font-semibold tabular-nums tracking-tight text-foreground/80">
+                        {displayWaterOz} / {waterTargetOz} fl oz
+                      </span>
+                    </div>
+                    {isToday ? (
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="size-9 shrink-0 rounded-full bg-transparent border-muted-foreground/20"
+                          disabled={foodEstimating || displayWaterOz <= 0}
+                          onClick={() => setWaterOz(waterOz - 4)}
+                          aria-label="Remove 4 fl oz"
+                        >
+                          <Minus className="size-3.5 text-muted-foreground" />
+                        </Button>
+                        <WaterSlider
+                          value={displayWaterOz}
+                          target={waterTargetOz}
+                          max={waterSliderMax}
+                          disabled={foodEstimating}
+                          onDraft={setWaterDraft}
+                          onCommit={commitWaterDraft}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="size-9 shrink-0 rounded-full bg-transparent border-muted-foreground/20"
+                          disabled={foodEstimating}
+                          onClick={() => setWaterOz(waterOz + 4)}
+                          aria-label="Add 4 fl oz"
+                        >
+                          <Plus className="size-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted/50">
+                        <div
+                          className={`h-full transition-all ${fillTone(waterPct)}`}
+                          style={{ width: `${waterPct}%` }}
+                        />
+                      </div>
                     )}
                   </div>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    {financeHub.safeToSpend.explanation} Not available cash or net worth.
-                  </p>
-                </div>
-              )}
 
-              {finance?.accounts?.length ? (
-                <ul className="mt-2 space-y-1 text-sm">
-                  {finance.accounts.map((a, i) => (
-                    <Reveal
-                      as="li"
-                      key={i}
-                      delay={revealDelay(i)}
-                      className="flex items-center justify-between border-b border-border/40 py-1 last:border-0"
-                    >
-                      <span>{a.account}</span>
-                      <span className="tabular-nums text-muted-foreground">
-                        ${a.amount.toLocaleString()}
-                      </span>
-                    </Reveal>
-                  ))}
-                </ul>
-              ) : (
-                <div className="mt-2 text-sm text-muted-foreground">
-                  No accounts tracked yet. Add balances below to start your net-worth baseline.
-                </div>
-              )}
-
-              {isToday && (
-                <div className="mt-3 space-y-2">
-                  <form onSubmit={handleAddAccount} className="flex items-center gap-2">
-                    <Input
-                      value={acctName}
-                      onChange={(e) => setAcctName(e.target.value)}
-                      placeholder="Account (e.g. Checking)"
-                      className="flex-1"
-                    />
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={acctAmount}
-                      onChange={(e) => setAcctAmount(e.target.value)}
-                      placeholder="Balance"
-                      className="w-32"
-                    />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="gap-1"
-                      disabled={!acctName.trim() || !acctAmount}
-                    >
-                      <Plus className="size-4" /> Balance
-                    </Button>
-                  </form>
-                  <form
-                    onSubmit={handleAddTransaction}
-                    className="grid grid-cols-1 gap-2 sm:grid-cols-[110px_1fr_1fr_auto]"
-                  >
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={txnAmount}
-                      onChange={(e) => setTxnAmount(e.target.value)}
-                      placeholder="+/- amount"
-                    />
-                    <Input
-                      value={txnCategory}
-                      onChange={(e) => setTxnCategory(e.target.value)}
-                      placeholder="Category"
-                    />
-                    <Input
-                      value={txnNote}
-                      onChange={(e) => setTxnNote(e.target.value)}
-                      placeholder="Note"
-                    />
-                    <Button type="submit" size="sm" className="gap-1" disabled={!txnAmount}>
-                      <Plus className="size-4" /> Cashflow
-                    </Button>
-                  </form>
-                </div>
-              )}
-              {dayTransactions.length > 0 && (
-                <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                  {dayTransactions
-                    .slice(-3)
-                    .reverse()
-                    .map((t, i) => (
-                      <Reveal
-                        as="li"
-                        key={t.id}
-                        delay={revealDelay(i)}
-                        className="flex items-center justify-between gap-2"
-                      >
-                        <span className="truncate">{t.category || t.notes || t.type}</span>
-                        <span className="tabular-nums">${t.amount.toLocaleString()}</span>
-                      </Reveal>
-                    ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </Reveal>
-
-        {/* RECENT ACTIVITY */}
-        <Reveal delay={revealDelay(6)}>
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="text-base">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(() => {
-                const rec = dashboard?.recent || {
-                  interactions: [],
-                  transcripts: [],
-                };
-                const combined = [
-                  ...(rec.interactions || []).map((i) => ({
-                    ts: i.timestamp,
-                    label: "AI",
-                    text: humanizeAiActivity(i.response, i.intent),
-                  })),
-                  ...(rec.transcripts || []).map((v) => ({
-                    ts: v.timestamp,
-                    label: "Voice",
-                    text: v.transcriptText?.slice(0, 120) || "",
-                  })),
-                ]
-                  .sort((a, b) => b.ts - a.ts)
-                  .slice(0, 8);
-
-                if (combined.length === 0)
-                  return (
-                    <div className="text-sm text-muted-foreground">
-                      No voice or AI activity for this day.
-                    </div>
-                  );
-
-                return (
-                  <div className="space-y-2 text-sm">
-                    {combined.map((c, idx) => (
-                      <Reveal
-                        as="div"
-                        key={idx}
-                        delay={revealDelay(idx)}
-                        className="flex gap-2 text-muted-foreground"
-                      >
-                        <span className="mt-px inline-block w-10.5 shrink-0 font-mono text-[10px] text-muted-foreground/70">
-                          {new Date(c.ts).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
+                  {(nutrition?.mealLogs?.length ?? 0) > 0 && (
+                    <div className="mt-6">
+                      <div className="mb-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Recent logs
+                      </div>
+                      <ul className="space-y-2 text-sm">
+                        {nutrition!.mealLogs
+                          .filter((m) => !m.deletedAt)
+                          .slice(-5)
+                          .reverse()
+                          .map((m, idx) => {
+                            const items = m.foodItems || [];
+                            const name =
+                              items.length > 1
+                                ? `${items[0]?.name || "meal"} +${items.length - 1}`
+                                : items[0]?.name || "meal";
+                            const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
+                            const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
+                            return (
+                              <Reveal
+                                as="li"
+                                key={m.id}
+                                delay={revealDelay(idx)}
+                                className="group flex flex-col gap-0.5 rounded-lg border border-transparent hover:bg-muted/30 -mx-2 p-2 transition-colors"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-foreground/90">{name}</span>
+                                  <span className="text-xs font-semibold tabular-nums text-foreground/80">
+                                    {cals} cal
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                  <span className="font-mono text-[10px]">
+                                    {new Date(m.timestamp).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                  <span className="flex items-center gap-3">
+                                    <span>{prot}g prot</span>
+                                    {isToday && (
+                                      <button
+                                        type="button"
+                                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive transition-opacity"
+                                        disabled={foodEstimating}
+                                        onClick={() => handleDeleteMeal(m.id)}
+                                        aria-label={`Remove ${name}`}
+                                        title="Remove food entry"
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </button>
+                                    )}
+                                  </span>
+                                </div>
+                              </Reveal>
+                            );
                           })}
-                        </span>
-                        <span className="shrink-0 font-medium text-foreground/80">{c.label}:</span>
-                        <span className="min-w-0 flex-1">{c.text}</span>
-                      </Reveal>
-                    ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {isToday && (
+                    <div className="mt-5 space-y-2">
+                      <form onSubmit={handleAddFood} className="flex items-center gap-2">
+                        <Input
+                          value={foodName}
+                          onChange={(e) => setFoodName(e.target.value)}
+                          placeholder="Add food (e.g. 6oz chicken breast)…"
+                          className="flex-1 text-sm bg-muted/30"
+                          disabled={foodEstimating}
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          className="gap-1 h-9"
+                          disabled={!foodName.trim() || foodEstimating}
+                        >
+                          {foodEstimating ? (
+                            <RefreshCw className="size-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="size-4" />
+                          )}
+                          {foodEstimating ? "Estimating…" : "Add food"}
+                        </Button>
+                      </form>
+                      {foodStatus ? (
+                        <div className="text-[11px] text-muted-foreground">{foodStatus}</div>
+                      ) : (
+                        <div className="text-[10px] text-muted-foreground/60 leading-relaxed">
+                          Type any food — the AI fills in calories &amp; protein. Or say “log 40g
+                          protein chicken”.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Reveal>
+
+            {/* RECENT ACTIVITY */}
+            <Reveal delay={revealDelay(6)}>
+              <Card className="overflow-hidden border-border bg-card shadow-sm mb-6 md:mb-0">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Recent Activity
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const rec = dashboard?.recent || {
+                      interactions: [],
+                      transcripts: [],
+                    };
+                    const combined = [
+                      ...(rec.interactions || []).map((i) => ({
+                        ts: i.timestamp,
+                        label: "AI",
+                        text: humanizeAiActivity(i.response, i.intent),
+                      })),
+                      ...(rec.transcripts || []).map((v) => ({
+                        ts: v.timestamp,
+                        label: "Voice",
+                        text: v.transcriptText?.slice(0, 120) || "",
+                      })),
+                    ]
+                      .sort((a, b) => b.ts - a.ts)
+                      .slice(0, 8);
+
+                    if (combined.length === 0)
+                      return (
+                        <div className="text-sm text-muted-foreground">
+                          No voice or AI activity for this day.
+                        </div>
+                      );
+
+                    return (
+                      <div className="space-y-2.5 text-sm">
+                        {combined.map((c, idx) => (
+                          <Reveal
+                            as="div"
+                            key={idx}
+                            delay={revealDelay(idx)}
+                            className="flex items-baseline gap-2 text-muted-foreground"
+                          >
+                            <span className="mt-px inline-block w-10.5 shrink-0 font-mono text-[10px] text-muted-foreground/60">
+                              {new Date(c.ts).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                            <span className="shrink-0 text-[10px] uppercase tracking-wider font-semibold text-foreground/70">
+                              {c.label}:
+                            </span>
+                            <span className="min-w-0 flex-1 leading-snug">{c.text}</span>
+                          </Reveal>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            </Reveal>
+          </div>
+
+          <div className="flex flex-col gap-4 md:gap-6">
+            {/* FINANCE — first-class snapshot */}
+            <Reveal delay={revealDelay(5)}>
+              <Card className="overflow-hidden border-border bg-card shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Wallet className="size-3.5" /> Finance Snapshot
+                    </span>
+                    <Link
+                      to="/finance"
+                      className="font-normal hover:text-primary transition-colors"
+                    >
+                      Open finance →
+                    </Link>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="mb-5 flex flex-col gap-0.5">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Net worth
+                    </div>
+                    <div className="text-4xl font-semibold tabular-nums tracking-tight">
+                      ${(finance?.netWorth ?? 0).toLocaleString()}
+                    </div>
                   </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
-        </Reveal>
 
-        {isToday && (
-          <Reveal delay={revealDelay(7)}>
-            <Card className="mb-6 border-primary/25">
-              <CardHeader>
-                <CardTitle className="text-base">Evening check-in</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1 text-sm">
-                    <span>Energy (1–5)</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={5}
-                      value={checkInEnergy}
-                      onChange={(e) => setCheckInEnergy(Number(e.target.value))}
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    <span>Day rating (1–5)</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={5}
-                      value={checkInRating}
-                      onChange={(e) => setCheckInRating(Number(e.target.value))}
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    <span>Today’s win</span>
-                    <Input
-                      value={checkInWin}
-                      onChange={(e) => setCheckInWin(e.target.value)}
-                      placeholder="What went well?"
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    <span>Friction or blocker</span>
-                    <Input
-                      value={checkInFriction}
-                      onChange={(e) => setCheckInFriction(e.target.value)}
-                      placeholder="What got in the way?"
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm sm:col-span-2">
-                    <span>Optional note</span>
-                    <Input
-                      value={checkInNote}
-                      onChange={(e) => setCheckInNote(e.target.value)}
-                      placeholder="Anything else worth remembering?"
-                    />
-                  </label>
-                </div>
-                <Button onClick={submitEveningCheckIn} disabled={checkInSaving}>
-                  {checkInSaving
-                    ? "Saving…"
-                    : dailyPlan?.eveningCheckIn
-                      ? "Update check-in"
-                      : "Save check-in"}
-                </Button>
-              </CardContent>
-            </Card>
-          </Reveal>
-        )}
+                  <div className="grid grid-cols-2 gap-3 text-xs xl:grid-cols-3">
+                    <div className="rounded-lg bg-muted/30 p-2.5">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Cash flow (mo)
+                      </div>
+                      <div
+                        className={`mt-0.5 text-lg font-semibold tabular-nums tracking-tight ${
+                          financeCashFlow < 0 ? "text-destructive" : "text-foreground"
+                        }`}
+                      >
+                        {financeCashFlow < 0 ? "-" : "+"}$
+                        {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-muted/30 p-2.5">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
+                      </div>
+                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
+                        ${financeIncome.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-muted/30 p-2.5 col-span-2 xl:col-span-1">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Spending (mo)
+                      </div>
+                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
+                        ${financeSpend.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[10px] text-muted-foreground/70">
+                    {monthTransactions.length
+                      ? `${monthTransactions.length} transaction${monthTransactions.length === 1 ? "" : "s"} in ${selectedMonth}`
+                      : `No transactions imported for ${selectedMonth}`}
+                  </div>
 
-        <div className="flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground/60">
+                  {financeHub?.safeToSpend && (
+                    <div
+                      className={`mt-5 rounded-xl border px-3 py-2.5 text-sm ${
+                        financeHub.safeToSpend.status === "on-track"
+                          ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-950 dark:text-emerald-200"
+                          : financeHub.safeToSpend.status === "over-plan"
+                            ? "border-destructive/20 bg-destructive/5 text-destructive-foreground dark:text-red-200"
+                            : financeHub.safeToSpend.status === "tight"
+                              ? "border-amber-500/20 bg-amber-500/5 text-amber-950 dark:text-amber-200"
+                              : "border-border bg-muted/20"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">Monthly guardrail</span>
+                        {financeHub.safeToSpend.status !== "unavailable" && (
+                          <span className="font-semibold tabular-nums">
+                            ${financeHub.safeToSpend.safeToSpendThisMonth.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[11px] opacity-80 leading-snug">
+                        {financeHub.safeToSpend.explanation} ($
+                        {financeHub.safeToSpend.safeToSpendPerDay.toLocaleString()}/day left)
+                      </p>
+                    </div>
+                  )}
+
+                  {finance?.accounts?.length ? (
+                    <div className="mt-5">
+                      <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Balances
+                      </div>
+                      <ul className="space-y-1.5 text-sm">
+                        {finance.accounts.map((a, i) => (
+                          <Reveal
+                            as="li"
+                            key={i}
+                            delay={revealDelay(i)}
+                            className="flex items-center justify-between rounded-md px-1.5 py-1 -mx-1.5 hover:bg-muted/30 transition-colors"
+                          >
+                            <span className="font-medium text-foreground/80">{a.account}</span>
+                            <span className="font-semibold tabular-nums text-foreground/90">
+                              ${a.amount.toLocaleString()}
+                            </span>
+                          </Reveal>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="mt-5 text-sm text-muted-foreground bg-muted/20 rounded-lg p-3 border border-dashed border-border/60">
+                      No accounts tracked yet. Add balances below to start your net-worth baseline.
+                    </div>
+                  )}
+
+                  {isToday && (
+                    <div className="mt-6 space-y-3 pt-4 border-t border-border/40">
+                      <form onSubmit={handleAddAccount} className="flex items-center gap-2">
+                        <Input
+                          value={acctName}
+                          onChange={(e) => setAcctName(e.target.value)}
+                          placeholder="Account (e.g. Checking)"
+                          className="flex-1 text-sm bg-muted/30"
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={acctAmount}
+                          onChange={(e) => setAcctAmount(e.target.value)}
+                          placeholder="Balance"
+                          className="w-28 text-sm bg-muted/30 tabular-nums"
+                        />
+                        <Button
+                          type="submit"
+                          size="icon"
+                          variant="secondary"
+                          className="shrink-0 rounded-full"
+                          disabled={!acctName.trim() || !acctAmount}
+                          title="Update balance"
+                        >
+                          <Plus className="size-4" />
+                        </Button>
+                      </form>
+                      <form
+                        onSubmit={handleAddTransaction}
+                        className="flex flex-col gap-2 sm:flex-row"
+                      >
+                        <div className="flex flex-1 gap-2">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={txnAmount}
+                            onChange={(e) => setTxnAmount(e.target.value)}
+                            placeholder="+/- amount"
+                            className="w-28 text-sm bg-muted/30 tabular-nums"
+                          />
+                          <Input
+                            value={txnCategory}
+                            onChange={(e) => setTxnCategory(e.target.value)}
+                            placeholder="Category"
+                            className="flex-1 text-sm bg-muted/30"
+                          />
+                        </div>
+                        <div className="flex flex-1 gap-2">
+                          <Input
+                            value={txnNote}
+                            onChange={(e) => setTxnNote(e.target.value)}
+                            placeholder="Note"
+                            className="flex-1 text-sm bg-muted/30"
+                          />
+                          <Button
+                            type="submit"
+                            size="icon"
+                            variant="secondary"
+                            className="shrink-0 rounded-full"
+                            disabled={!txnAmount}
+                            title="Log cashflow"
+                          >
+                            <Plus className="size-4" />
+                          </Button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+                  {dayTransactions.length > 0 && (
+                    <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
+                      {dayTransactions
+                        .slice(-3)
+                        .reverse()
+                        .map((t, i) => (
+                          <Reveal
+                            as="li"
+                            key={t.id}
+                            delay={revealDelay(i)}
+                            className="flex items-center justify-between gap-2 border-b border-border/30 pb-1.5 last:border-0 last:pb-0"
+                          >
+                            <span className="truncate">{t.category || t.notes || t.type}</span>
+                            <span className="font-medium tabular-nums text-foreground/80">
+                              ${t.amount.toLocaleString()}
+                            </span>
+                          </Reveal>
+                        ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            </Reveal>
+
+            {/* EVENING CHECK-IN */}
+            {isToday && (
+              <Reveal delay={revealDelay(7)}>
+                <Card className="overflow-hidden border-border bg-card shadow-sm relative mb-6 md:mb-0">
+                  {dailyPlan?.eveningCheckIn && (
+                    <div className="absolute right-0 top-0 w-24 h-24 bg-primary/5 rounded-bl-[100px] pointer-events-none" />
+                  )}
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between relative z-10">
+                      Evening check-in
+                      {dailyPlan?.eveningCheckIn && (
+                        <Badge
+                          variant="secondary"
+                          className="bg-primary/10 text-primary border-0 rounded-full h-5 text-[9px] uppercase tracking-widest px-2"
+                        >
+                          Completed
+                        </Badge>
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 relative z-10">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1 text-sm">
+                        <span className="text-muted-foreground text-xs">Energy (1–5)</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={checkInEnergy}
+                          onChange={(e) => setCheckInEnergy(Number(e.target.value))}
+                          className="bg-muted/30 font-medium"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span className="text-muted-foreground text-xs">Day rating (1–5)</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={checkInRating}
+                          onChange={(e) => setCheckInRating(Number(e.target.value))}
+                          className="bg-muted/30 font-medium"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span className="text-muted-foreground text-xs">Today’s win</span>
+                        <Input
+                          value={checkInWin}
+                          onChange={(e) => setCheckInWin(e.target.value)}
+                          placeholder="What went well?"
+                          className="bg-muted/30"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span className="text-muted-foreground text-xs">Friction or blocker</span>
+                        <Input
+                          value={checkInFriction}
+                          onChange={(e) => setCheckInFriction(e.target.value)}
+                          placeholder="What got in the way?"
+                          className="bg-muted/30"
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm sm:col-span-2">
+                        <span className="text-muted-foreground text-xs">Optional note</span>
+                        <Input
+                          value={checkInNote}
+                          onChange={(e) => setCheckInNote(e.target.value)}
+                          placeholder="Anything else worth remembering?"
+                          className="bg-muted/30"
+                        />
+                      </label>
+                    </div>
+                    <Button
+                      onClick={submitEveningCheckIn}
+                      disabled={checkInSaving}
+                      variant={dailyPlan?.eveningCheckIn ? "secondary" : "default"}
+                      className="w-full sm:w-auto"
+                    >
+                      {checkInSaving
+                        ? "Saving…"
+                        : dailyPlan?.eveningCheckIn
+                          ? "Update check-in"
+                          : "Save check-in"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </Reveal>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mt-6 text-[10px] tabular-nums text-muted-foreground/60">
           {selectedDate} • TanStack Start + R2 {syncing && "• syncing…"} {isLoading && "• loading…"}
         </div>
       </div>

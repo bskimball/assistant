@@ -57,8 +57,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-title", content: "Compass" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
       // Adaptive toolbar color: blends with the app background in each scheme.
-      { name: "theme-color", content: "#f4f1ec", media: "(prefers-color-scheme: light)" },
-      { name: "theme-color", content: "#13151d", media: "(prefers-color-scheme: dark)" },
+      { name: "theme-color", content: "#e9e4d6", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#1b241f", media: "(prefers-color-scheme: dark)" },
     ],
     links: [
       {

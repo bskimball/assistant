@@ -255,7 +255,13 @@ export type SafeToSpendStatus = "unavailable" | "on-track" | "tight" | "over-pla
  */
 export type SafeToSpendResult = {
   status: SafeToSpendStatus;
+  monthlyTakeHome: number;
+  postedPlanSpend: number;
+  upcomingRecurring: number;
+  oneTimeSpend: number;
   remainingAfterCommitted: number;
+  savingsTarget: number;
+  savingsCommitted: number;
   savingsReserve: number;
   safeToSpendThisMonth: number;
   safeToSpendPerDay: number;
@@ -926,7 +932,13 @@ export function calculateSafeToSpend(input: {
   if (!input.budget || positive(input.budget.monthlyTakeHome) === 0) {
     return {
       status: "unavailable",
+      monthlyTakeHome: 0,
+      postedPlanSpend: 0,
+      upcomingRecurring: 0,
+      oneTimeSpend: 0,
       remainingAfterCommitted: 0,
+      savingsTarget: 0,
+      savingsCommitted: 0,
       savingsReserve: 0,
       safeToSpendThisMonth: 0,
       safeToSpendPerDay: 0,
@@ -935,10 +947,9 @@ export function calculateSafeToSpend(input: {
     };
   }
 
-  const requestedDayEnd = requestedAt + DAY - 1;
   const insight = buildBudgetInsight({
     transactions: input.transactions.filter(
-      (transaction) => transaction.timestamp <= requestedDayEnd,
+      (transaction) => toISODate(transaction.timestamp) <= input.date,
     ),
     subscriptions: input.subscriptions,
     month: input.date.slice(0, 7),
@@ -946,7 +957,10 @@ export function calculateSafeToSpend(input: {
     targets: input.budget.targets,
     now: requestedAt,
   });
-  const savingsReserve = dollars(Math.max(0, insight.bucketDeltas.savings));
+  const monthlyTakeHome = dollars(input.budget.monthlyTakeHome);
+  const savingsTarget = dollars(monthlyTakeHome * input.budget.targets.savings);
+  const savingsCommitted = dollars(Math.max(0, savingsTarget - insight.bucketDeltas.savings));
+  const savingsReserve = dollars(Math.max(0, savingsTarget - savingsCommitted));
   const safeToSpendThisMonth = dollars(
     Math.max(0, insight.remainingAfterCommitted - savingsReserve),
   );
@@ -959,14 +973,20 @@ export function calculateSafeToSpend(input: {
         : "on-track";
   const explanation =
     status === "over-plan"
-      ? `Committed spending and one-time costs are $${Math.abs(insight.remainingAfterCommitted).toLocaleString()} over monthly take-home.`
-      : status === "tight"
-        ? `After commitments and a $${savingsReserve.toLocaleString()} savings reserve, keep remaining spending to $${safeToSpendThisMonth.toLocaleString()}.`
-        : `After commitments and a $${savingsReserve.toLocaleString()} savings reserve, $${safeToSpendThisMonth.toLocaleString()} remains for this month.`;
+      ? `Posted spending, upcoming recurring commitments, and one-time costs are $${Math.abs(insight.remainingAfterCommitted).toLocaleString()} over monthly take-home.`
+      : safeToSpendThisMonth === 0
+        ? `$${insight.remainingAfterCommitted.toLocaleString()} remains after spending, upcoming recurring commitments, and one-time costs, but $${savingsReserve.toLocaleString()} is still needed for the savings target.`
+        : `After spending, upcoming recurring commitments, one-time costs, and $${savingsReserve.toLocaleString()} still needed for savings, $${safeToSpendThisMonth.toLocaleString()} remains.`;
 
   return {
     status,
+    monthlyTakeHome,
+    postedPlanSpend: insight.planSpend,
+    upcomingRecurring: insight.plannedRecurring,
+    oneTimeSpend: insight.oneTimeSpend,
     remainingAfterCommitted: insight.remainingAfterCommitted,
+    savingsTarget,
+    savingsCommitted,
     savingsReserve,
     safeToSpendThisMonth,
     safeToSpendPerDay,

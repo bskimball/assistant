@@ -570,21 +570,68 @@ function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpe
       {result.status === "unavailable" ? (
         <p className="mt-2 text-xs text-muted-foreground">{result.explanation}</p>
       ) : (
-        <div className="mt-2 flex items-end justify-between gap-3">
-          <div>
-            <div className="text-lg font-semibold tabular-nums">
-              {fmtMoney(result.safeToSpendThisMonth)}
+        <>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold tabular-nums">
+                {fmtMoney(result.safeToSpendThisMonth)}
+              </div>
+              <div className="text-[11px] text-muted-foreground">safe to spend this month</div>
             </div>
-            <div className="text-[11px] text-muted-foreground">safe to spend this month</div>
-          </div>
-          <div className="text-right">
-            <div className="font-medium tabular-nums">{fmtMoney(result.safeToSpendPerDay)}/day</div>
-            <div className="text-[11px] text-muted-foreground">
-              {result.remainingDays} day{result.remainingDays === 1 ? "" : "s"} left
+            <div className="text-right">
+              <div className="font-medium tabular-nums">
+                {fmtMoney(result.safeToSpendPerDay)}/day
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {result.remainingDays} day{result.remainingDays === 1 ? "" : "s"} left
+              </div>
             </div>
           </div>
-        </div>
+          <details className="mt-2 border-t border-current/10 pt-2 text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Show calculation
+            </summary>
+            <div className="mt-2 space-y-1 tabular-nums">
+              <GuardrailLine label="Monthly take-home" value={result.monthlyTakeHome} />
+              <GuardrailLine label="Posted plan spending" value={-result.postedPlanSpend} />
+              <GuardrailLine label="Upcoming recurring" value={-result.upcomingRecurring} />
+              <GuardrailLine label="One-time spending" value={-result.oneTimeSpend} />
+              <GuardrailLine
+                label="Left before savings"
+                value={result.remainingAfterCommitted}
+                strong
+              />
+              <GuardrailLine label="Savings target" value={result.savingsTarget} />
+              <GuardrailLine label="Savings committed" value={result.savingsCommitted} />
+              <GuardrailLine label="Still needed for savings" value={-result.savingsReserve} />
+              <GuardrailLine label="Safe to spend" value={result.safeToSpendThisMonth} strong />
+            </div>
+            <p className="mt-2 text-pretty">{result.explanation}</p>
+          </details>
+        </>
       )}
+    </div>
+  );
+}
+
+function GuardrailLine({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 ${strong ? "font-medium text-foreground" : ""}`}
+    >
+      <span>{label}</span>
+      <span>
+        {value < 0 ? "−" : value > 0 ? "+" : ""}
+        {fmtMoney(Math.abs(value))}
+      </span>
     </div>
   );
 }

@@ -387,10 +387,11 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
             <span>Imported + synced spend for {formatMonthLabel(selectedMonth)}.</span>
             <InfoHint>
               Spending here comes from your imported and synced transactions, plus active recurring
-              commitments from the Recurring tab that haven’t shown up in statements yet. “Left so
-              far” is take-home minus what’s already posted this month; “Left after bills” also
-              subtracts upcoming recurring commitments that haven’t posted yet. Targets are 50/30/20
-              of the take-home baseline in this header.
+              commitments from the Recurring tab that haven’t shown up in statements yet. “Left
+              before upcoming bills” subtracts posted plan spending and one-time spending. “Left
+              before savings target” also subtracts upcoming recurring commitments, but it does not
+              reserve the unmet savings target. The Overview guardrail shows that final reserve
+              separately. Targets are 50/30/20 of the take-home baseline in this header.
             </InfoHint>
           </div>
           {th > 0 ? (
@@ -399,17 +400,25 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
               <div className="rounded-lg bg-muted/20 p-3 ring-1 ring-foreground/10">
                 <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
                   <div>
-                    <div className="text-xs font-medium text-muted-foreground">Left so far</div>
+                    <div className="text-xs font-medium text-muted-foreground">
+                      Left before upcoming bills
+                    </div>
                     <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
                       {fmtMoney(budgetInsight.remainingCash)}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      Includes one-time spending
                     </div>
                   </div>
                   <div className="border-l border-border/60 pl-6">
                     <div className="text-xs font-medium text-muted-foreground">
-                      Left after bills
+                      Left before savings target
                     </div>
                     <div className="mt-1 text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">
                       {fmtMoney(budgetInsight.remainingAfterCommitted)}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      After upcoming recurring and one-time spending
                     </div>
                   </div>
                 </div>

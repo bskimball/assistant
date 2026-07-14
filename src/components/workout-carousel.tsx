@@ -217,8 +217,9 @@ function ExerciseCard({ ex, phase }: { ex: CarouselExercise; phase: ExercisePhas
 
   return (
     <div className="overflow-hidden rounded-xl bg-card shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06),0_2px_4px_0_rgba(0,0,0,0.04)] transition-[box-shadow] hover:shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.08),0_2px_4px_0_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)] dark:hover:shadow-[0_0_0_1px_rgba(255,255,255,0.13)]">
-      {/* Silhouette media frame — always dark so one art style reads in both themes. */}
-      <div className="relative aspect-square w-full bg-slate-900 outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
+      {/* Silhouette media frame — neutral warm-charcoal so one art style reads in
+          both themes without a cold blue cast. */}
+      <div className="relative aspect-square w-full bg-[oklch(0.24_0.008_150)] outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
         {state !== "error" && (
           <img
             src={exerciseImageUrl(ex.name)}
