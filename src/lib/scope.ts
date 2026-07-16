@@ -51,8 +51,8 @@ export function greetingTimeWord(date = new Date()): string {
 
 /**
  * Time-of-day *context* layer (Contextual Zen Stack). Independent of the
- * light/dark theme — this only decides which content cards surface on the home
- * Action Stack and the ambient background tint, never brightness.
+ * light/dark theme — this decides which Action Stack card is focused by default
+ * and the ambient background tint, never which cards exist and never brightness.
  *   morning  <11am
  *   midday   11am-5pm
  *   evening  >=5pm

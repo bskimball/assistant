@@ -168,7 +168,7 @@ export function SimplefinConnectionsCard({
     >
       <div className="space-y-3">
         {status?.missingSealKey && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
             SIMPLEFIN_SEAL_KEY is missing. Add a 32-byte base64 Workers secret before connecting.
           </div>
         )}
@@ -196,7 +196,7 @@ export function SimplefinConnectionsCard({
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span className="flex items-center gap-1.5 text-sm font-medium">
-                <span className="size-1.5 rounded-full bg-emerald-500" />
+                <span className="size-1.5 rounded-full bg-success" />
                 Connected
               </span>
               {status?.accounts.length ? (

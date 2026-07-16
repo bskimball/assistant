@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { acceptFinanceActions, type FinanceHubPayload } from "@/server/finance";
+import { acceptFinanceActions } from "@/server/finance";
+import type { FinanceHubPayload } from "@/lib/finance-types";
 import {
   spendAmountOf,
   spendBucketOf,
@@ -151,7 +152,7 @@ export function GrowTab({
       <CashFlowProjectionCard hub={hub} today={today} />
       <RevenueGrowthCard hub={hub} today={today} />
 
-      <div className="flex flex-col gap-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-xl bg-card/70 backdrop-blur-xl backdrop-saturate-150 px-4 py-3 ring-1 ring-foreground/10 dark:ring-primary/15 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-pretty text-sm text-muted-foreground">
           Personalized budget fixes, a subscription audit, and investing moves — grounded in your
           real numbers.
@@ -313,16 +314,16 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
   const nextMonths = projection.months.slice(0, 4);
   const netTone =
     projection.totalNetCashFlow > 0
-      ? "text-emerald-600 dark:text-emerald-400"
+      ? "text-info"
       : projection.totalNetCashFlow < 0
         ? "text-destructive"
         : "text-muted-foreground";
 
   return (
-    <Card className="border-sky-500/20 bg-linear-to-br from-sky-500/6 to-card">
+    <Card className="border-info/20 bg-linear-to-br from-info/6 to-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <LineChart className="size-4 text-sky-600 dark:text-sky-400" />
+          <LineChart className="size-4 text-info" />
           12-month cash-flow projection
         </CardTitle>
       </CardHeader>
@@ -356,15 +357,13 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-4">
             {nextMonths.map((month) => (
-              <div key={month.month} className="rounded-md bg-background/50 px-2 py-2">
+              <div key={month.month} className="zen-surface-nested px-2 py-2">
                 <div className="text-[10px] text-muted-foreground">
                   {formatMonthLabel(month.month).slice(0, 3)}
                 </div>
                 <div
                   className={`mt-1 text-sm font-semibold tabular-nums ${
-                    month.netCashFlow >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-destructive"
+                    month.netCashFlow >= 0 ? "text-info" : "text-destructive"
                   }`}
                 >
                   {month.netCashFlow < 0 ? "-" : "+"}
@@ -461,14 +460,14 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
               onClick={() => toggleLever(label)}
               aria-pressed={completedLevers.has(label)}
               className={`flex min-h-10 gap-3 rounded-lg px-3 py-2 text-left ring-1 ring-foreground/10 transition-[scale,background-color,color,box-shadow] active:scale-[0.96] ${
-                completedLevers.has(label) ? "bg-emerald-500/10" : "bg-muted/20 hover:bg-muted/40"
+                completedLevers.has(label) ? "bg-success/10" : "bg-muted/20 hover:bg-muted/40"
               }`}
             >
               <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center">
                 {completedLevers.has(label) ? (
-                  <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                  <CheckCircle2 className="size-4 text-success" />
                 ) : (
-                  <Icon className="size-4 text-primary" />
+                  <Icon className="size-4 text-info" />
                 )}
               </span>
               <span>

@@ -19,7 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveDailyFinance } from "@/server/domain";
-import { acceptFinanceActions, type FinanceHubPayload } from "@/server/finance";
+import { acceptFinanceActions } from "@/server/finance";
+import type { FinanceHubPayload } from "@/lib/finance-types";
 import {
   subscriptionMonthlyCost,
   spendAmountOf,
@@ -287,7 +288,7 @@ export function OverviewTab({
                 disabled={busy || !editName.trim() || !editAmount}
                 aria-label={`Save ${a.account}`}
                 title="Save account"
-                className="size-10 text-emerald-600 transition-[scale,background-color,color] active:scale-[0.96] dark:text-emerald-400"
+                className="size-10 text-success transition-[scale,background-color,color] active:scale-[0.96]"
               >
                 <Check className="size-4" />
               </Button>
@@ -314,7 +315,7 @@ export function OverviewTab({
                 title={synced ? "Synced from your bank connection" : "Entered manually"}
               >
                 <span
-                  className={`size-1.5 rounded-full ${synced ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                  className={`size-1.5 rounded-full ${synced ? "bg-success" : "bg-muted-foreground/40"}`}
                 />
                 {synced ? "Synced" : "Manual"}
               </span>
@@ -543,11 +544,11 @@ export function OverviewTab({
 function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpend"] }) {
   const tone =
     result.status === "on-track"
-      ? "border-emerald-500/25 bg-emerald-500/5"
+      ? "border-success/25 bg-success/5"
       : result.status === "over-plan"
         ? "border-destructive/30 bg-destructive/5"
         : result.status === "tight"
-          ? "border-amber-500/30 bg-amber-500/5"
+          ? "border-warning/30 bg-warning/5"
           : "border-border bg-muted/20";
   const statusLabel: Record<typeof result.status, string> = {
     unavailable: "Setup needed",
@@ -639,10 +640,10 @@ function GuardrailLine({
 function CashFlowCalendarCard({ result }: { result: FinanceHubPayload["cashFlowCalendar"] }) {
   const tone =
     result.status === "healthy"
-      ? "border-emerald-500/25 bg-emerald-500/5"
+      ? "border-success/25 bg-success/5"
       : result.status === "negative"
         ? "border-destructive/30 bg-destructive/5"
-        : "border-amber-500/30 bg-amber-500/5";
+        : "border-warning/30 bg-warning/5";
   const statusLabel: Record<typeof result.status, string> = {
     healthy: "Healthy",
     tight: "Tight",
@@ -686,7 +687,7 @@ function CashFlowCalendarCard({ result }: { result: FinanceHubPayload["cashFlowC
                 {event.label}
               </span>
               <span
-                className={`shrink-0 tabular-nums ${event.amount < 0 ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"}`}
+                className={`shrink-0 tabular-nums ${event.amount < 0 ? "text-destructive" : "text-info"}`}
               >
                 {event.amount < 0 ? "-" : "+"}
                 {fmtMoney(Math.abs(event.amount))}
@@ -766,7 +767,7 @@ function CoachSuggestions({
       <Card
         role="status"
         aria-busy="true"
-        className="overflow-hidden border-primary/25 bg-card shadow-sm"
+        className="overflow-hidden border-primary/25 bg-card/70 backdrop-blur-xl backdrop-saturate-150 shadow-sm"
       >
         <span className="sr-only">Loading coach suggestions…</span>
         {header}
@@ -804,7 +805,7 @@ function CoachSuggestions({
   }
 
   return (
-    <Card className="overflow-hidden border-primary/25 bg-card shadow-sm">
+    <Card className="overflow-hidden border-primary/25 bg-card/70 backdrop-blur-xl backdrop-saturate-150 shadow-sm">
       {header}
       <CardContent className="pt-0">
         <ul className="divide-y divide-border/50">
@@ -864,17 +865,17 @@ function EmergencyFundProgressCard({
   };
   const statusClass =
     fund.status === "funded" || fund.status === "surplus"
-      ? "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300"
+      ? "bg-success/10 text-success ring-success/20"
       : fund.status === "building"
-        ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
+        ? "bg-warning/10 text-warning-foreground ring-warning/20"
         : "bg-muted/40 text-muted-foreground ring-foreground/10";
 
   return (
-    <Card className="overflow-hidden border-emerald-500/20 bg-linear-to-br from-emerald-500/6 to-card">
+    <Card className="overflow-hidden border-success/20 bg-linear-to-br from-success/6 to-card">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
-            <PiggyBank className="size-4 text-emerald-600 dark:text-emerald-400" />
+            <PiggyBank className="size-4 text-success" />
             Emergency fund
           </span>
           <span
@@ -901,7 +902,7 @@ function EmergencyFundProgressCard({
               aria-hidden
             />
             <span
-              className="absolute inset-y-0 left-0 rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
+              className="absolute inset-y-0 left-0 rounded-full bg-success transition-[width] duration-300 ease-out"
               style={{ width: `${progress}%` }}
               aria-hidden
             />
@@ -951,11 +952,7 @@ function TxnRow({ t, hideAccount }: { t: Transaction; hideAccount?: boolean }) {
         </div>
         <TxnSubline t={t} className="text-xs" hideAccount={hideAccount} />
       </div>
-      <span
-        className={`shrink-0 tabular-nums ${
-          t.amount < 0 ? "text-foreground" : "text-green-600 dark:text-green-500"
-        }`}
-      >
+      <span className={`shrink-0 tabular-nums ${t.amount < 0 ? "text-foreground" : "text-info"}`}>
         {t.amount < 0 ? "-" : "+"}
         {fmtMoney(Math.abs(t.amount))}
       </span>
@@ -1155,12 +1152,12 @@ function DataQualityCard({ hub, today }: { hub: FinanceHubPayload; today: string
   ];
   const score = confidenceChecks.filter((c) => c.ok).length;
   const issues = confidenceChecks.filter((c) => !c.ok);
-  const dotColor = score === 4 ? "bg-green-500" : score >= 2 ? "bg-amber-500" : "bg-destructive";
+  const dotColor = score === 4 ? "bg-success" : score >= 2 ? "bg-warning" : "bg-destructive";
 
   if (issues.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5 font-medium text-foreground">
         <span className={`size-1.5 rounded-full ${dotColor}`} />
         Data confidence {score}/4

@@ -10,10 +10,12 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { LayoutDashboard, Compass } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
+import { RouteError } from "@/components/route-error";
 import { Button } from "@/components/ui/button";
+import { shellShowsNav } from "@/lib/navigation";
 import { getSessionState } from "@/server/session";
 
 import appCss from "../styles.css?url";
@@ -56,9 +58,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Compass" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
-      // Adaptive toolbar color: blends with the app background in each scheme.
-      { name: "theme-color", content: "#e9e4d6", media: "(prefers-color-scheme: light)" },
-      { name: "theme-color", content: "#1b241f", media: "(prefers-color-scheme: dark)" },
+      // Adaptive toolbar color: matches the opaque shelf (surface-raised) in
+      // each scheme — warm mineral in light, deep lake ink in dark.
+      { name: "theme-color", content: "#f7f2e9", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#1d2734", media: "(prefers-color-scheme: dark)" },
     ],
     links: [
       {
@@ -74,6 +77,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   }),
   shellComponent: RootDocument,
   notFoundComponent: NotFound,
+  errorComponent: RouteError,
 });
 
 function NotFound() {
@@ -111,7 +115,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   // still on screen. Drives the top progress bar + content dimming so a slow
   // load never looks like a dead click.
   const isNavigating = useRouterState({ select: (s) => s.status === "pending" });
-  const showNav = pathname !== "/login";
+  const showNav = shellShowsNav(pathname);
 
   // The router can be "pending" during SSR/streaming, but on the client's
   // first render it is idle — rendering pending-only UI on the server causes
@@ -143,44 +147,25 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         {/* Persistent nav (hidden on the login gate) */}
         {showNav && <AppNav />}
         {showPending && <div className="route-progress" aria-hidden />}
-        {/* Page transitions (motion). Keyed on pathname so each navigation runs
-            a subtle exit→enter; in-page search changes (same pathname) don't
-            retrigger it. `mode="wait"` lets the old page leave before the new
-            one arrives; `initial={false}` skips the animation on first paint so
-            SSR content doesn't flash in. `MotionConfig reducedMotion="user"`
-            honors the OS reduce-motion setting without changing the DOM (no
-            hydration mismatch). */}
+        {/* No shell-level page fade. A whole-page opacity transition here caused
+            a black "blink" between routes: with the photographic route
+            backgrounds, fading the outgoing page to 0 revealed the dark body
+            background before the incoming page mounted. Each route already
+            animates its own content in via <Reveal>/<Stagger>, so entrance
+            motion is handled per-page and the shell just swaps children.
+
+            The only shell-level treatment is the pending-dim: while the next
+            route's loaders run, the stale page dims slightly so a tap registers
+            visually. The 150ms delay keeps fast (cached) navigations from
+            flickering. MotionConfig reducedMotion="user" still honors the OS
+            reduce-motion setting for the per-page content animations. */}
         <MotionConfig reducedMotion="user">
-          {/* overflow-y-clip: the enter/exit y-offsets would otherwise extend
-              the page 8px past the viewport mid-animation, flashing a
-              scrollbar on pages that fit exactly. */}
-          <div className="overflow-y-clip">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={pathname}
-                initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{
-                  opacity: 0,
-                  y: -8,
-                  filter: "blur(4px)",
-                  transition: { duration: 0.15, ease: "easeIn" },
-                }}
-                transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-              >
-                {/* Inner wrapper (motion owns the outer div's inline opacity):
-                  while the next page's loaders run, fade the stale page so the
-                  user sees their tap registered. The delay keeps fast (cached)
-                  navigations from flickering. */}
-                <div
-                  className={`transition-opacity delay-150 duration-300 ${
-                    showPending ? "opacity-40" : "opacity-100"
-                  }`}
-                >
-                  {children}
-                </div>
-              </motion.div>
-            </AnimatePresence>
+          <div
+            className={`transition-opacity delay-150 duration-300 ${
+              showPending ? "opacity-40" : "opacity-100"
+            }`}
+          >
+            {children}
           </div>
         </MotionConfig>
         <TanStackDevtools

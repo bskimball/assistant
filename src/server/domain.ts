@@ -30,7 +30,12 @@ import type {
 } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
 import * as impl from "@/server/domain-impl";
-import type { RecordRecommendationOutcomeInput, VoiceProcessResult } from "@/server/domain-impl";
+import type {
+  CompleteHealthRecommendationInput,
+  RecordRecommendationOutcomeInput,
+  TransitionHealthRecommendationInput,
+  VoiceProcessResult,
+} from "@/server/domain-impl";
 
 async function withDomainAuth<TResult>(handler: () => Promise<TResult>): Promise<TResult> {
   await requireAuthSession();
@@ -57,6 +62,8 @@ export type {
   DailyDashboardPayload,
   VoiceProcessResult,
   RecordRecommendationOutcomeInput,
+  CompleteHealthRecommendationInput,
+  TransitionHealthRecommendationInput,
 } from "@/server/domain-impl";
 
 export type { VoiceIntent } from "@/lib/domain";
@@ -105,6 +112,22 @@ export const saveDailyNutrition = createServerFn({ method: "POST" })
     }) => payload,
   )
   .handler(({ data }) => withDomainAuthData(data, impl.saveDailyNutritionImpl));
+
+export const appendMealLog = createServerFn({ method: "POST" })
+  .validator((data: { date: ISODate; meal: import("@/lib/domain").MealLog }) => data)
+  .handler(({ data }) => withDomainAuthData(data, impl.appendMealLogImpl));
+
+export const setDailyWater = createServerFn({ method: "POST" })
+  .validator((data: { date: ISODate; waterMl: number }) => data)
+  .handler(({ data }) => withDomainAuthData(data, impl.setDailyWaterImpl));
+
+export const addDailyWater = createServerFn({ method: "POST" })
+  .validator((data: { date: ISODate; amountMl: number }) => data)
+  .handler(({ data }) => withDomainAuthData(data, impl.addDailyWaterImpl));
+
+export const removeMealLog = createServerFn({ method: "POST" })
+  .validator((data: { date: ISODate; mealId: string }) => data)
+  .handler(({ data }) => withDomainAuthData(data, impl.removeMealLogImpl));
 
 export const loadDailyFinance = createServerFn({ method: "GET" })
   .validator((date: ISODate) => date)
@@ -155,6 +178,14 @@ export const saveEveningCheckIn = createServerFn({ method: "POST" })
 export const recordRecommendationOutcome = createServerFn({ method: "POST" })
   .validator((outcome: RecordRecommendationOutcomeInput) => outcome)
   .handler(({ data }) => withDomainAuthData(data, impl.recordRecommendationOutcomeImpl));
+
+export const completeHealthRecommendation = createServerFn({ method: "POST" })
+  .validator((input: CompleteHealthRecommendationInput) => input)
+  .handler(({ data }) => withDomainAuthData(data, impl.completeHealthRecommendationImpl));
+
+export const transitionHealthRecommendation = createServerFn({ method: "POST" })
+  .validator((input: TransitionHealthRecommendationInput) => input)
+  .handler(({ data }) => withDomainAuthData(data, impl.transitionHealthRecommendationImpl));
 
 export const loadRecommendationOutcomes = createServerFn({ method: "GET" })
   .validator((dates: ISODate[]) => dates)

@@ -682,6 +682,7 @@ export async function generateCoachingImpl(data: {
       eveningCheckIn: existing?.eveningCheckIn,
       acceptedAt: existing?.acceptedAt,
       acceptedSuggestionIds: existing?.acceptedSuggestionIds,
+      dailyQuote: existing?.dailyQuote,
       aiSuggestions: result.suggestions.map(
         (s) => `[${s.domain}] ${s.text}` + (s.action ? `  (try: "${s.action}")` : ""),
       ),
@@ -773,6 +774,7 @@ export async function acceptDailyCoachingPlanImpl(data: {
         (s: CoachSuggestion) => `[${s.domain}] ${s.text}`,
       ),
     aiCoaching: existingPlan?.aiCoaching,
+    dailyQuote: existingPlan?.dailyQuote,
     voiceNoteIds: existingPlan?.voiceNoteIds,
     eveningCheckIn: existingPlan?.eveningCheckIn,
     notes: existingPlan?.notes,

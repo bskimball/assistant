@@ -241,11 +241,15 @@ export async function saveExerciseLibraryImpl(lib: ExerciseLibrary): Promise<Exe
 }
 
 export {
+  addDailyWaterImpl,
   addMacros,
+  appendMealLogImpl,
   emptyMacros,
   estimateMacrosFromText,
   loadDailyNutritionImpl,
+  removeMealLogImpl,
   saveDailyNutritionImpl,
+  setDailyWaterImpl,
   sumMealMacros,
 } from "@/server/nutrition-impl";
 export type { DailyNutritionPayload } from "@/server/nutrition-impl";
@@ -298,11 +302,17 @@ export { executeVoiceIntentImpl, processVoiceInputImpl } from "@/server/voice-im
 export type { VoiceProcessResult } from "@/server/voice-impl";
 
 export {
+  completeHealthRecommendationImpl,
   loadMonthlyEffectivenessImpl,
   loadRecommendationOutcomesImpl,
   recordRecommendationOutcomeImpl,
+  transitionHealthRecommendationImpl,
 } from "@/server/recommendation-outcomes-impl";
-export type { RecordRecommendationOutcomeInput } from "@/server/recommendation-outcomes-impl";
+export type {
+  CompleteHealthRecommendationInput,
+  RecordRecommendationOutcomeInput,
+  TransitionHealthRecommendationInput,
+} from "@/server/recommendation-outcomes-impl";
 
 export {
   recordSoftDeletedKeyImpl,

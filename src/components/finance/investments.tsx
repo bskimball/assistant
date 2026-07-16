@@ -119,7 +119,7 @@ export function InvestmentsTab({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-card px-4 py-4 ring-1 ring-foreground/10">
+      <div className="rounded-xl bg-card/70 backdrop-blur-xl backdrop-saturate-150 px-4 py-4 ring-1 ring-foreground/10 dark:ring-primary/15">
         <div className="text-xs font-medium text-muted-foreground">Holdings total value</div>
         <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
           {fmtMoney(total)}
@@ -191,9 +191,9 @@ export function InvestmentsTab({
                             {isLive && (
                               <Badge
                                 variant="secondary"
-                                className="gap-1 bg-emerald-500/10 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+                                className="gap-1 bg-success/10 text-[10px] uppercase tracking-wide text-success"
                               >
-                                <span className="size-1.5 rounded-full bg-emerald-500" />
+                                <span className="size-1.5 rounded-full bg-success" />
                                 Live
                               </Badge>
                             )}
@@ -213,7 +213,7 @@ export function InvestmentsTab({
                         <td className="py-2 pl-2">
                           <div className="relative ml-auto h-8 w-full min-w-36 overflow-hidden rounded-lg bg-muted/60">
                             <span
-                              className="absolute inset-y-0 left-0 rounded-lg bg-primary/25 transition-[width] duration-300 ease-out"
+                              className="absolute inset-y-0 left-0 rounded-lg bg-info/25 transition-[width] duration-300 ease-out"
                               style={{ width: `${pct}%` }}
                               aria-hidden
                             />

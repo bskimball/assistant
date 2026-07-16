@@ -88,9 +88,13 @@ export async function requireAuthSession(request?: Request): Promise<Session | n
     // Server functions don't receive the Request as an argument; resolve it
     // from the active request context (same source the scope middleware uses).
     // Dynamic import: server-only module, must never reach client bundles.
+    // Guard both the import and the call — a broken/HMR client resolution can
+    // yield a module object where `getRequest` is missing ("is not a function").
     try {
-      const { getRequest } = await import("@tanstack/react-start/server");
-      request = getRequest();
+      const server = await import("@tanstack/react-start/server");
+      if (typeof server.getRequest === "function") {
+        request = server.getRequest();
+      }
     } catch {
       request = undefined; // fail closed below
     }

@@ -10,11 +10,11 @@ import {
 } from "@/lib/domain";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import {
+  addDailyWaterImpl,
   addMacros,
+  appendMealLogImpl,
   emptyMacros,
   estimateMacrosFromText,
-  loadDailyNutritionImpl,
-  saveDailyNutritionImpl,
 } from "@/server/nutrition-impl";
 import {
   loadProductivityTasksForDayImpl,
@@ -237,14 +237,9 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
           intent.payload.milliliters ?? intent.payload.amountMl ?? intent.payload.ml ?? 250,
         );
         const date = resolveVoiceTargetDate(intent.payload.date, today);
-        const nutrition = await loadDailyNutritionImpl(date);
-        await saveDailyNutritionImpl({
+        await addDailyWaterImpl({
           date,
-          nutrition: {
-            ...nutrition,
-            waterMl: (nutrition.waterMl ?? 0) + Math.max(1, Math.round(ml)),
-            updatedAt: now,
-          } as any,
+          amountMl: Math.max(1, Math.round(ml)),
         });
         return {
           spokenText: `Logged ${mlToFlOz(ml) ?? Math.round(ml)} fl oz water.${describeDay(date, today)}`,
@@ -254,7 +249,6 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
 
       case "logMeal": {
         const date = resolveVoiceTargetDate(intent.payload.date, today);
-        const nutrition = await loadDailyNutritionImpl(date);
         const explicitMacros = {
           calories: Number(intent.payload.calories ?? intent.payload.kcal ?? 0),
           protein: Number(
@@ -300,12 +294,9 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
           estimateConfidence: estimated.confidence,
           createdAt: now,
         };
-        await saveDailyNutritionImpl({
+        await appendMealLogImpl({
           date,
-          nutrition: {
-            ...nutrition,
-            mealLogs: [...(nutrition.mealLogs || []), mealLog],
-          } as any,
+          meal: mealLog,
         });
         return {
           spokenText: `Logged meal: ${desc}${describeDay(date, today)}`,

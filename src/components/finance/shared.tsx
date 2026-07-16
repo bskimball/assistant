@@ -24,8 +24,10 @@ import {
 } from "@/lib/domain";
 import { type BudgetBucket, type BudgetRecurringItem } from "@/lib/finance-math";
 
+import type { FinanceHubPayload } from "@/lib/finance-types";
+
 export type FinanceTabProps = {
-  hub: import("@/server/finance").FinanceHubPayload;
+  hub: FinanceHubPayload;
   onChange: () => Promise<void>;
   flash: (msg: string, ms?: number) => void;
 };
@@ -232,7 +234,7 @@ const GROUP_OPTIONS: { key: SpendGroup; label: string; activeClass: string }[] =
   {
     key: "needs",
     label: "Need",
-    activeClass: "bg-background text-sky-600 shadow-sm dark:text-sky-400",
+    activeClass: "bg-background text-info shadow-sm",
   },
   {
     key: "wants",
@@ -242,7 +244,7 @@ const GROUP_OPTIONS: { key: SpendGroup; label: string; activeClass: string }[] =
   {
     key: "savings",
     label: "Save",
-    activeClass: "bg-background text-emerald-600 shadow-sm dark:text-emerald-400",
+    activeClass: "bg-background text-success shadow-sm",
   },
 ];
 
@@ -393,11 +395,11 @@ export const SOURCE_BADGE_META: Record<
 > = {
   sync: {
     label: "Synced",
-    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    className: "border-success/30 bg-success/10 text-success",
   },
   import: {
     label: "CSV",
-    className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    className: "border-info/30 bg-info/10 text-info",
   },
   manual: {
     label: "Manual",
@@ -418,10 +420,10 @@ export function SourceBadge({ source }: { source?: Transaction["source"] }) {
 }
 
 export const GROUP_CHIP_CLASS: Record<CategoryGroup, string> = {
-  needs: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  needs: "border-info/30 bg-info/10 text-info",
   wants: "border-border bg-muted/50 text-muted-foreground",
-  savings: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  income: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  savings: "border-success/30 bg-success/10 text-success",
+  income: "border-success/30 bg-success/10 text-success",
   transfer: "border-border bg-muted/50 text-muted-foreground",
 };
 
@@ -481,11 +483,11 @@ export function Stat({
         <div
           className={`mt-1 font-semibold tabular-nums ${hero ? "text-3xl" : "text-2xl"} ${
             tone === "up"
-              ? "text-green-600 dark:text-green-500"
+              ? "text-success"
               : tone === "down"
                 ? "text-destructive"
                 : tone === "warn"
-                  ? "text-amber-600 dark:text-amber-400"
+                  ? "text-warning"
                   : "text-foreground"
           }`}
         >
@@ -540,9 +542,9 @@ export function BudgetBar({
           ? "warn"
           : "good";
   const barColor =
-    state === "bad" ? "bg-destructive" : state === "warn" ? "bg-amber-500" : "bg-emerald-500";
+    state === "bad" ? "bg-destructive" : state === "warn" ? "bg-warning" : "bg-success";
   const plannedBarColor =
-    state === "bad" ? "bg-destructive" : state === "warn" ? "bg-amber-500" : "bg-emerald-500";
+    state === "bad" ? "bg-destructive" : state === "warn" ? "bg-warning" : "bg-success";
 
   // Plain-language status so the eye lands on the number that matters.
   const note =
@@ -653,7 +655,7 @@ export function BudgetBar({
                     {excluded && (
                       <Badge
                         variant="outline"
-                        className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                        className="border-warning/30 bg-warning/10 text-warning-foreground"
                       >
                         One-time
                       </Badge>

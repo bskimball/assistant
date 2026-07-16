@@ -1,4 +1,4 @@
-import type { ISODate, Subscription, Transaction } from "@/lib/domain";
+import type { ISODate } from "@/lib/domain";
 import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
 import {
   addUnseenRecurringToBuckets,
@@ -7,10 +7,7 @@ import {
   calculateSafeToSpend,
   monthKey,
   rollupMonth,
-  type CashFlowCalendar,
   type MonthBuckets,
-  type RecurringInsight,
-  type SafeToSpendResult,
 } from "@/lib/finance-math";
 import {
   loadBudgetImpl,
@@ -18,20 +15,11 @@ import {
   loadSubscriptionsImpl,
   loadTransactionsImpl,
   saveSubscriptionsImpl,
-  type BudgetPayload,
   type DailyFinancePayload,
 } from "@/server/domain-impl";
+import type { FinanceHubPayload } from "@/lib/finance-types";
 
-export interface FinanceHubPayload {
-  snapshot: DailyFinancePayload;
-  snapshotSourceDate: ISODate;
-  budget: BudgetPayload | null;
-  subscriptions: Subscription[];
-  transactions: Transaction[];
-  recurringInsights: RecurringInsight[];
-  safeToSpend: SafeToSpendResult;
-  cashFlowCalendar: CashFlowCalendar;
-}
+export type { FinanceHubPayload } from "@/lib/finance-types";
 
 /** Load the most recent finance snapshot on or before the requested day. */
 export async function loadFinanceSnapshotForHubImpl(

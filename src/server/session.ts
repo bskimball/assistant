@@ -19,10 +19,12 @@ export interface SessionState {
 export const getSessionState = createServerFn({ method: "GET" }).handler(
   async (): Promise<SessionState> => {
     // Dynamic import: server-only module, must never reach client bundles.
-    const { getRequest } = await import("@tanstack/react-start/server");
     let request: Request | undefined;
     try {
-      request = getRequest();
+      const server = await import("@tanstack/react-start/server");
+      if (typeof server.getRequest === "function") {
+        request = server.getRequest();
+      }
     } catch {
       request = undefined;
     }

@@ -1,6 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactElement,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "motion/react";
 import { Reveal, revealDelay } from "@/components/motion";
 import { dashboardQuery, workoutSessionsQuery, financeHubQuery, queryKeys } from "@/lib/queries";
 import {
@@ -9,25 +18,27 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  CalendarDays,
   Lock,
   Dumbbell,
   Wallet,
   Utensils,
-  Brain,
-  Users,
-  Target,
   Droplet,
   RefreshCw,
   Plus,
   Check,
   ListTodo,
   Minus,
-  Trash2,
+  MoonStar,
+  Sun,
+  CloudSun,
+  Cloud,
+  CloudFog,
+  CloudRain,
+  CloudSnow,
+  CloudLightning,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { VoiceInput, speakAssistant } from "@/components/voice-input";
@@ -37,28 +48,21 @@ import { getDaypart, daypartGreeting, type Daypart } from "@/lib/scope";
 import {
   processVoiceInput,
   saveProductivityTasksForDay,
+  appendMealLog,
   appendWorkoutSession,
-  saveDailyFinance,
-  appendTransaction,
-  saveDailyNutrition,
+  setDailyWater,
   saveEveningCheckIn,
-  recordRecommendationOutcome,
   type DailyDashboardPayload,
 } from "@/server/domain";
-import { type FinanceHubPayload } from "@/server/finance";
-import {
-  acceptDailyCoachingPlan,
-  generateCoaching,
-  estimateFoodMacros,
-  type CoachingResult,
-  type CoachDomain,
-} from "@/server/coach";
+import { generateCoaching, estimateFoodMacros, type CoachingResult } from "@/server/coach";
+import { generateDailyQuote, type DailyQuoteResult } from "@/server/daily-quote";
+import { useWeather, type WeatherConditionKey, type WeatherForecast } from "@/lib/use-weather";
 import type { DailyNutrition, ISODate, DailyPlan } from "@/lib/domain";
-import { selectNextBestAction } from "@/lib/next-best-action";
-import { stableRecommendationId } from "@/lib/recommendation-id";
 import {
   createProductivityTask,
   flOzToMl,
+  formatISODate,
+  isTimestampOnLocalDay,
   mlToFlOz,
   newId,
   summarizeCashFlow,
@@ -72,8 +76,15 @@ import {
   getTasksForDate,
 } from "@/lib/daily";
 
-// Unified Daily Improvement Dashboard (ADR-005)
-// Daily aggregates + TanStack DB for reactivity, now with a live AI coach.
+// Contextual Zen Stack (dashboard redesign)
+//
+// The home surface is a calm, time-of-day-aware "Action Stack": a large
+// greeting, the voice mic, and a full deck of domain cards (tasks, workout,
+// nutrition, reflection, finance). Daypart only focuses the most relevant
+// card — it never hides the rest — so navigation stays complete all day.
+// Everything deeper still lives on the detail pages behind the top nav. The
+// daypart layer is fully independent of the light/dark theme: it decides
+// focus + ambient tint, never brightness.
 
 type Search = { date?: string };
 
@@ -92,99 +103,151 @@ export const Route = createFileRoute("/")({
       queryClient.ensureQueryData(financeHubQuery(date)),
     ]);
   },
-  component: UnifiedDailyDashboard,
+  component: ZenStackDashboard,
 });
 
-const DOMAIN_ICON: Record<CoachDomain, typeof Sparkles> = {
-  focus: Target,
-  fitness: Dumbbell,
-  nutrition: Utensils,
-  finance: Wallet,
-  family: Users,
-  general: Brain,
-};
-
-// Per-domain icon tint. Kept within the warm system: fern-green for the
-// "progress" domains, apricot for nourishment, berry for the personal/family
-// lens — no cold indigo/violet/blue that would fight the kitchen-table palette.
-const DOMAIN_COLOR: Record<CoachDomain, string> = {
-  focus: "text-primary",
-  fitness: "text-primary",
-  nutrition: "text-[var(--voice-accent)]",
-  finance: "text-primary",
-  family: "text-[var(--chart-1)]",
-  general: "text-muted-foreground",
-};
-
-// Progress-bar fill color. `over` (e.g. calories past target) is the only "bad"
-// state for these daily goals; otherwise green rewards progress, amber is partway.
+/**
+ * Progress-bar fill tone using semantic status roles (never the crimson brand,
+ * which is reserved for actions): success rewards near-complete progress,
+ * warning is partway, info is early, destructive flags overshoot.
+ */
 function fillTone(pct: number, over = false): string {
   if (over) return "bg-destructive";
-  if (pct >= 80) return "bg-emerald-500";
-  if (pct >= 40) return "bg-amber-500";
-  return "bg-primary";
+  if (pct >= 80) return "bg-success";
+  if (pct >= 40) return "bg-warning";
+  return "bg-info";
 }
 
-/** Recent Activity shows AIInteraction.response — prefer spoken prose, never raw JSON. */
-function humanizeAiActivity(response?: string, intent?: string): string {
-  const raw = (response || intent || "").toString().trim();
-  if (!raw) return "";
-  if (raw.startsWith("{") || raw.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(raw) as {
-        result?: unknown;
-        spokenText?: unknown;
-      };
-      const spoken =
-        (typeof parsed.result === "string" && parsed.result) ||
-        (typeof parsed.spokenText === "string" && parsed.spokenText);
-      if (spoken) return spoken.slice(0, 120);
-    } catch {
-      /* keep raw slice below */
-    }
+/** Lucide icon for each weather condition shown in the side rail. */
+const weatherConditionIcon: Record<WeatherConditionKey, typeof Sun> = {
+  clear: Sun,
+  "partly-cloudy": CloudSun,
+  cloudy: Cloud,
+  fog: CloudFog,
+  rain: CloudRain,
+  snow: CloudSnow,
+  thunderstorm: CloudLightning,
+};
+
+/**
+ * Decorative rail that floats to the LEFT of the centered Action Stack on wide
+ * screens: a large serif date, a thin divider, and a quiet motivational quote.
+ * It is positioned out of flow so it never pushes the centered content — it is
+ * pure ambience per the design renderings (no card, sits on the background).
+ * On narrow screens the parent renders the `compact` variant instead: just the
+ * quote, centered above the stack.
+ */
+function SideRail({
+  weekday,
+  date,
+  quote,
+  compact = false,
+}: {
+  weekday: string;
+  date: string;
+  quote: DailyQuoteResult | null;
+  compact?: boolean;
+}) {
+  if (compact) {
+    if (!quote) return null;
+    return (
+      <figure className="mx-auto max-w-md text-center">
+        <blockquote className="voice text-pretty text-sm leading-relaxed text-muted-foreground">
+          {quote.text}
+        </blockquote>
+        {quote.author && (
+          <figcaption className="mt-1.5 text-xs text-muted-foreground/70">
+            — {quote.author}
+          </figcaption>
+        )}
+      </figure>
+    );
   }
-  return raw.slice(0, 120);
+  return (
+    <div className="text-left">
+      <div className="greeting-display text-4xl leading-[1.05] text-foreground/90 sm:text-5xl">
+        <div>{weekday},</div>
+        <div>{date}</div>
+      </div>
+      <div className="mt-5 h-px w-12 bg-border" />
+      {quote && (
+        <figure className="mt-5 max-w-xs">
+          <blockquote className="voice relative text-pretty text-base leading-relaxed text-muted-foreground">
+            <span
+              aria-hidden
+              className="greeting-display absolute -left-1 -top-3 text-3xl leading-none text-foreground/15 select-none"
+            >
+              &ldquo;
+            </span>
+            {quote.text}
+          </blockquote>
+          {quote.author && (
+            <figcaption className="mt-2 text-xs text-muted-foreground/70">
+              — {quote.author}
+            </figcaption>
+          )}
+        </figure>
+      )}
+    </div>
+  );
 }
 
-function UnifiedDailyDashboard() {
+/** Compact ambient weather line for the top utility row (matches renderings). */
+function WeatherLine({
+  weather,
+  className = "",
+}: {
+  weather: WeatherForecast | null;
+  className?: string;
+}) {
+  if (!weather) return null;
+  const WeatherIcon = weatherConditionIcon[weather.condition];
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-muted-foreground ${className}`}>
+      <WeatherIcon className="size-4 shrink-0" />
+      <span className="tabular-nums">
+        {weather.currentTempF}°F · {weather.label} · H {weather.highF}° / L {weather.lowF}°
+        {weather.precipitationProbability > 20 ? ` · ${weather.precipitationProbability}%` : ""}
+      </span>
+    </span>
+  );
+}
+
+function ZenStackDashboard() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const today = todayISO();
   const selectedDate: ISODate = (search.date as ISODate) || today;
   const isToday = selectedDate === today;
-  const dateLabel = new Date(selectedDate + "T00:00:00").toLocaleDateString([], {
+  const dateLabel = formatISODate(selectedDate, {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
 
-  // Dashboard data (ADR-005) — cached by date in the Query cache and primed by
-  // the route loader, so revisiting "/" is instant. Mutations write back via the
-  // setDashboardData/setHubData helpers or invalidate via reload().
   const queryClient = useQueryClient();
   const dashKey = dashboardQuery(selectedDate).queryKey;
-  const hubKey = financeHubQuery(selectedDate).queryKey;
   const dashQuery = useQuery(dashboardQuery(selectedDate));
   const sessionsQ = useQuery(workoutSessionsQuery());
   const hubQuery = useQuery(financeHubQuery(selectedDate));
   const dashboard = dashQuery.data ?? null;
-  const isLoading = dashQuery.isPending;
   const [syncing, setSyncing] = useState(false);
-  const [hiddenNextBestActionDate, setHiddenNextBestActionDate] = useState<ISODate | null>(null);
 
-  // Time-of-day CONTEXT layer (Contextual Zen Stack) — independent of the
-  // light/dark theme, which the user still controls. This only decides which
-  // domain cards surface on the home Action Stack and the ambient background
-  // tint, never brightness. Defaults to the clock; the daypart pills let you
-  // peek at another part of the day. Past days show their full recap.
+  // Time-of-day CONTEXT layer — independent of the light/dark theme. Defaults
+  // to the clock; the daypart pills let you peek at another part of the day.
+  // Daypart only chooses which Action Stack card is focused, never which cards
+  // exist — the full deck stays reachable so nothing is buried.
   const [daypartOverride, setDaypartOverride] = useState<Daypart | null>(null);
   const daypart: Daypart = daypartOverride ?? getDaypart();
-  const showWorkout = !isToday || daypart === "morning";
-  const showNutrition = !isToday || daypart === "midday";
-  const showFinance = !isToday || daypart === "evening";
-  const showEvening = daypart === "evening";
+  const stackFocusKey =
+    daypart === "morning"
+      ? "workout"
+      : daypart === "midday"
+        ? "nutrition"
+        : isToday
+          ? "evening"
+          : "finance";
 
   const reload = () =>
     Promise.all([
@@ -198,69 +261,55 @@ function UnifiedDailyDashboard() {
     ]);
   const setDashboardData = (fn: (d: DailyDashboardPayload) => DailyDashboardPayload) =>
     queryClient.setQueryData(dashKey, (d) => (d ? fn(d) : d));
-  const setHubData = (fn: (h: FinanceHubPayload) => FinanceHubPayload) =>
-    queryClient.setQueryData(hubKey, (h) => (h ? fn(h) : h));
 
-  // Coaching state
+  // Coaching (headline + workout)
   const [coaching, setCoaching] = useState<CoachingResult | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
 
-  // Voice state (ADR-004)
+  // AI daily quote (side rail) — seeded from the plan, generated once for today.
+  const [dailyQuote, setDailyQuote] = useState<DailyQuoteResult | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+
+  // Voice (ADR-004)
   const [voiceStatus, setVoiceStatus] = useState<string>("");
   const [pendingConfirm, setPendingConfirm] = useState<{
     transcript: string;
     intentText?: string;
   } | null>(null);
   const [isVoiceProcessing, setIsVoiceProcessing] = useState(false);
-
-  // Listening overlay (for persistent mic FAB)
   const [isListeningOverlay, setIsListeningOverlay] = useState(false);
   const [interim, setInterim] = useState("");
   const [listenError, setListenError] = useState<string | null>(null);
 
-  // Local quick-add for tasks (Focus section)
+  // Quick-adds
   const [taskInput, setTaskInput] = useState("");
-
-  // Nutrition quick-add (AI estimates macros from the description)
   const [foodName, setFoodName] = useState("");
   const [foodEstimating, setFoodEstimating] = useState(false);
   const [foodStatus, setFoodStatus] = useState<string | null>(null);
-  // While dragging the water slider we hold the in-flight oz here so the fill
-  // follows the thumb; we commit to the server on release.
   const [waterDraft, setWaterDraft] = useState<number | null>(null);
+
+  // Evening check-in
   const [checkInEnergy, setCheckInEnergy] = useState(3);
   const [checkInRating, setCheckInRating] = useState(3);
   const [checkInWin, setCheckInWin] = useState("");
   const [checkInFriction, setCheckInFriction] = useState("");
   const [checkInNote, setCheckInNote] = useState("");
   const [checkInSaving, setCheckInSaving] = useState(false);
-  const [suggestionFeedback, setSuggestionFeedback] = useState<
-    Record<string, "helpful" | "not-helpful" | "dismissed" | "snoozed">
-  >({});
 
-  // Finance quick-add
-  const [acctName, setAcctName] = useState("");
-  const [acctAmount, setAcctAmount] = useState("");
-  const [txnAmount, setTxnAmount] = useState("");
-  const [txnCategory, setTxnCategory] = useState("");
-  const [txnNote, setTxnNote] = useState("");
-  // Derived from the cached queries.
   const financeHub = hubQuery.data ?? null;
   const transactions = (hubQuery.data?.transactions || []).filter((t) => !t.deletedAt);
   const workoutSessions = (sessionsQ.data?.sessions || []).filter((s) => !s.deletedAt);
 
-  // Subscribe to productivity collection for instant updates
+  // Tasks via TanStack DB (reactive)
   const [tasksVersion, setTasksVersion] = useState(0);
   useEffect(() => {
     const sub = productivityTasksCollection.subscribeChanges(() => setTasksVersion((v) => v + 1));
     return () => sub.unsubscribe();
   }, []);
-
   const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion]);
-  const doneTasks = tasks.filter((t) => t.done && !t.deletedAt);
-  const focusProgress = tasks.length > 0 ? Math.round((doneTasks.length / tasks.length) * 100) : 0;
+  const activeTasks = tasks.filter((t) => !t.deletedAt && !t.done);
 
-  // Derived headline signals (no extra LLM)
+  // Derived signals
   const nutrition = dashboard?.nutrition as (DailyNutrition & { updatedAt?: number }) | null;
   const finance = financeHub?.snapshot ?? dashboard?.finance ?? null;
   const dailyPlan = (dashboard?.plan || null) as (DailyPlan & { updatedAt?: number }) | null;
@@ -269,102 +318,40 @@ function UnifiedDailyDashboard() {
   const proteinTarget = dailyPlan?.nutritionTargets?.protein ?? 150;
   const proteinPct = Math.min(100, Math.round((proteinCurrent / Math.max(1, proteinTarget)) * 100));
   const caloriesCurrent = nutrition?.totals?.calories ?? 0;
-  const carbsCurrent = nutrition?.totals?.carbs ?? 0;
-  const fatCurrent = nutrition?.totals?.fat ?? 0;
   const caloriesTarget = dailyPlan?.nutritionTargets?.calories ?? 2000;
+  const caloriesPct = Math.min(
+    100,
+    Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100),
+  );
   const waterOz = mlToFlOz(nutrition?.waterMl ?? 0) ?? 0;
   const waterTargetOz = 85;
-  const waterPct = Math.min(100, Math.round((waterOz / Math.max(1, waterTargetOz)) * 100));
-  // The slider shows the draft while dragging, otherwise the persisted total.
   const displayWaterOz = waterDraft ?? waterOz;
-  // Headroom above target (and current) so you can overshoot, rounded to 4 oz.
   const waterSliderMax = Math.max(
     Math.ceil((waterTargetOz * 1.5) / 4) * 4,
     Math.ceil(displayWaterOz / 4) * 4,
     8,
   );
-  const selectedDayStart = new Date(selectedDate + "T00:00:00").getTime();
-  const selectedDayEnd = new Date(selectedDate + "T23:59:59.999").getTime();
-  const recentWorkout = [...workoutSessions]
-    .filter((s) => s.performedAt <= selectedDayEnd)
-    .sort((a, b) => b.performedAt - a.performedAt)[0];
-  const weekWorkoutCount = workoutSessions.filter(
-    (s) => s.performedAt >= selectedDayStart - 6 * 86400000 && s.performedAt <= selectedDayEnd,
-  ).length;
-  const activeTasks = tasks.filter((task) => !task.deletedAt && !task.done);
-  const orderedTopTask = dailyPlan?.topTaskIds
-    .map((id) => activeTasks.find((task) => task.id === id))
-    .find(Boolean);
-  const overdueTasks = activeTasks
-    .filter((task) => !!task.due && task.due < selectedDate)
-    .sort(
-      (a, b) =>
-        (a.due || "").localeCompare(b.due || "") ||
-        (a.priority ?? 4) - (b.priority ?? 4) ||
-        a.createdAt - b.createdAt,
-    );
-  const topTask =
-    overdueTasks[0] ??
-    orderedTopTask ??
-    [...activeTasks].sort(
-      (a, b) => (a.priority ?? 4) - (b.priority ?? 4) || a.createdAt - b.createdAt,
-    )[0];
-  const todaysPlannedWorkout = dailyPlan?.aiCoaching?.workout;
-  const workoutCompletedToday = workoutSessions.some(
-    (session) => session.performedAt >= selectedDayStart && session.performedAt <= selectedDayEnd,
+
+  const workoutCompletedToday = workoutSessions.some((s) =>
+    isTimestampOnLocalDay(s.performedAt, selectedDate),
   );
-  const nextBestAction = selectNextBestAction({
-    incompleteTopTask: topTask
-      ? {
-          title: topTask.text,
-          overdue: !!topTask.due && topTask.due < selectedDate,
-        }
-      : undefined,
-    plannedWorkoutIncomplete: !!todaysPlannedWorkout && !workoutCompletedToday,
-    plannedWorkoutTitle: todaysPlannedWorkout?.title,
-    hourLocal: isToday ? new Date().getHours() : 0,
-    proteinPct,
-    waterPct,
-    financeStatus: financeHub?.safeToSpend?.status,
-    safeToSpendThisMonth: financeHub?.safeToSpend?.safeToSpendThisMonth,
-  });
-  const nextBestActionText = `${nextBestAction.title}\n${nextBestAction.reason}`;
+
   const selectedMonth = selectedDate.slice(0, 7);
   const monthTransactions = transactions.filter(
-    (t) => new Date(t.timestamp).toISOString().slice(0, 7) === selectedMonth,
-  );
-  const dayTransactions = transactions.filter(
-    (t) => t.timestamp >= selectedDayStart && t.timestamp <= selectedDayEnd,
+    (t) => toISODate(t.timestamp).slice(0, 7) === selectedMonth,
   );
   const takeHome = financeHub?.budget?.monthlyTakeHome ?? 0;
-  const usePlannedIncome = takeHome > 0;
-  // Shared definition so Today / Finance / Analytics agree (transfers excluded).
   const {
     income: financeIncome,
     spend: financeSpend,
     cashFlow: financeCashFlow,
   } = summarizeCashFlow(monthTransactions, takeHome);
 
-  // Date nav
-  function changeDate(deltaOrDate: number | ISODate) {
-    let next: ISODate;
-    if (typeof deltaOrDate === "number") {
-      const d = new Date(selectedDate + "T00:00:00");
-      d.setDate(d.getDate() + deltaOrDate);
-      next = toISODate(d);
-    } else {
-      next = deltaOrDate;
-    }
-    navigate({ search: { date: next } });
-  }
-
   function goToday() {
     navigate({ search: {} });
   }
 
-  // When the day's dashboard arrives or changes, hydrate the tasks collection
-  // and seed the coaching panel from the persisted plan. The dashboard is the
-  // source of truth for aiCoaching, so mirroring it here keeps them in sync.
+  // Hydrate tasks + seed coaching from the persisted plan.
   useEffect(() => {
     if (!dashboard) return;
     hydrateProductivityTasks(dashboard.productivity?.tasks || []);
@@ -383,7 +370,6 @@ function UnifiedDailyDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboard]);
 
-  // Generate coaching for the current day (cached unless force-refreshing).
   async function refreshCoaching(force = true) {
     setCoachLoading(true);
     try {
@@ -391,7 +377,6 @@ function UnifiedDailyDashboard() {
         data: { date: selectedDate, force },
       });
       setCoaching(result);
-      // generateCoaching persists into the day's plan → refresh the dashboard.
       await queryClient.invalidateQueries({
         queryKey: queryKeys.dashboard(selectedDate),
       });
@@ -402,7 +387,6 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Auto-generate coaching only when this date has no persisted coach snapshot.
   useEffect(() => {
     if (isToday && dashboard && !dashboard.plan?.aiCoaching && !coaching && !coachLoading) {
       refreshCoaching(false);
@@ -410,7 +394,27 @@ function UnifiedDailyDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboard]);
 
-  // Persist current day's productivity tasks (RMW via aggregate)
+  // Seed the daily quote from the persisted plan; otherwise generate once for
+  // today (never on past days, never regenerated on reload).
+  useEffect(() => {
+    if (!dashboard) return;
+    setDailyQuote(
+      dashboard.plan?.dailyQuote ? { ...dashboard.plan.dailyQuote, date: selectedDate } : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboard]);
+
+  useEffect(() => {
+    if (isToday && dashboard && !dashboard.plan?.dailyQuote && !dailyQuote && !quoteLoading) {
+      setQuoteLoading(true);
+      generateDailyQuote({ data: { date: selectedDate } })
+        .then((result) => setDailyQuote(result))
+        .catch((e) => console.warn("[dashboard] daily quote failed", e))
+        .finally(() => setQuoteLoading(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboard]);
+
   async function persistTasks(date: ISODate) {
     setSyncing(true);
     try {
@@ -423,7 +427,7 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  async function handleQuickAdd(e?: React.SyntheticEvent) {
+  async function handleQuickAdd(e?: SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday || !taskInput.trim()) return;
     const newTask = createProductivityTask({
@@ -436,72 +440,18 @@ function UnifiedDailyDashboard() {
     await persistTasks(selectedDate);
   }
 
-  async function recordNextBestActionOutcome(
-    status: "completed" | "dismissed" | "snoozed",
-    helpful?: boolean,
-  ) {
-    if (!isToday || hiddenNextBestActionDate === selectedDate) return;
-    setSyncing(true);
-    try {
-      await recordRecommendationOutcome({
-        data: {
-          id: stableRecommendationId(selectedDate, "next-best-action", nextBestActionText),
-          date: selectedDate,
-          source: "next-best-action",
-          text: nextBestActionText,
-          status,
-          helpful,
-        },
-      });
-      setHiddenNextBestActionDate(selectedDate);
-    } catch (e) {
-      console.error("[dashboard] next-best-action outcome failed", e);
-    } finally {
-      setSyncing(false);
-    }
+  async function toggleTask(id: string) {
+    if (!isToday) return;
+    const t = tasks.find((x) => x.id === id);
+    if (!t) return;
+    upsertProductivityTaskClient({
+      ...t,
+      done: !t.done,
+      updatedAt: Date.now(),
+    });
+    await persistTasks(selectedDate);
   }
 
-  async function recordCoachSuggestionOutcome(
-    text: string,
-    status: "dismissed" | "snoozed" | "completed",
-    helpful?: boolean,
-  ) {
-    if (!isToday || !text.trim()) return;
-    const id = stableRecommendationId(selectedDate, "coach-daily", text);
-    const feedbackKey: "helpful" | "not-helpful" | "dismissed" | "snoozed" =
-      helpful === true
-        ? "helpful"
-        : helpful === false
-          ? "not-helpful"
-          : status === "snoozed"
-            ? "snoozed"
-            : "dismissed";
-    setSuggestionFeedback((prev) => ({ ...prev, [id]: feedbackKey }));
-    setSyncing(true);
-    try {
-      await recordRecommendationOutcome({
-        data: {
-          id,
-          date: selectedDate,
-          source: "coach-daily",
-          text,
-          status,
-          helpful,
-        },
-      });
-    } catch (e) {
-      console.error("[dashboard] coach suggestion outcome failed", e);
-      setSuggestionFeedback((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  // Log the suggested workout as a completed session.
   async function logSuggestedWorkout() {
     if (!coaching || !isToday) return;
     setSyncing(true);
@@ -532,100 +482,7 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // Add / update a finance account balance.
-  async function handleAddAccount(e?: React.SyntheticEvent) {
-    if (e) e.preventDefault();
-    if (!isToday) return;
-    const name = acctName.trim();
-    const amount = parseFloat(acctAmount);
-    if (!name || isNaN(amount)) return;
-    setSyncing(true);
-    try {
-      const existing = finance?.accounts || [];
-      const idx = existing.findIndex((a) => a.account.toLowerCase() === name.toLowerCase());
-      const nextAccounts =
-        idx >= 0
-          ? existing.map((a, i) => (i === idx ? { ...a, amount } : a))
-          : [...existing, { account: name, amount, currency: "USD" }];
-      const saved = await saveDailyFinance({
-        data: {
-          date: selectedDate,
-          finance: {
-            date: selectedDate,
-            accounts: nextAccounts,
-            positions: finance?.positions || [],
-          },
-        },
-      });
-      setDashboardData((d) => ({ ...d, finance: saved }));
-      setHubData((h) => ({ ...h, snapshot: saved }));
-      setAcctName("");
-      setAcctAmount("");
-      refreshCoaching();
-    } catch (e) {
-      console.error("[dashboard] save finance failed", e);
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  async function handleAcceptCoachPlan() {
-    if (!coaching || !isToday || dailyPlan?.acceptedAt) return;
-    setSyncing(true);
-    try {
-      const result = await acceptDailyCoachingPlan({
-        data: {
-          date: selectedDate,
-          suggestions: coaching.suggestions,
-          workout: coaching.workout,
-        },
-      });
-      hydrateProductivityTasks(result.tasksAdded.concat(getTasksForDate(selectedDate)));
-      await reload();
-      setVoiceStatus(`Plan accepted: ${result.tasksAdded.length} actions added`);
-      setTimeout(() => setVoiceStatus(""), 2200);
-    } catch (e) {
-      console.error("[dashboard] accept plan failed", e);
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  async function handleAddTransaction(e?: React.SyntheticEvent) {
-    if (e) e.preventDefault();
-    if (!isToday) return;
-    const amount = parseFloat(txnAmount);
-    if (!amount || isNaN(amount)) return;
-    setSyncing(true);
-    try {
-      const transaction = await appendTransaction({
-        data: {
-          timestamp: Date.now(),
-          type: amount >= 0 ? "deposit" : "withdrawal",
-          amount,
-          currency: "USD",
-          category: txnCategory.trim() || undefined,
-          notes: txnNote.trim() || undefined,
-        },
-      });
-      setHubData((h) => ({
-        ...h,
-        transactions: [...h.transactions, transaction],
-      }));
-      setTxnAmount("");
-      setTxnCategory("");
-      setTxnNote("");
-      refreshCoaching();
-    } catch (e) {
-      console.error("[dashboard] transaction save failed", e);
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  // Add a food/meal: the AI estimates calories + macros from the description,
-  // then we log it to today's nutrition.
-  async function handleAddFood(e?: React.SyntheticEvent) {
+  async function handleAddFood(e?: SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday) return;
     const description = foodName.trim();
@@ -656,21 +513,7 @@ function UnifiedDailyDashboard() {
         createdAt: now,
         updatedAt: now,
       };
-      const saved = await saveDailyNutrition({
-        data: {
-          date: selectedDate,
-          nutrition: {
-            mealLogs: [...(nutrition?.mealLogs || []), mealLog],
-            totals: nutrition?.totals || {
-              calories: 0,
-              protein: 0,
-              carbs: 0,
-              fat: 0,
-            },
-            waterMl: nutrition?.waterMl,
-          },
-        },
-      });
+      const saved = await appendMealLog({ data: { date: selectedDate, meal: mealLog } });
       setDashboardData((d) => ({ ...d, nutrition: saved }));
       setFoodName("");
       setFoodStatus(
@@ -678,83 +521,30 @@ function UnifiedDailyDashboard() {
           (est.generatedBy === "fallback" ? " (rough estimate)" : ""),
       );
       setTimeout(() => setFoodStatus(null), 4000);
-      refreshCoaching();
     } catch (e) {
       console.error("[dashboard] add food failed", e);
-      setFoodStatus(
-        "Couldn’t estimate that food right now — add calories/macros or check the AI key.",
-      );
+      setFoodStatus("Couldn’t estimate that food right now — try again in a moment.");
       setTimeout(() => setFoodStatus(null), 3000);
     } finally {
       setFoodEstimating(false);
     }
   }
 
-  // Set the day's water to an absolute oz total (clamped at 0).
-  async function setWaterOz(totalOz: number) {
+  async function setWaterOzTotal(totalOz: number) {
     if (!isToday || foodEstimating) return;
     const oz = Math.max(0, Math.round(totalOz));
     try {
-      const saved = await saveDailyNutrition({
-        data: {
-          date: selectedDate,
-          nutrition: {
-            mealLogs: nutrition?.mealLogs || [],
-            totals: nutrition?.totals || {
-              calories: 0,
-              protein: 0,
-              carbs: 0,
-              fat: 0,
-            },
-            waterMl: flOzToMl(oz) ?? 0,
-          },
-        },
+      const saved = await setDailyWater({
+        data: { date: selectedDate, waterMl: flOzToMl(oz) ?? 0 },
       });
       setDashboardData((d) => ({ ...d, nutrition: saved }));
-      setFoodStatus(`Water set to ${mlToFlOz(saved.waterMl) ?? 0} fl oz`);
-      setTimeout(() => setFoodStatus(null), 3000);
-      refreshCoaching();
     } catch (e) {
       console.error("[dashboard] set water failed", e);
-      setFoodStatus("Couldn’t update water — try again.");
-      setTimeout(() => setFoodStatus(null), 3000);
     }
   }
-
-  // Commit the dragged slider value, then clear the draft so the bar tracks
-  // the persisted total again.
   function commitWaterDraft() {
     if (waterDraft == null) return;
-    void setWaterOz(waterDraft).finally(() => setWaterDraft(null));
-  }
-
-  async function handleDeleteMeal(id: string) {
-    if (!isToday || foodEstimating) return;
-    try {
-      const saved = await saveDailyNutrition({
-        data: {
-          date: selectedDate,
-          nutrition: {
-            mealLogs: (nutrition?.mealLogs || []).filter((meal) => meal.id !== id),
-            totals: nutrition?.totals || {
-              calories: 0,
-              protein: 0,
-              carbs: 0,
-              fat: 0,
-            },
-            waterMl: nutrition?.waterMl,
-          },
-        },
-      });
-      setDashboardData((d) => ({ ...d, nutrition: saved }));
-      setFoodStatus("Removed food entry.");
-      setTimeout(() => setFoodStatus(null), 3000);
-      refreshCoaching();
-    } catch (e) {
-      console.error("[dashboard] delete meal failed", e);
-      setFoodStatus("Couldn’t remove that food — try again.");
-      setTimeout(() => setFoodStatus(null), 3000);
-    }
+    void setWaterOzTotal(waterDraft).finally(() => setWaterDraft(null));
   }
 
   // Voice transcript handler (ADR-004)
@@ -779,8 +569,7 @@ function UnifiedDailyDashboard() {
         speakAssistant(result.spokenText);
       }
     } catch (e: any) {
-      const msg = "Voice error. " + (e?.message || "");
-      setVoiceStatus(msg);
+      setVoiceStatus("Voice error. " + (e?.message || ""));
       speakAssistant("Sorry, something went wrong.");
     } finally {
       setIsVoiceProcessing(false);
@@ -814,9 +603,8 @@ function UnifiedDailyDashboard() {
     }
   }
 
-  // === Persistent Mic FAB + Listening overlay (ADR-005) ===
+  // Mic FAB + listening overlay
   const isListening = isListeningOverlay;
-
   function stopOverlayListening() {
     const rec = (window as any).__dashRec;
     if (rec) {
@@ -831,7 +619,6 @@ function UnifiedDailyDashboard() {
     setInterim("");
     setIsListeningOverlay(false);
   }
-
   function startMainListening() {
     if (!isToday) return;
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -842,13 +629,11 @@ function UnifiedDailyDashboard() {
     setListenError(null);
     setInterim("");
     setIsListeningOverlay(true);
-
     const rec = new SR();
     (window as any).__dashRec = rec;
     rec.continuous = false;
     rec.interimResults = true;
     rec.lang = "en-US";
-
     rec.onresult = (event: any) => {
       let finalText = "";
       let curInterim = "";
@@ -873,7 +658,6 @@ function UnifiedDailyDashboard() {
       if (isListeningOverlay) setIsListeningOverlay(false);
       (window as any).__dashRec = null;
     };
-
     try {
       rec.start();
     } catch {
@@ -881,69 +665,12 @@ function UnifiedDailyDashboard() {
       setListenError("Could not start mic.");
     }
   }
-
   function handleFabClick() {
     if (isListening) {
       stopOverlayListening();
       return;
     }
     startMainListening();
-  }
-
-  // Signature "today's warmth" arc: one gentle gauge that blends the day's
-  // core signals (focus, protein, water) into a single sense of how warm/full
-  // the day feels so far. Deliberately not a grid of clinical percentages — a
-  // coach gives you one felt sense, not a scoreboard. The fill glows apricot as
-  // the day fills in.
-  function DayWarmthArc({
-    focusPct,
-    proteinPct,
-    waterPct,
-  }: {
-    focusPct: number;
-    proteinPct: number;
-    waterPct: number;
-  }) {
-    const warmth = Math.round((focusPct + proteinPct + waterPct) / 3);
-    // 270° arc (⅓ gap at the bottom), like a warm dial.
-    const r = 46;
-    const sweep = 0.75; // fraction of the circle the arc spans
-    const c = 2 * Math.PI * r;
-    const arcLen = c * sweep;
-    const fill = (arcLen * Math.max(0, Math.min(100, warmth))) / 100;
-    const label = warmth >= 66 ? "warming up" : warmth >= 33 ? "getting there" : "just starting";
-    return (
-      <div className="relative size-36 shrink-0 sm:size-40">
-        <svg viewBox="0 0 120 120" className="size-full rotate-[135deg]">
-          <circle
-            cx="60"
-            cy="60"
-            r={r}
-            stroke="var(--border)"
-            strokeWidth="11"
-            strokeLinecap="round"
-            fill="none"
-            strokeDasharray={`${arcLen} ${c}`}
-          />
-          <circle
-            cx="60"
-            cy="60"
-            r={r}
-            stroke="var(--voice-accent)"
-            strokeWidth="11"
-            strokeLinecap="round"
-            fill="none"
-            strokeDasharray={`${fill} ${c}`}
-            className="transition-[stroke-dasharray] duration-700 ease-out"
-            style={{ filter: "drop-shadow(0 0 6px var(--ring))" }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <div className="text-3xl font-semibold tabular-nums text-foreground">{warmth}%</div>
-          <div className="voice text-sm text-muted-foreground">{label}</div>
-        </div>
-      </div>
-    );
   }
 
   useEffect(() => {
@@ -958,11 +685,7 @@ function UnifiedDailyDashboard() {
 
   async function submitEveningCheckIn() {
     if (!isToday || checkInSaving) return;
-    if (
-      ![checkInEnergy, checkInRating].every(
-        (value) => Number.isInteger(value) && value >= 1 && value <= 5,
-      )
-    )
+    if (![checkInEnergy, checkInRating].every((v) => Number.isInteger(v) && v >= 1 && v <= 5))
       return;
     setCheckInSaving(true);
     try {
@@ -979,7 +702,9 @@ function UnifiedDailyDashboard() {
           },
         },
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedDate) });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboard(selectedDate),
+      });
     } finally {
       setCheckInSaving(false);
     }
@@ -988,32 +713,52 @@ function UnifiedDailyDashboard() {
   const headline =
     coaching?.headline ||
     (isToday
-      ? "Speak or tap to log progress — your coach is standing by."
+      ? "Speak or tap the mic — your coach is standing by."
       : "No activity recorded for this day.");
 
-  // Personal greeting: address the signed-in person by their first name (from
-  // Google auth). Each member sees their own dashboard.
   const { data: greetSession } = useSession();
   const firstName = (greetSession?.user?.name || "").trim().split(/\s+/)[0];
   const greetingLead = isToday
     ? `${daypartGreeting(daypart)}${firstName ? `, ${firstName}` : ""}.`
     : `${dateLabel} — a look back.`;
 
+  // Weather for the side rail — only fetched when viewing today.
+  const { weather } = useWeather(isToday);
+
+  // Large serif date for the rail: weekday on top, month + day below.
+  const railWeekday = formatISODate(selectedDate, { weekday: "long" });
+  const railDate = formatISODate(selectedDate, { month: "long", day: "numeric" });
+
+  const visibleTasks = tasks.filter((t) => !t.deletedAt).slice(0, 5);
+
   return (
     <div
-      className="zen-ambient px-4 pb-28 pt-8 sm:px-6 sm:pb-16"
+      className="zen-ambient px-4 pb-28 pt-4 sm:px-6"
       data-daypart={daypart}
+      data-atmosphere="vivid"
     >
-      <div className="relative z-10 mx-auto w-full max-w-page">
-        {/* Top nav + date */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Today
-            </div>
-            {isToday && (
+      <div className="relative z-10 mx-auto w-full max-w-2xl">
+        {/* Decorative rail — big serif date + a quiet quote. Floats to the left
+            of the centered stack on wide screens (absolute, out of flow) so it
+            never shifts the content off-center. Pure ambience, no card. */}
+        <Reveal
+          as="section"
+          className="pointer-events-none absolute right-full top-8 mr-10 hidden w-56 xl:block 2xl:mr-16 2xl:w-64"
+        >
+          <SideRail weekday={railWeekday} date={railDate} quote={dailyQuote} />
+        </Reveal>
+
+        <div className="min-w-0 w-full">
+          {/* Slim utility row: daypart pills + date context. Deliberately quiet. */}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", duration: 0.4, bounce: 0 }}
+            className="mb-10 flex flex-wrap items-center justify-between gap-3 sm:mb-14"
+          >
+            {isToday ? (
               <div
-                className="inline-flex w-fit items-center gap-0.5 rounded-full border border-border/60 bg-card/60 p-0.5 backdrop-blur"
+                className="relative inline-flex items-center rounded-full bg-surface-raised p-1 ring-1 ring-border/50"
                 role="tablist"
                 aria-label="Focus of the day"
               >
@@ -1031,527 +776,478 @@ function UnifiedDailyDashboard() {
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() =>
-                        setDaypartOverride(getDaypart() === part ? null : part)
-                      }
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                      onClick={() => setDaypartOverride(getDaypart() === part ? null : part)}
+                      className={`relative flex min-h-9 items-center justify-center rounded-full px-4 text-[13px] font-medium transition-colors duration-200 ${
+                        active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      }`}
                     >
-                      {label}
+                      {active && (
+                        <motion.span
+                          layoutId="daypart-active"
+                          className="absolute inset-0 rounded-full bg-background shadow-sm ring-1 ring-border/60"
+                          transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-1.5">
+                        {label}
+                        <span
+                          aria-hidden
+                          className={`size-1.5 rounded-full transition-colors duration-200 ${
+                            active ? "bg-primary" : "bg-transparent"
+                          }`}
+                        />
+                      </span>
                     </button>
                   );
                 })}
               </div>
-            )}
-          </div>
-
-          <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
-            <div className="flex items-center gap-2 text-sm">
-              {/* Today indicator — highlights when on the current day, jumps back otherwise */}
-              <Button
-                variant={isToday ? "default" : "outline"}
-                size="sm"
-                onClick={goToday}
-                disabled={isToday}
-                className="h-8 shrink-0 gap-1.5 disabled:opacity-100"
-                aria-label={isToday ? "Showing today" : "Go to today"}
+            ) : (
+              <Badge
+                variant="secondary"
+                className="gap-1 rounded-full text-[10px] text-muted-foreground"
               >
-                <span
-                  className={`size-1.5 rounded-full bg-current transition-opacity ${isToday ? "opacity-100" : "opacity-0"}`}
-                />
-                Today
-              </Button>
+                <Lock className="size-2.5" /> Read-only
+              </Badge>
+            )}
 
-              <div className="flex flex-1 items-center gap-1.5 sm:flex-none">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8 shrink-0"
-                  onClick={() => changeDate(-1)}
-                  aria-label="Previous day"
-                >
-                  <ChevronLeft className="size-4" />
+            <div className="flex items-center gap-3 text-sm">
+              {isToday && <WeatherLine weather={weather} className="hidden md:inline-flex" />}
+              {!isToday && (
+                <Button variant="outline" size="sm" onClick={goToday} className="h-8">
+                  Today
                 </Button>
-                {/* Date label doubles as the picker trigger */}
-                <div className="relative flex-1 sm:flex-none">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => dateInputRef.current?.showPicker?.()}
-                    className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-33"
-                    aria-label="Pick a date"
-                  >
-                    <CalendarDays className="size-3.5 text-muted-foreground" />
-                    {dateLabel}
-                  </Button>
-                  <input
-                    ref={dateInputRef}
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => {
-                      const v = e.target.value as ISODate;
-                      if (v) changeDate(v);
-                    }}
-                    className="pointer-events-none absolute inset-0 size-full opacity-0"
-                    tabIndex={-1}
-                    aria-hidden="true"
-                  />
+              )}
+              <span className="tabular-nums font-medium text-muted-foreground">{dateLabel}</span>
+            </div>
+          </motion.div>
+
+          {/* Compact ambience for narrow screens (< xl), where the floating
+              decorative rail is hidden: a centered quote + mobile weather. */}
+          {(dailyQuote || (isToday && weather)) && (
+            <Reveal className="mb-8 xl:hidden">
+              <div className="flex flex-col items-center gap-3">
+                <SideRail weekday={railWeekday} date={railDate} quote={dailyQuote} compact />
+                {isToday && <WeatherLine weather={weather} className="text-sm md:hidden" />}
+              </div>
+            </Reveal>
+          )}
+
+          {/* Greeting — the emotional center of the page. */}
+          <Reveal>
+            <div className="mb-10 text-center sm:mb-14">
+              <h1 className="greeting-display on-scene text-balance text-5xl text-foreground sm:text-6xl">
+                {greetingLead}
+              </h1>
+              <p className="voice on-scene mx-auto mt-4 max-w-md text-pretty text-base text-foreground/80 sm:text-lg">
+                {headline}
+              </p>
+              {(voiceStatus || isVoiceProcessing) && (
+                <div className="mt-3 text-sm text-muted-foreground animate-in fade-in">
+                  {voiceStatus}
                 </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-8 shrink-0"
-                  onClick={() => changeDate(1)}
-                  aria-label="Next day"
-                >
-                  <ChevronRight className="size-4" />
+              )}
+            </div>
+          </Reveal>
+
+          {/* Confirmation banner (voice) */}
+          {pendingConfirm && (
+            <div className="zen-card mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+              <div>
+                Confirm: <span className="font-medium">{pendingConfirm.intentText}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <VoiceInput
+                  confirmMode
+                  confirmPrompt={`Say yes to ${pendingConfirm.intentText || "this action"} or no.`}
+                  onConfirm={confirmVoiceAction}
+                />
+                <Button variant="ghost" size="sm" onClick={() => confirmVoiceAction(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={() => confirmVoiceAction(true)}>
+                  Yes
                 </Button>
               </div>
             </div>
+          )}
 
-            {/* Read-only indicator sits under the nav; reserved height avoids layout shift */}
-            <div className="flex h-5 items-center justify-end">
-              {!isToday && (
-                <Badge
-                  variant="secondary"
-                  className="gap-1 rounded-full text-[10px] text-muted-foreground"
-                >
-                  <Lock className="size-2.5" /> Read-only
-                </Badge>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {isToday && hiddenNextBestActionDate !== selectedDate && (
-          <Reveal>
-            <Card className="mb-6 relative overflow-hidden" aria-live="polite">
-              <div className="absolute inset-0 bg-primary/5 pointer-events-none" />
-              <CardContent className="relative flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Next best action · {nextBestAction.domain}
+          <ActionStack focusKey={stackFocusKey}>
+            {/* WORKOUT — focused in the morning, always available */}
+            <StackCard key="workout" label="Workout">
+              <section className="zen-card p-5 sm:p-7">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    <Dumbbell className="size-3.5" />
+                    {isToday ? "Morning workout" : "Workout"}
                   </div>
-                  <div className="mt-1 font-semibold">{nextBestAction.title}</div>
-                  <p className="mt-1 text-sm text-muted-foreground">{nextBestAction.reason}</p>
+                  <Link
+                    to="/health/workouts"
+                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    All workouts →
+                  </Link>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => recordNextBestActionOutcome("snoozed")}
-                    disabled={syncing}
-                  >
-                    Later
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => recordNextBestActionOutcome("dismissed", false)}
-                    disabled={syncing}
-                  >
-                    Skip
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => recordNextBestActionOutcome("completed", true)}
-                    disabled={syncing}
-                  >
-                    Done
-                  </Button>
-                  <Button asChild>
-                    <Link to={nextBestAction.href}>Take action</Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </Reveal>
-        )}
-
-        {/* Signature hero: the coach greets the household by name (Fraunces
-            voice) over a warm sunrise wash. Voice-first — the mic is the
-            primary action; one soft "today's warmth" arc replaces clinical rings. */}
-        <Reveal>
-          <div className="aurora-hero relative mb-6 overflow-hidden rounded-3xl border border-border p-6 sm:p-8">
-            <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 max-w-xl">
-                <h1 className="voice-lg text-balance text-3xl text-foreground sm:text-[2.6rem]">
-                  {greetingLead}
-                </h1>
-                <Reveal
-                  key={headline}
-                  className="voice mt-3 line-clamp-3 text-lg leading-snug text-foreground/70"
-                >
-                  {headline}
-                </Reveal>
-
-                {isToday && (
-                  <div className="mt-5 flex items-center gap-4">
-                    <div className="relative">
-                      {/* Active pulse ring behind the CTA to signal readiness */}
-                      {!isListening && !isVoiceProcessing && (
-                        <div className="absolute -inset-1 rounded-full bg-primary/20 animate-pulse pointer-events-none" />
-                      )}
-                      <button
-                        onClick={handleFabClick}
-                        disabled={isVoiceProcessing}
-                        className={`group relative flex items-center gap-2.5 rounded-full px-6 py-3 text-sm font-semibold shadow-md transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.97] ${isListening ? "bg-destructive text-destructive-foreground shadow-destructive/20" : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/20"}`}
-                        aria-label={isListening ? "Stop listening" : "Tap to talk to your coach"}
-                      >
-                        {isListening ? (
-                          <>
-                            <Square className="size-4 fill-current" /> Stop
-                          </>
-                        ) : (
-                          <>
-                            <Mic className="size-4.5" />
-                            Tap to talk
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    {(voiceStatus || isVoiceProcessing) && (
-                      <span className="min-w-0 truncate text-sm text-muted-foreground animate-in fade-in slide-in-from-left-2">
-                        {voiceStatus}
-                      </span>
+                {coaching?.workout ? (
+                  <>
+                    <WorkoutCarousel
+                      title={coaching.workout.title}
+                      focus={coaching.workout.focus}
+                      estimatedMinutes={coaching.workout.estimatedMinutes}
+                      exercises={coaching.workout.exercises}
+                    />
+                    {isToday && (
+                      <div className="mt-4 flex items-center gap-3">
+                        <Button
+                          onClick={logSuggestedWorkout}
+                          disabled={syncing || workoutCompletedToday}
+                          className="gap-1.5"
+                        >
+                          <Check className="size-4" />
+                          {workoutCompletedToday ? "Completed today" : "Mark complete"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => refreshCoaching(true)}
+                          disabled={coachLoading}
+                          className="gap-1.5 text-muted-foreground"
+                        >
+                          <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />
+                          New session
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                    <span>
+                      {coachLoading ? "Building your session…" : "No session planned yet."}
+                    </span>
+                    {isToday && !coachLoading && (
+                      <Button variant="outline" size="sm" onClick={() => refreshCoaching(true)}>
+                        Generate
+                      </Button>
                     )}
                   </div>
                 )}
-              </div>
+              </section>
+            </StackCard>
 
-              {/* One soft "today's warmth" arc — overall day progress, not a
-                  clinical percentage grid. */}
-              <div className="flex shrink-0 items-center gap-5 sm:flex-col sm:items-end">
-                <DayWarmthArc
-                  focusPct={focusProgress}
-                  proteinPct={proteinPct}
-                  waterPct={waterPct}
-                />
-              </div>
-            </div>
-          </div>
-        </Reveal>
-
-        {/* Listening overlay */}
-        <Dialog
-          open={isListeningOverlay}
-          onOpenChange={(open) => {
-            if (!open) stopOverlayListening();
-          }}
-        >
-          <DialogContent className="w-fit text-center sm:max-w-fit">
-            <DialogTitle className="flex items-center justify-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
-              <Mic className="size-4 text-primary" /> Listening…
-            </DialogTitle>
-            <div className="mt-1 flex h-10 items-end justify-center gap-1.5">
-              {[0, 1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="w-1.5 animate-pulse rounded bg-primary"
-                  style={{
-                    height: 12 + (i % 3) * 7,
-                    animationDelay: `${i * 110}ms`,
-                  }}
-                />
-              ))}
-            </div>
-            {interim && <div className="mt-3 text-sm text-muted-foreground">“{interim}”</div>}
-            <Button variant="link" size="sm" onClick={stopOverlayListening} className="mx-auto">
-              Cancel
-            </Button>
-            {listenError && <div className="mt-2 text-xs text-destructive">{listenError}</div>}
-          </DialogContent>
-        </Dialog>
-
-        {/* Confirmation banner */}
-        {pendingConfirm && (
-          <div className="mb-4 rounded border border-border bg-accent/40 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-3">
-            <div>
-              Confirm: <span className="font-medium">{pendingConfirm.intentText}</span>
-              <span className="text-muted-foreground"> — say “yes” or use buttons</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <VoiceInput
-                confirmMode
-                confirmPrompt={`Say yes to ${pendingConfirm.intentText || "this action"} or no.`}
-                onConfirm={confirmVoiceAction}
-              />
-              <Button variant="ghost" size="sm" onClick={() => confirmVoiceAction(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={() => confirmVoiceAction(true)}>
-                Yes
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* AI COACH SUGGESTIONS */}
-        <Reveal delay={revealDelay(1)}>
-          <Card className="mb-6 overflow-hidden border-border bg-card shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-primary" /> Coach Suggestions
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => refreshCoaching(true)}
-                  disabled={coachLoading || !isToday}
-                  className="h-7 gap-1.5 text-xs font-normal"
-                >
-                  <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />
-                  {coachLoading ? "Thinking…" : "Refresh"}
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {coaching?.suggestions?.length ? (
-                <ul className="space-y-2">
-                  {coaching.suggestions.map((s, i) => {
-                    const Icon = DOMAIN_ICON[s.domain] || Brain;
-                    const suggestionId = stableRecommendationId(
-                      selectedDate,
-                      "coach-daily",
-                      s.text,
-                    );
-                    const feedback = suggestionFeedback[suggestionId];
-                    return (
-                      <Reveal
-                        as="li"
-                        key={i}
-                        delay={revealDelay(i)}
-                        className="flex gap-2.5 text-sm"
-                      >
-                        <Icon
-                          className={`mt-0.5 size-4 shrink-0 ${DOMAIN_COLOR[s.domain] || "text-primary"}`}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <span>{s.text}</span>
-                          {s.action && isToday && (
-                            <span className="ml-1 text-xs text-muted-foreground">
-                              — try “{s.action.trim()}”
-                            </span>
-                          )}
-                          {isToday && (
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                              {feedback ? (
-                                <span className="text-[10px] text-muted-foreground">
-                                  {feedback === "helpful"
-                                    ? "Marked helpful"
-                                    : feedback === "not-helpful"
-                                      ? "Marked not helpful"
-                                      : feedback === "snoozed"
-                                        ? "Snoozed"
-                                        : "Dismissed"}
-                                </span>
-                              ) : (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px]"
-                                    disabled={syncing}
-                                    onClick={() =>
-                                      recordCoachSuggestionOutcome(s.text, "completed", true)
-                                    }
-                                  >
-                                    Helpful
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px]"
-                                    disabled={syncing}
-                                    onClick={() =>
-                                      recordCoachSuggestionOutcome(s.text, "dismissed", false)
-                                    }
-                                  >
-                                    Not helpful
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px]"
-                                    disabled={syncing}
-                                    onClick={() => recordCoachSuggestionOutcome(s.text, "snoozed")}
-                                  >
-                                    Later
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-[11px]"
-                                    disabled={syncing}
-                                    onClick={() =>
-                                      recordCoachSuggestionOutcome(s.text, "dismissed")
-                                    }
-                                  >
-                                    Dismiss
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </Reveal>
-                    );
-                  })}
-                </ul>
-              ) : coachLoading ? (
-                <div className="text-sm text-muted-foreground">Your coach is reviewing today…</div>
-              ) : dailyPlan?.aiSuggestions?.length ? (
-                <ul className="space-y-1.5 text-sm">
-                  {dailyPlan.aiSuggestions.slice(0, 6).map((s, i) => (
-                    <li key={i} className="flex gap-2">
-                      <Brain className="mt-0.5 size-4 shrink-0 text-primary/80" />
-                      <span>{s}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No suggestions yet — tap Refresh.
-                </div>
-              )}
-              {coaching && (
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="text-[10px] text-muted-foreground/60">
-                    {coaching.generatedBy === "ai" ? "Generated by Grok" : "Coach (offline rules)"}{" "}
-                    • updated{" "}
-                    {new Date(coaching.updatedAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+            {/* NUTRITION — focused at midday, always available */}
+            <StackCard key="nutrition" label="Nutrition">
+              <section className="zen-card p-5 sm:p-7">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    <Utensils className="size-3.5" />
+                    Nutrition
                   </div>
-                  {isToday && (
-                    <Button
-                      size="sm"
-                      variant={dailyPlan?.acceptedAt ? "outline" : "default"}
-                      className="h-7 gap-1.5 text-xs"
-                      onClick={handleAcceptCoachPlan}
-                      disabled={syncing || !!dailyPlan?.acceptedAt}
-                    >
-                      <Check className="size-3.5" />
-                      {dailyPlan?.acceptedAt ? "Plan accepted" : "Accept plan"}
-                    </Button>
-                  )}
+                  <Link
+                    to="/health/nutrition"
+                    search={{ date: isToday ? undefined : selectedDate }}
+                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    Details →
+                  </Link>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </Reveal>
 
-        {/* WORKOUT SUGGESTION — morning focus */}
-        {showWorkout && (
-        <Reveal delay={revealDelay(2)}>
-          <Card className="zen-card mb-6 overflow-hidden border-0">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Dumbbell className="size-4 text-primary" /> Today’s Workout
-                </span>
-                <Link to="/workouts" className="text-sm font-normal text-primary hover:underline">
-                  Open workouts →
-                </Link>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="rounded bg-muted px-2 py-1 tabular-nums">
-                  {weekWorkoutCount} workout{weekWorkoutCount === 1 ? "" : "s"} in 7 days
-                </span>
-                {recentWorkout && (
-                  <span className="rounded bg-muted px-2 py-1">
-                    Last: {recentWorkout.notes || "session"}{" "}
-                    {recentWorkout.durationMinutes ? `• ${recentWorkout.durationMinutes} min` : ""}
-                    {recentWorkout.effortRating ? ` • effort ${recentWorkout.effortRating}/5` : ""}
-                  </span>
+                {isToday && (
+                  <form onSubmit={handleAddFood} className="mb-5 flex items-center gap-2">
+                    <Input
+                      value={foodName}
+                      onChange={(e) => setFoodName(e.target.value)}
+                      placeholder="What did you eat? (e.g. 6oz chicken breast)"
+                      className="zen-input h-11 flex-1 rounded-lg px-4 text-sm"
+                      disabled={foodEstimating}
+                    />
+                    <Button
+                      type="submit"
+                      className="h-11 gap-1.5 rounded-lg px-5"
+                      disabled={!foodName.trim() || foodEstimating}
+                    >
+                      {foodEstimating ? (
+                        <RefreshCw className="size-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-4" />
+                      )}
+                      {foodEstimating ? "…" : "Log"}
+                    </Button>
+                  </form>
                 )}
-              </div>
-              {coaching?.workout ? (
-                <Reveal key={coaching.workout.title}>
-                  <WorkoutCarousel
-                    title={coaching.workout.title}
-                    focus={coaching.workout.focus}
-                    estimatedMinutes={coaching.workout.estimatedMinutes}
-                    exercises={coaching.workout.exercises}
-                  />
-                  {isToday && (
-                    <Button
-                      size="sm"
-                      className="mt-1 gap-1.5"
-                      onClick={logSuggestedWorkout}
-                      disabled={syncing}
-                    >
-                      <Check className="size-4" /> Mark complete
-                    </Button>
-                  )}
-                </Reveal>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  {coachLoading
-                    ? "Building your session…"
-                    : "Tap Refresh on suggestions to generate a session."}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </Reveal>
-        )}
+                {foodStatus && (
+                  <div className="mb-4 -mt-2 text-xs text-muted-foreground">{foodStatus}</div>
+                )}
 
-        {/* TWO-COLUMN GRID FOR SECONDARY DOMAINS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-          <div className="flex flex-col gap-4 md:gap-6">
-            {/* FOCUS & TASKS — available every daypart */}
-            <Reveal delay={revealDelay(3)}>
-              <Card className="zen-card overflow-hidden border-0">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <ListTodo className="size-3.5" /> Focus &amp; Tasks
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  <div>
+                    <div className="mb-1.5 flex items-baseline justify-between text-xs">
+                      <span className="text-muted-foreground">Calories</span>
+                      <span className="font-semibold tabular-nums">
+                        {caloriesCurrent}
+                        <span className="font-normal text-muted-foreground">
+                          {" "}
+                          / {caloriesTarget}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                      <div
+                        className={`h-full transition-[width] ${fillTone(caloriesPct, caloriesCurrent > caloriesTarget * 1.05)}`}
+                        style={{ width: `${caloriesPct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1.5 flex items-baseline justify-between text-xs">
+                      <span className="text-muted-foreground">Protein</span>
+                      <span className="font-semibold tabular-nums">
+                        {proteinCurrent}g
+                        <span className="font-normal text-muted-foreground">
+                          {" "}
+                          / {proteinTarget}g
+                        </span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                      <div
+                        className={`h-full transition-[width] ${fillTone(proteinPct)}`}
+                        style={{ width: `${proteinPct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Water */}
+                <div className="mt-5">
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <Droplet className="size-3.5" /> Water
                     </span>
-                    <Link to="/kanban" className="font-normal hover:text-primary transition-colors">
-                      Open full Kanban →
-                    </Link>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
+                    <span className="font-semibold tabular-nums">
+                      {displayWaterOz}
+                      <span className="font-normal text-muted-foreground">
+                        {" "}
+                        / {waterTargetOz} fl oz
+                      </span>
+                    </span>
+                  </div>
                   {isToday ? (
-                    <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
-                      <Input
-                        value={taskInput}
-                        onChange={(e) => setTaskInput(e.target.value)}
-                        placeholder="Quick add task for today…"
-                        className="flex-1 text-sm bg-muted/30"
+                    <div className="flex items-center gap-2.5">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-10 shrink-0 rounded-full transition-transform active:scale-[0.96]"
+                        disabled={foodEstimating || displayWaterOz <= 0}
+                        onClick={() => setWaterOzTotal(waterOz - 4)}
+                        aria-label="Remove 4 fl oz"
+                      >
+                        <Minus className="size-3.5" />
+                      </Button>
+                      <WaterSlider
+                        value={displayWaterOz}
+                        target={waterTargetOz}
+                        max={waterSliderMax}
+                        disabled={foodEstimating}
+                        onDraft={setWaterDraft}
+                        onCommit={commitWaterDraft}
                       />
                       <Button
-                        type="submit"
-                        size="sm"
-                        disabled={!taskInput.trim()}
-                        className="gap-1 h-9"
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-10 shrink-0 rounded-full transition-transform active:scale-[0.96]"
+                        disabled={foodEstimating}
+                        onClick={() => setWaterOzTotal(waterOz + 4)}
+                        aria-label="Add 4 fl oz"
                       >
-                        <Plus className="size-4" /> Add
+                        <Plus className="size-3.5" />
                       </Button>
-                      <VoiceInput onTranscript={handleVoiceTranscript} />
-                    </form>
+                    </div>
                   ) : (
-                    <div className="text-sm text-muted-foreground">
-                      Tasks for past days are view-only here. Use the full Kanban to edit.
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                      <div
+                        className={`h-full transition-[width] ${fillTone(Math.round((waterOz / waterTargetOz) * 100))}`}
+                        style={{
+                          width: `${Math.min(100, Math.round((waterOz / waterTargetOz) * 100))}%`,
+                        }}
+                      />
                     </div>
                   )}
-                  {tasks.length > 0 ? (
-                    <ul className="mt-4 space-y-2 text-sm">
-                      {tasks.slice(0, 6).map((t, i) => (
-                        <Reveal
-                          as="li"
-                          key={t.id}
-                          delay={revealDelay(i)}
-                          className="flex items-center gap-2.5"
+                </div>
+              </section>
+            </StackCard>
+
+            {/* EVENING REFLECTION — focused in the evening (today only), always
+              present when viewing today so the card is never a surprise. */}
+            {isToday && (
+              <StackCard key="evening" label="Reflect">
+                <section className="zen-card p-5 sm:p-7">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      <MoonStar className="size-3.5" />
+                      Evening reflection
+                    </div>
+                    {dailyPlan?.eveningCheckIn && (
+                      <Badge
+                        variant="secondary"
+                        className="rounded-full border-0 bg-success/15 text-[9px] uppercase tracking-widest text-success"
+                      >
+                        Completed
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Energy (1–5)</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={5}
+                        value={checkInEnergy}
+                        onChange={(e) => setCheckInEnergy(Number(e.target.value))}
+                        className="zen-input"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Day rating (1–5)</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={5}
+                        value={checkInRating}
+                        onChange={(e) => setCheckInRating(Number(e.target.value))}
+                        className="zen-input"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Today’s win</span>
+                      <Input
+                        value={checkInWin}
+                        onChange={(e) => setCheckInWin(e.target.value)}
+                        placeholder="What went well?"
+                        className="zen-input"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs text-muted-foreground">Friction or blocker</span>
+                      <Input
+                        value={checkInFriction}
+                        onChange={(e) => setCheckInFriction(e.target.value)}
+                        placeholder="What got in the way?"
+                        className="zen-input"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm sm:col-span-2">
+                      <span className="text-xs text-muted-foreground">Optional note</span>
+                      <Input
+                        value={checkInNote}
+                        onChange={(e) => setCheckInNote(e.target.value)}
+                        placeholder="Anything else worth remembering?"
+                        className="zen-input"
+                      />
+                    </label>
+                  </div>
+                  <Button
+                    onClick={submitEveningCheckIn}
+                    disabled={checkInSaving}
+                    variant={dailyPlan?.eveningCheckIn ? "secondary" : "default"}
+                    className="mt-4"
+                  >
+                    {checkInSaving
+                      ? "Saving…"
+                      : dailyPlan?.eveningCheckIn
+                        ? "Update check-in"
+                        : "Save check-in"}
+                  </Button>
+                </section>
+              </StackCard>
+            )}
+
+            {/* FINANCE WRAP-UP — focused in the evening, always available */}
+            <StackCard key="finance" label="Finance">
+              <section className="zen-card p-5 sm:p-7">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    <Wallet className="size-3.5" />
+                    Finance wrap-up
+                  </div>
+                  <Link
+                    to="/finance"
+                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    Details →
+                  </Link>
+                </div>
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Net worth</div>
+                    <div className="text-3xl font-semibold tabular-nums tracking-tight">
+                      ${(finance?.netWorth ?? 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex gap-6 text-sm">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Cash flow (mo)</div>
+                      <div
+                        className={`font-semibold tabular-nums ${financeCashFlow < 0 ? "text-destructive" : ""}`}
+                      >
+                        {financeCashFlow < 0 ? "-" : "+"}$
+                        {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Income</div>
+                      <div className="font-semibold tabular-nums">
+                        ${financeIncome.toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Spending</div>
+                      <div className="font-semibold tabular-nums">
+                        ${financeSpend.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {financeHub?.safeToSpend && financeHub.safeToSpend.status !== "unavailable" && (
+                  <div className="zen-surface-nested mt-4 flex items-center justify-between px-3.5 py-2.5 text-sm">
+                    <span className="text-muted-foreground">Safe to spend this month</span>
+                    <span className="font-semibold tabular-nums">
+                      ${financeHub.safeToSpend.safeToSpendThisMonth.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </section>
+            </StackCard>
+
+            {/* TASKS — always available, second focus after the daypart primary */}
+            <StackCard key="tasks" label="Tasks">
+              <section className="zen-card p-5 sm:p-7">
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    <ListTodo className="size-3.5" />
+                    {daypart === "morning" ? "Morning focus" : "Tasks"}
+                  </div>
+                  <Link
+                    to="/kanban"
+                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    All tasks →
+                  </Link>
+                </div>
+
+                {visibleTasks.length > 0 ? (
+                  <ul className="mb-4 space-y-2.5 text-sm">
+                    {visibleTasks.map((t, i) => (
+                      <Reveal as="li" key={t.id} delay={revealDelay(i)}>
+                        <button
+                          type="button"
+                          onClick={() => toggleTask(t.id)}
+                          disabled={!isToday}
+                          className="group flex w-full items-center gap-3 text-left disabled:cursor-default"
                         >
                           <span
-                            className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${t.done ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/40"}`}
+                            className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors ${t.done ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/35 group-hover:border-primary/60"}`}
                           >
                             {t.done && <Check className="size-3" />}
                           </span>
@@ -1560,649 +1256,98 @@ function UnifiedDailyDashboard() {
                           >
                             {t.text}
                           </span>
-                          {t.shared && (
-                            <Badge
-                              variant="secondary"
-                              className="shrink-0 gap-0.5 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary border-0"
-                            >
-                              <Users className="size-2.5" /> Shared
-                            </Badge>
-                          )}
-                        </Reveal>
-                      ))}
-                    </ul>
-                  ) : isToday ? (
-                    <div className="mt-4 text-sm text-muted-foreground">
-                      No tasks yet today — add one above or ask the coach for a plan.
-                    </div>
-                  ) : (
-                    <div className="mt-4 text-sm text-muted-foreground">
-                      No tasks were logged for this day.
-                    </div>
-                  )}
-                  <div className="mt-4 text-[10px] text-muted-foreground/60 leading-relaxed">
-                    Voice/AI supported — try “add workout 30 min” or “remind me to call mom”.
+                        </button>
+                      </Reveal>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mb-4 text-sm text-muted-foreground">
+                    {isToday ? "Nothing on the list yet." : "No tasks were logged for this day."}
                   </div>
-                </CardContent>
-              </Card>
-            </Reveal>
+                )}
 
-            {/* NUTRITION — midday focus */}
-            {showNutrition && (
-            <Reveal delay={revealDelay(4)}>
-              <Card className="zen-card overflow-hidden border-0">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Utensils className="size-3.5" /> Nutrition
-                    </span>
-                    <Link
-                      to="/nutrition"
-                      search={{ date: isToday ? undefined : selectedDate }}
-                      className="font-normal hover:text-primary transition-colors"
-                    >
-                      Open nutrition →
-                    </Link>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {/* Calories — headline number for the day */}
-                  <div className="mb-3 flex items-end justify-between">
-                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Calories
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-semibold tabular-nums tracking-tight">
-                        {caloriesCurrent}
-                      </span>
-                      <span className="text-sm font-medium text-muted-foreground">
-                        / {caloriesTarget}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted/50">
-                    <div
-                      className={`h-full transition-all ${fillTone(
-                        Math.min(
-                          100,
-                          Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100),
-                        ),
-                        caloriesCurrent > caloriesTarget * 1.05,
-                      )}`}
-                      style={{
-                        width: `${Math.min(100, Math.round((caloriesCurrent / Math.max(1, caloriesTarget)) * 100))}%`,
-                      }}
+                {isToday && (
+                  <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
+                    <Input
+                      value={taskInput}
+                      onChange={(e) => setTaskInput(e.target.value)}
+                      placeholder="Add a task…"
+                      className="zen-input h-10 flex-1 rounded-lg px-4 text-sm"
                     />
-                  </div>
-
-                  {/* Protein */}
-                  <div className="mb-3 mt-6 flex items-end justify-between">
-                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Protein
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-xl font-semibold tabular-nums tracking-tight">
-                        {proteinCurrent}g
-                      </span>
-                      <span className="text-sm font-medium text-muted-foreground">
-                        / {proteinTarget}g
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted/50">
-                    <div
-                      className={`h-full transition-all ${fillTone(proteinPct)}`}
-                      style={{ width: `${proteinPct}%` }}
-                    />
-                  </div>
-
-                  {/* Carbs / Fat */}
-                  <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
-                    <div className="rounded-lg bg-muted/30 p-2.5">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Carbs
-                      </div>
-                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
-                        {carbsCurrent}g
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-muted/30 p-2.5">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Fat
-                      </div>
-                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
-                        {fatCurrent}g
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Water — draggable slider */}
-                  <div className="mt-6">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                        <Droplet className="size-3.5" /> Water
-                      </span>
-                      <span className="text-sm font-semibold tabular-nums tracking-tight text-foreground/80">
-                        {displayWaterOz} / {waterTargetOz} fl oz
-                      </span>
-                    </div>
-                    {isToday ? (
-                      <div className="flex items-center gap-3">
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="outline"
-                          className="size-9 shrink-0 rounded-full bg-transparent border-muted-foreground/20"
-                          disabled={foodEstimating || displayWaterOz <= 0}
-                          onClick={() => setWaterOz(waterOz - 4)}
-                          aria-label="Remove 4 fl oz"
-                        >
-                          <Minus className="size-3.5 text-muted-foreground" />
-                        </Button>
-                        <WaterSlider
-                          value={displayWaterOz}
-                          target={waterTargetOz}
-                          max={waterSliderMax}
-                          disabled={foodEstimating}
-                          onDraft={setWaterDraft}
-                          onCommit={commitWaterDraft}
-                        />
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="outline"
-                          className="size-9 shrink-0 rounded-full bg-transparent border-muted-foreground/20"
-                          disabled={foodEstimating}
-                          onClick={() => setWaterOz(waterOz + 4)}
-                          aria-label="Add 4 fl oz"
-                        >
-                          <Plus className="size-3.5 text-muted-foreground" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted/50">
-                        <div
-                          className={`h-full transition-all ${fillTone(waterPct)}`}
-                          style={{ width: `${waterPct}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {(nutrition?.mealLogs?.length ?? 0) > 0 && (
-                    <div className="mt-6">
-                      <div className="mb-3 text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Recent logs
-                      </div>
-                      <ul className="space-y-2 text-sm">
-                        {nutrition!.mealLogs
-                          .filter((m) => !m.deletedAt)
-                          .slice(-5)
-                          .reverse()
-                          .map((m, idx) => {
-                            const items = m.foodItems || [];
-                            const name =
-                              items.length > 1
-                                ? `${items[0]?.name || "meal"} +${items.length - 1}`
-                                : items[0]?.name || "meal";
-                            const cals = items.reduce((s, i) => s + (i.macros?.calories ?? 0), 0);
-                            const prot = items.reduce((s, i) => s + (i.macros?.protein ?? 0), 0);
-                            return (
-                              <Reveal
-                                as="li"
-                                key={m.id}
-                                delay={revealDelay(idx)}
-                                className="group flex flex-col gap-0.5 rounded-lg border border-transparent hover:bg-muted/30 -mx-2 p-2 transition-colors"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium text-foreground/90">{name}</span>
-                                  <span className="text-xs font-semibold tabular-nums text-foreground/80">
-                                    {cals} cal
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                  <span className="font-mono text-[10px]">
-                                    {new Date(m.timestamp).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
-                                  <span className="flex items-center gap-3">
-                                    <span>{prot}g prot</span>
-                                    {isToday && (
-                                      <button
-                                        type="button"
-                                        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive transition-opacity"
-                                        disabled={foodEstimating}
-                                        onClick={() => handleDeleteMeal(m.id)}
-                                        aria-label={`Remove ${name}`}
-                                        title="Remove food entry"
-                                      >
-                                        <Trash2 className="size-3.5" />
-                                      </button>
-                                    )}
-                                  </span>
-                                </div>
-                              </Reveal>
-                            );
-                          })}
-                      </ul>
-                    </div>
-                  )}
-
-                  {isToday && (
-                    <div className="mt-5 space-y-2">
-                      <form onSubmit={handleAddFood} className="flex items-center gap-2">
-                        <Input
-                          value={foodName}
-                          onChange={(e) => setFoodName(e.target.value)}
-                          placeholder="Add food (e.g. 6oz chicken breast)…"
-                          className="flex-1 text-sm bg-muted/30"
-                          disabled={foodEstimating}
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="gap-1 h-9"
-                          disabled={!foodName.trim() || foodEstimating}
-                        >
-                          {foodEstimating ? (
-                            <RefreshCw className="size-4 animate-spin" />
-                          ) : (
-                            <Sparkles className="size-4" />
-                          )}
-                          {foodEstimating ? "Estimating…" : "Add food"}
-                        </Button>
-                      </form>
-                      {foodStatus ? (
-                        <div className="text-[11px] text-muted-foreground">{foodStatus}</div>
-                      ) : (
-                        <div className="text-[10px] text-muted-foreground/60 leading-relaxed">
-                          Type any food — the AI fills in calories &amp; protein. Or say “log 40g
-                          protein chicken”.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </Reveal>
-            )}
-
-            {/* RECENT ACTIVITY */}
-            <Reveal delay={revealDelay(6)}>
-              <Card className="overflow-hidden border-border bg-card shadow-sm mb-6 md:mb-0">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Recent Activity
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {(() => {
-                    const rec = dashboard?.recent || {
-                      interactions: [],
-                      transcripts: [],
-                    };
-                    const combined = [
-                      ...(rec.interactions || []).map((i) => ({
-                        ts: i.timestamp,
-                        label: "AI",
-                        text: humanizeAiActivity(i.response, i.intent),
-                      })),
-                      ...(rec.transcripts || []).map((v) => ({
-                        ts: v.timestamp,
-                        label: "Voice",
-                        text: v.transcriptText?.slice(0, 120) || "",
-                      })),
-                    ]
-                      .sort((a, b) => b.ts - a.ts)
-                      .slice(0, 8);
-
-                    if (combined.length === 0)
-                      return (
-                        <div className="text-sm text-muted-foreground">
-                          No voice or AI activity for this day.
-                        </div>
-                      );
-
-                    return (
-                      <div className="space-y-2.5 text-sm">
-                        {combined.map((c, idx) => (
-                          <Reveal
-                            as="div"
-                            key={idx}
-                            delay={revealDelay(idx)}
-                            className="flex items-baseline gap-2 text-muted-foreground"
-                          >
-                            <span className="mt-px inline-block w-10.5 shrink-0 font-mono text-[10px] text-muted-foreground/60">
-                              {new Date(c.ts).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                            <span className="shrink-0 text-[10px] uppercase tracking-wider font-semibold text-foreground/70">
-                              {c.label}:
-                            </span>
-                            <span className="min-w-0 flex-1 leading-snug">{c.text}</span>
-                          </Reveal>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </CardContent>
-              </Card>
-            </Reveal>
-          </div>
-
-          <div className="flex flex-col gap-4 md:gap-6">
-            {/* FINANCE — evening wrap-up */}
-            {showFinance && (
-            <Reveal delay={revealDelay(5)}>
-              <Card className="zen-card overflow-hidden border-0">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Wallet className="size-3.5" /> Finance Snapshot
-                    </span>
-                    <Link
-                      to="/finance"
-                      className="font-normal hover:text-primary transition-colors"
-                    >
-                      Open finance →
-                    </Link>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-5 flex flex-col gap-0.5">
-                    <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                      Net worth
-                    </div>
-                    <div className="text-4xl font-semibold tabular-nums tracking-tight">
-                      ${(finance?.netWorth ?? 0).toLocaleString()}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-xs xl:grid-cols-3">
-                    <div className="rounded-lg bg-muted/30 p-2.5">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Cash flow (mo)
-                      </div>
-                      <div
-                        className={`mt-0.5 text-lg font-semibold tabular-nums tracking-tight ${
-                          financeCashFlow < 0 ? "text-destructive" : "text-foreground"
-                        }`}
-                      >
-                        {financeCashFlow < 0 ? "-" : "+"}$
-                        {Math.abs(Math.round(financeCashFlow)).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-muted/30 p-2.5">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        {usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
-                      </div>
-                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
-                        ${financeIncome.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-muted/30 p-2.5 col-span-2 xl:col-span-1">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Spending (mo)
-                      </div>
-                      <div className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight">
-                        ${financeSpend.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-[10px] text-muted-foreground/70">
-                    {monthTransactions.length
-                      ? `${monthTransactions.length} transaction${monthTransactions.length === 1 ? "" : "s"} in ${selectedMonth}`
-                      : `No transactions imported for ${selectedMonth}`}
-                  </div>
-
-                  {financeHub?.safeToSpend && (
-                    <div
-                      className={`mt-5 rounded-xl border px-3 py-2.5 text-sm ${
-                        financeHub.safeToSpend.status === "on-track"
-                          ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-950 dark:text-emerald-200"
-                          : financeHub.safeToSpend.status === "over-plan"
-                            ? "border-destructive/20 bg-destructive/5 text-destructive-foreground dark:text-red-200"
-                            : financeHub.safeToSpend.status === "tight"
-                              ? "border-amber-500/20 bg-amber-500/5 text-amber-950 dark:text-amber-200"
-                              : "border-border bg-muted/20"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">Monthly guardrail</span>
-                        {financeHub.safeToSpend.status !== "unavailable" && (
-                          <span className="font-semibold tabular-nums">
-                            ${financeHub.safeToSpend.safeToSpendThisMonth.toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-[11px] opacity-80 leading-snug">
-                        {financeHub.safeToSpend.explanation} ($
-                        {financeHub.safeToSpend.safeToSpendPerDay.toLocaleString()}/day left)
-                      </p>
-                    </div>
-                  )}
-
-                  {finance?.accounts?.length ? (
-                    <div className="mt-5">
-                      <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Balances
-                      </div>
-                      <ul className="space-y-1.5 text-sm">
-                        {finance.accounts.map((a, i) => (
-                          <Reveal
-                            as="li"
-                            key={i}
-                            delay={revealDelay(i)}
-                            className="flex items-center justify-between rounded-md px-1.5 py-1 -mx-1.5 hover:bg-muted/30 transition-colors"
-                          >
-                            <span className="font-medium text-foreground/80">{a.account}</span>
-                            <span className="font-semibold tabular-nums text-foreground/90">
-                              ${a.amount.toLocaleString()}
-                            </span>
-                          </Reveal>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <div className="mt-5 text-sm text-muted-foreground bg-muted/20 rounded-lg p-3 border border-dashed border-border/60">
-                      No accounts tracked yet. Add balances below to start your net-worth baseline.
-                    </div>
-                  )}
-
-                  {isToday && (
-                    <div className="mt-6 space-y-3 pt-4 border-t border-border/40">
-                      <form onSubmit={handleAddAccount} className="flex items-center gap-2">
-                        <Input
-                          value={acctName}
-                          onChange={(e) => setAcctName(e.target.value)}
-                          placeholder="Account (e.g. Checking)"
-                          className="flex-1 text-sm bg-muted/30"
-                        />
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={acctAmount}
-                          onChange={(e) => setAcctAmount(e.target.value)}
-                          placeholder="Balance"
-                          className="w-28 text-sm bg-muted/30 tabular-nums"
-                        />
-                        <Button
-                          type="submit"
-                          size="icon"
-                          variant="secondary"
-                          className="shrink-0 rounded-full"
-                          disabled={!acctName.trim() || !acctAmount}
-                          title="Update balance"
-                        >
-                          <Plus className="size-4" />
-                        </Button>
-                      </form>
-                      <form
-                        onSubmit={handleAddTransaction}
-                        className="flex flex-col gap-2 sm:flex-row"
-                      >
-                        <div className="flex flex-1 gap-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={txnAmount}
-                            onChange={(e) => setTxnAmount(e.target.value)}
-                            placeholder="+/- amount"
-                            className="w-28 text-sm bg-muted/30 tabular-nums"
-                          />
-                          <Input
-                            value={txnCategory}
-                            onChange={(e) => setTxnCategory(e.target.value)}
-                            placeholder="Category"
-                            className="flex-1 text-sm bg-muted/30"
-                          />
-                        </div>
-                        <div className="flex flex-1 gap-2">
-                          <Input
-                            value={txnNote}
-                            onChange={(e) => setTxnNote(e.target.value)}
-                            placeholder="Note"
-                            className="flex-1 text-sm bg-muted/30"
-                          />
-                          <Button
-                            type="submit"
-                            size="icon"
-                            variant="secondary"
-                            className="shrink-0 rounded-full"
-                            disabled={!txnAmount}
-                            title="Log cashflow"
-                          >
-                            <Plus className="size-4" />
-                          </Button>
-                        </div>
-                      </form>
-                    </div>
-                  )}
-                  {dayTransactions.length > 0 && (
-                    <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
-                      {dayTransactions
-                        .slice(-3)
-                        .reverse()
-                        .map((t, i) => (
-                          <Reveal
-                            as="li"
-                            key={t.id}
-                            delay={revealDelay(i)}
-                            className="flex items-center justify-between gap-2 border-b border-border/30 pb-1.5 last:border-0 last:pb-0"
-                          >
-                            <span className="truncate">{t.category || t.notes || t.type}</span>
-                            <span className="font-medium tabular-nums text-foreground/80">
-                              ${t.amount.toLocaleString()}
-                            </span>
-                          </Reveal>
-                        ))}
-                    </ul>
-                  )}
-                </CardContent>
-              </Card>
-            </Reveal>
-
-            )}
-
-            {/* EVENING CHECK-IN — evening focus */}
-            {showEvening && isToday && (
-              <Reveal delay={revealDelay(7)}>
-                <Card className="zen-card overflow-hidden border-0 relative mb-6 md:mb-0">
-                  {dailyPlan?.eveningCheckIn && (
-                    <div className="absolute right-0 top-0 w-24 h-24 bg-primary/5 rounded-bl-[100px] pointer-events-none" />
-                  )}
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between relative z-10">
-                      Evening check-in
-                      {dailyPlan?.eveningCheckIn && (
-                        <Badge
-                          variant="secondary"
-                          className="bg-primary/10 text-primary border-0 rounded-full h-5 text-[9px] uppercase tracking-widest px-2"
-                        >
-                          Completed
-                        </Badge>
-                      )}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4 relative z-10">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-1 text-sm">
-                        <span className="text-muted-foreground text-xs">Energy (1–5)</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={5}
-                          value={checkInEnergy}
-                          onChange={(e) => setCheckInEnergy(Number(e.target.value))}
-                          className="bg-muted/30 font-medium"
-                        />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        <span className="text-muted-foreground text-xs">Day rating (1–5)</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={5}
-                          value={checkInRating}
-                          onChange={(e) => setCheckInRating(Number(e.target.value))}
-                          className="bg-muted/30 font-medium"
-                        />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        <span className="text-muted-foreground text-xs">Today’s win</span>
-                        <Input
-                          value={checkInWin}
-                          onChange={(e) => setCheckInWin(e.target.value)}
-                          placeholder="What went well?"
-                          className="bg-muted/30"
-                        />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        <span className="text-muted-foreground text-xs">Friction or blocker</span>
-                        <Input
-                          value={checkInFriction}
-                          onChange={(e) => setCheckInFriction(e.target.value)}
-                          placeholder="What got in the way?"
-                          className="bg-muted/30"
-                        />
-                      </label>
-                      <label className="space-y-1 text-sm sm:col-span-2">
-                        <span className="text-muted-foreground text-xs">Optional note</span>
-                        <Input
-                          value={checkInNote}
-                          onChange={(e) => setCheckInNote(e.target.value)}
-                          placeholder="Anything else worth remembering?"
-                          className="bg-muted/30"
-                        />
-                      </label>
-                    </div>
                     <Button
-                      onClick={submitEveningCheckIn}
-                      disabled={checkInSaving}
-                      variant={dailyPlan?.eveningCheckIn ? "secondary" : "default"}
-                      className="w-full sm:w-auto"
+                      type="submit"
+                      size="icon"
+                      className="size-10 shrink-0 rounded-lg"
+                      disabled={!taskInput.trim()}
+                      aria-label="Add task"
                     >
-                      {checkInSaving
-                        ? "Saving…"
-                        : dailyPlan?.eveningCheckIn
-                          ? "Update check-in"
-                          : "Save check-in"}
+                      <Plus className="size-4" />
                     </Button>
-                  </CardContent>
-                </Card>
-              </Reveal>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 mt-6 text-[10px] tabular-nums text-muted-foreground/60">
-          {selectedDate} • TanStack Start + R2 {syncing && "• syncing…"} {isLoading && "• loading…"}
+                  </form>
+                )}
+                {activeTasks.length > visibleTasks.filter((t) => !t.done).length && (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    +{activeTasks.length - visibleTasks.filter((t) => !t.done).length} more pending
+                  </div>
+                )}
+              </section>
+            </StackCard>
+          </ActionStack>
         </div>
       </div>
+
+      {/* Listening overlay */}
+      <Dialog
+        open={isListeningOverlay}
+        onOpenChange={(open) => {
+          if (!open) stopOverlayListening();
+        }}
+      >
+        <DialogContent className="w-fit text-center sm:max-w-fit">
+          <DialogTitle className="flex items-center justify-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
+            <Mic className="size-4 text-primary" /> Listening…
+          </DialogTitle>
+          <div className="mt-1 flex h-10 items-end justify-center gap-1.5">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="w-1.5 animate-pulse rounded bg-primary"
+                style={{
+                  height: 12 + (i % 3) * 7,
+                  animationDelay: `${i * 110}ms`,
+                }}
+              />
+            ))}
+          </div>
+          {interim && <div className="mt-3 text-sm text-muted-foreground">“{interim}”</div>}
+          <Button variant="link" size="sm" onClick={stopOverlayListening} className="mx-auto">
+            Cancel
+          </Button>
+          {listenError && <div className="mt-2 text-xs text-destructive">{listenError}</div>}
+        </DialogContent>
+      </Dialog>
+
+      {/* Voice mic FAB — centered above mobile nav, lower-right on desktop. */}
+      {isToday && (
+        <button
+          onClick={handleFabClick}
+          disabled={isVoiceProcessing}
+          aria-label={isListening ? "Stop listening" : "Talk to your coach"}
+          className={`fixed bottom-24 left-1/2 z-40 flex size-16 -translate-x-1/2 items-center justify-center rounded-full transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] lg:bottom-8 lg:left-auto lg:right-8 lg:translate-x-0 ${
+            isListening
+              ? "bg-primary text-primary-foreground shadow-lg ring-4 ring-primary/20"
+              : "bg-surface-raised text-primary shadow-xl ring-1 ring-primary/35 hover:bg-surface"
+          }`}
+        >
+          {isVoiceProcessing ? (
+            <RefreshCw className="size-6 animate-spin" />
+          ) : isListening ? (
+            <Square className="size-6 fill-current" />
+          ) : (
+            <Mic className="size-7" />
+          )}
+        </button>
+      )}
 
       {/* Hidden voice input kept mounted for confirm flows */}
       <div className="hidden">
@@ -2212,9 +1357,278 @@ function UnifiedDailyDashboard() {
   );
 }
 
-// A draggable water slider. Fill, thumb, and the (invisible) native range
-// input all share the same 0..max scale so the cursor sits exactly on the
-// handle. The day's target is shown as a tick so you can see the goal.
+// A single card in the Action Stack. Thin marker wrapper: ActionStack reads
+// `key` + `label` from the element props and owns all motion/layout itself.
+function StackCard({
+  children,
+  label: _label,
+}: {
+  key?: string;
+  label: string;
+  children: ReactNode;
+}) {
+  void _label;
+  return <>{children}</>;
+}
+
+/**
+ * Interactive, buttery-smooth carousel/stack of Action cards.
+ *
+ * Every domain card stays in the deck. Daypart only chooses which card starts
+ * in front — never which cards exist. The front card is full-scale; cards
+ * behind recede with clearer peeks so the rest of the deck is discoverable.
+ * Compact dot controls keep navigation quiet while accessible labels preserve
+ * the card names for assistive technology.
+ */
+function ActionStack({
+  children,
+  focusKey,
+}: {
+  children: ReactNode;
+  /** Preferred front card key for the current daypart. */
+  focusKey?: string;
+}) {
+  // Collect rendered StackCard children into a stable, keyed list. Falsy
+  // entries (e.g. evening reflection on past days) are skipped. Daypart only
+  // reorders the deck so the focused card is front-most — nothing is removed.
+  const rawCards = (Array.isArray(children) ? children : [children])
+    .flat()
+    .filter((c): c is ReactElement<{ label?: string }> => Boolean(c))
+    .map((c) => ({
+      key: String(c.key),
+      label:
+        typeof c.props.label === "string" && c.props.label.trim() ? c.props.label : String(c.key),
+      node: c,
+    }));
+  const preferredOrder =
+    focusKey === "nutrition"
+      ? ["nutrition", "tasks", "workout", "finance", "evening"]
+      : focusKey === "evening" || focusKey === "finance"
+        ? ["evening", "finance", "tasks", "nutrition", "workout"]
+        : ["workout", "tasks", "nutrition", "finance", "evening"];
+  const cards = [...rawCards].sort((a, b) => {
+    const ai = preferredOrder.indexOf(a.key);
+    const bi = preferredOrder.indexOf(b.key);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  const cardKeys = cards.map((c) => c.key).join("|");
+  const focusIndex = Math.max(0, focusKey ? cards.findIndex((c) => c.key === focusKey) : 0);
+  // Key-based selection survives card set changes (e.g. evening only on today)
+  // better than a raw index. Daypart focus re-homes the deck when it changes.
+  const [activeKey, setActiveKey] = useState<string | null>(focusKey ?? null);
+  const prevFocusKey = useRef(focusKey);
+  useEffect(() => {
+    if (prevFocusKey.current !== focusKey) {
+      prevFocusKey.current = focusKey;
+      if (focusKey) setActiveKey(focusKey);
+      return;
+    }
+    setActiveKey((current) => {
+      if (current && cards.some((c) => c.key === current)) return current;
+      return focusKey ?? cards[0]?.key ?? null;
+    });
+  }, [focusKey, cardKeys]);
+
+  const activeIndex = Math.max(
+    0,
+    activeKey ? cards.findIndex((c) => c.key === activeKey) : focusIndex,
+  );
+  const clampedActive = cards.length === 0 ? 0 : Math.min(activeIndex, cards.length - 1);
+
+  const count = cards.length;
+  if (count === 0) return null;
+
+  const selectIndex = (i: number) => setActiveKey(cards[i]?.key ?? null);
+  const go = (dir: number) => {
+    const next = (clampedActive + dir + count) % count;
+    selectIndex(next);
+  };
+
+  return (
+    <div className="action-stack">
+      <div
+        className="relative mb-6 flex min-h-[520px] items-start justify-center pt-4 sm:pt-6"
+        style={{ perspective: 1200 }}
+      >
+        <div className="relative w-full max-w-2xl pb-16 sm:pb-20 xl:max-w-4xl">
+          <AnimatePresence initial={false}>
+            {cards.map(({ key, label, node }, i) => {
+              // Depth of this card relative to the front card (0 = front).
+              const depth = (i - clampedActive + count) % count;
+              const isFront = depth === 0;
+              // Every card keeps a faint physical presence so a 5-card deck never
+              // feels like a single surface. Deep peeks stay quiet but readable.
+              const peekY = isFront ? 0 : 14 + depth * 20;
+              const peekScale = isFront ? 1 : Math.max(0.86, 1 - depth * 0.04);
+              const peekOpacity = isFront ? 1 : Math.max(0.22, 0.7 - depth * 0.12);
+              const peekBlur = isFront ? 0 : Math.min(2.2, 0.35 + depth * 0.45);
+              return (
+                <motion.div
+                  key={key}
+                  layout
+                  initial={{
+                    opacity: 0,
+                    y: 48,
+                    scale: 0.94,
+                    filter: "blur(4px)",
+                  }}
+                  animate={{
+                    opacity: peekOpacity,
+                    y: peekY,
+                    scale: peekScale,
+                    filter: `blur(${peekBlur}px)`,
+                  }}
+                  exit={{ opacity: 0, y: 48, scale: 0.94, filter: "blur(4px)" }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 320,
+                    damping: 34,
+                    mass: 0.9,
+                  }}
+                  onClick={() => {
+                    if (!isFront) selectIndex(i);
+                  }}
+                  style={{
+                    zIndex: count - depth,
+                    pointerEvents: "auto",
+                    cursor: isFront ? "default" : "pointer",
+                    // Behind cards stack in the same space; the front card owns flow.
+                    position: isFront ? "relative" : "absolute",
+                    inset: isFront ? undefined : 0,
+                    width: "100%",
+                    transformOrigin: "top center",
+                  }}
+                  aria-hidden={!isFront}
+                  aria-label={isFront ? undefined : `Show ${label}`}
+                >
+                  {/* Soft veil on peeks so the front card stays the clear focus
+                      without fully erasing what sits behind it. */}
+                  {!isFront && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 z-[2] rounded-[inherit] bg-background/25 dark:bg-background/35"
+                    />
+                  )}
+                  {node}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+
+          {/* Desktop vertical controls — anchored to the card column's right
+              edge (left-full + gap) so the rail tracks the deck at any width,
+              no hardcoded viewport offset. */}
+          {count > 1 && (
+            <div className="pointer-events-auto absolute top-1/2 left-full z-10 ml-6 hidden -translate-y-1/2 flex-col items-center justify-center gap-3 xl:flex">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="zen-input size-10 rounded-full border shadow-sm transition-[scale,background-color] active:scale-[0.96]"
+                onClick={() => go(-1)}
+                aria-label="Previous card"
+              >
+                <ChevronLeft className="size-4 rotate-90" />
+              </Button>
+              <div className="zen-input flex flex-col items-center rounded-full border px-1 py-2 shadow-sm">
+                {cards.map(({ key, label }, i) => {
+                  const isActive = i === clampedActive;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => selectIndex(i)}
+                      aria-label={`Show ${label}`}
+                      aria-current={isActive}
+                      className="grid size-10 place-items-center rounded-full transition-colors hover:bg-foreground/5"
+                    >
+                      <motion.span
+                        layout
+                        animate={{
+                          height: isActive ? 22 : 7,
+                          width: 6,
+                          opacity: isActive ? 1 : 0.55,
+                        }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 400,
+                          damping: 30,
+                        }}
+                        className="block rounded-full bg-foreground"
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="zen-input size-10 rounded-full border shadow-sm transition-[scale,background-color] active:scale-[0.96]"
+                onClick={() => go(1)}
+                aria-label="Next card"
+              >
+                <ChevronRight className="size-4 rotate-90" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Mobile horizontal controls fallback */}
+      {count > 1 && (
+        <div className="pointer-events-auto relative z-10 mt-2 flex items-center justify-center gap-3 pb-6 xl:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="zen-input size-10 rounded-full border shadow-sm transition-[scale,background-color] active:scale-[0.96]"
+            onClick={() => go(-1)}
+            aria-label="Previous card"
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <div className="zen-input flex items-center rounded-full border px-2 py-1 shadow-sm">
+            {cards.map(({ key, label }, i) => {
+              const isActive = i === clampedActive;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => selectIndex(i)}
+                  aria-label={`Show ${label}`}
+                  aria-current={isActive}
+                  className="grid size-10 place-items-center rounded-full transition-colors hover:bg-foreground/5"
+                >
+                  <motion.span
+                    layout
+                    animate={{
+                      width: isActive ? 22 : 7,
+                      height: 6,
+                      opacity: isActive ? 1 : 0.55,
+                    }}
+                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    className="block rounded-full bg-foreground"
+                  />
+                </button>
+              );
+            })}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="zen-input size-10 rounded-full border shadow-sm transition-[scale,background-color] active:scale-[0.96]"
+            onClick={() => go(1)}
+            aria-label="Next card"
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Draggable water slider — fill, thumb, and the invisible native range input
+// share the same 0..max scale; the day's target is shown as a tick.
 function WaterSlider({
   value,
   target,
@@ -2233,22 +1647,19 @@ function WaterSlider({
   const valuePct = Math.max(0, Math.min(100, (value / max) * 100));
   const targetPct = Math.max(0, Math.min(100, (target / max) * 100));
   const ratio = value / Math.max(1, target);
-  const tone = ratio >= 0.8 ? "bg-emerald-500" : ratio >= 0.4 ? "bg-amber-500" : "bg-primary";
+  const tone = ratio >= 0.8 ? "bg-success" : ratio >= 0.4 ? "bg-warning" : "bg-info";
   return (
     <div className="relative flex flex-1 items-center py-2">
-      {/* track */}
-      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-        <div className={`h-full transition-all ${tone}`} style={{ width: `${valuePct}%` }} />
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+        <div className={`h-full transition-[width] ${tone}`} style={{ width: `${valuePct}%` }} />
       </div>
-      {/* target tick */}
       <div
         className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/40"
         style={{ left: `${targetPct}%` }}
         aria-hidden="true"
       />
-      {/* visible thumb (driven by value; the range overlay handles input) */}
       <div
-        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary shadow transition-all"
+        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-info shadow transition-[left]"
         style={{ left: `${valuePct}%` }}
         aria-hidden="true"
       />

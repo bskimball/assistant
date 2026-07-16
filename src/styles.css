@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap");
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -8,10 +8,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --font-heading: var(--font-display);
-  --font-sans: var(--font-sans);
-  --font-display: var(--font-display);
-  --font-voice: var(--font-voice);
+  --font-display: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-voice: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -46,106 +45,157 @@
   --color-ledger-done: var(--ledger-done);
   --color-voice-accent: var(--voice-accent);
   --color-voice-accent-foreground: var(--voice-accent-foreground);
+  /* Semantic status roles — used for progress/action/state signalling. Each
+     has a solid color + a matching foreground for text/icons placed on tints. */
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive-foreground: var(--destructive-foreground);
+  /* Non-semantic atmosphere tints — decorative route ambience, kept apart from
+     the semantic state roles so route mood never reads as a status color. */
+  --color-atmosphere-calm: var(--atmosphere-calm);
+  --color-atmosphere-vital: var(--atmosphere-vital);
+  --color-atmosphere-focus: var(--atmosphere-focus);
+  /* Graduated mineral surfaces — the elevation ladder above --card. */
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.5);
+  --radius-3xl: calc(var(--radius) * 1.75);
+  --radius-4xl: calc(var(--radius) * 2);
 
   /* Single source of truth for page width (header + all routes share this) */
   --container-page: 64rem;
+  /* Tighter, more architectural base radius (was 0.75rem) — reins in the
+     "bubbly" feel across cards, buttons, inputs and toggles. */
+  --radius: 0.5rem;
 }
 
-/* Compass "Green house" — living-green brand, warm parchment ground in light,
-   dark-mist forest ground in dark. Friendly and welcoming; green is the one
-   color, warm neutrals carry the warmth. Domain hues live in --chart-* and are
-   used semantically only. */
+/* Compass "Mineral" — a mineral-crimson brand (~#962D42) over a warm mineral
+   ground in light, and a deep lake-ink ground in dark. Crimson is the one
+   brand color; warm mineral neutrals carry the warmth. Progress/action roles
+   read as crimson; state roles (info/warning/success/destructive) are the
+   semantic tokens below. Domain hues live in --chart-*. */
 :root {
-  --background: oklch(0.928 0.016 96); /* warm parchment */
-  --foreground: oklch(0.27 0.018 150); /* deep green-ink */
-  --card: oklch(0.972 0.009 100); /* clean linen */
-  --card-foreground: oklch(0.27 0.018 150);
-  --popover: oklch(0.978 0.008 100);
-  --popover-foreground: oklch(0.27 0.018 150);
-  --primary: oklch(0.52 0.108 151); /* fresh living green */
-  --primary-foreground: oklch(0.98 0.012 110);
-  --secondary: oklch(0.9 0.018 96); /* deeper parchment */
-  --secondary-foreground: oklch(0.3 0.02 150);
-  --muted: oklch(0.902 0.016 96);
-  --muted-foreground: oklch(0.44 0.022 145); /* AA on parchment */
-  --accent: oklch(0.9 0.04 138); /* soft green wash */
-  --accent-foreground: oklch(0.4 0.07 150);
-  --destructive: oklch(0.53 0.15 32); /* warm terracotta-red */
-  --destructive-foreground: oklch(0.97 0.015 100);
-  --border: oklch(0.862 0.016 100);
-  --input: oklch(0.862 0.016 100);
-  --ring: oklch(0.55 0.1 151); /* green focus */
-  --voice-accent: oklch(0.56 0.12 150); /* green — the Tap-to-talk CTA */
-  --voice-accent-foreground: oklch(0.98 0.012 110);
-  --radius: 0.75rem;
-  --ledger-done: oklch(0.55 0.1 150); /* green success */
-  /* Domain / data hues: clay / green / honey / teal / plum */
-  --chart-1: oklch(0.58 0.13 32);
+  --background: oklch(0.93 0.012 74); /* warm mineral clay */
+  --foreground: oklch(0.26 0.02 28); /* deep mineral ink */
+  --card: oklch(0.975 0.008 82); /* pale mineral linen */
+  --card-foreground: oklch(0.26 0.02 28);
+  --popover: oklch(0.982 0.006 82);
+  --popover-foreground: oklch(0.26 0.02 28);
+  --primary: oklch(0.46 0.14 12); /* mineral crimson ~#962D42 */
+  --primary-foreground: oklch(0.98 0.01 60);
+  --secondary: oklch(0.905 0.014 72); /* deeper mineral */
+  --secondary-foreground: oklch(0.3 0.02 28);
+  --muted: oklch(0.905 0.013 72);
+  --muted-foreground: oklch(0.44 0.02 30); /* AA on mineral ground */
+  --accent: oklch(0.9 0.03 20); /* soft crimson wash */
+  --accent-foreground: oklch(0.4 0.11 15);
+  --destructive: oklch(0.53 0.19 27); /* alarm red — distinct from brand */
+  --destructive-foreground: oklch(0.98 0.015 60);
+  --border: oklch(0.865 0.013 68);
+  --input: oklch(0.865 0.013 68);
+  --ring: oklch(0.5 0.13 14); /* crimson focus */
+  --voice-accent: oklch(0.46 0.14 12); /* crimson — the Tap-to-talk CTA */
+  --voice-accent-foreground: oklch(0.98 0.01 60);
+  --ledger-done: oklch(0.52 0.11 150); /* green success (done state) */
+  /* Graduated mineral surfaces — the elevation ladder. */
+  --surface: oklch(0.955 0.01 78);
+  --surface-raised: oklch(0.985 0.006 82);
+  --surface-sunken: oklch(0.915 0.014 72);
+  /* Semantic status roles. */
+  --info: oklch(0.55 0.11 240);
+  --info-foreground: oklch(0.98 0.01 240);
+  --warning: oklch(0.72 0.14 74);
+  --warning-foreground: oklch(0.28 0.06 60);
+  --success: oklch(0.55 0.11 150);
+  --success-foreground: oklch(0.98 0.012 150);
+  /* Non-semantic atmosphere tints — decorative route ambience only. Kept
+     distinct from the semantic state roles above so a route's mood never
+     borrows meaning from success/info. Tuned independently for the light
+     mineral ground. calm = crimson whisper, vital = warm sage, focus = cool
+     slate-blue. */
+  --atmosphere-calm: oklch(0.5 0.12 14);
+  --atmosphere-vital: oklch(0.58 0.09 158);
+  --atmosphere-focus: oklch(0.56 0.09 244);
+  /* Domain / data hues: crimson / green / honey / teal / plum */
+  --chart-1: oklch(0.5 0.16 14);
   --chart-2: oklch(0.56 0.1 150);
   --chart-3: oklch(0.74 0.11 82);
   --chart-4: oklch(0.6 0.08 205);
   --chart-5: oklch(0.54 0.11 330);
-  --sidebar: oklch(0.928 0.016 96);
-  --sidebar-foreground: oklch(0.27 0.018 150);
-  --sidebar-primary: oklch(0.52 0.108 151);
-  --sidebar-primary-foreground: oklch(0.98 0.012 110);
-  --sidebar-accent: oklch(0.902 0.016 96);
-  --sidebar-accent-foreground: oklch(0.3 0.02 150);
-  --sidebar-border: oklch(0.862 0.016 100);
-  --sidebar-ring: oklch(0.55 0.1 151);
-
-  /* One friendly rounded grotesk across the whole UI. */
-  --font-voice: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --sidebar: oklch(0.93 0.012 74);
+  --sidebar-foreground: oklch(0.26 0.02 28);
+  --sidebar-primary: oklch(0.46 0.14 12);
+  --sidebar-primary-foreground: oklch(0.98 0.01 60);
+  --sidebar-accent: oklch(0.905 0.013 72);
+  --sidebar-accent-foreground: oklch(0.3 0.02 28);
+  --sidebar-border: oklch(0.865 0.013 68);
+  --sidebar-ring: oklch(0.5 0.13 14);
 }
 
-/* Compass "Green house" dark — dark green-mist ground (deep forest at dusk,
-   a whisper of green in the charcoal, not cold near-black). The lifted green
-   from before, kept as the brand. */
+/* Compass "Mineral" dark — a deep lake-ink ground (cool blue-slate at dusk,
+   not cold near-black), carrying a lifted crimson brand so it stays vivid on
+   the dark field. */
 .dark {
-  --background: oklch(0.195 0.006 158); /* dark charcoal with faint green mist */
-  --foreground: oklch(0.93 0.012 130);
-  --card: oklch(0.243 0.008 158); /* raised misted surface */
-  --card-foreground: oklch(0.93 0.012 130);
-  --popover: oklch(0.243 0.008 158);
-  --popover-foreground: oklch(0.93 0.012 130);
-  --primary: oklch(0.7 0.13 152); /* bright living green */
-  --primary-foreground: oklch(0.18 0.02 155);
-  --secondary: oklch(0.28 0.008 158);
-  --secondary-foreground: oklch(0.92 0.012 130);
-  --muted: oklch(0.27 0.008 158);
-  --muted-foreground: oklch(0.76 0.02 140); /* AA on green-mist ground */
-  --accent: oklch(0.33 0.03 152); /* soft green tint on mist */
-  --accent-foreground: oklch(0.86 0.1 145);
-  --destructive: oklch(0.62 0.16 32);
-  --destructive-foreground: oklch(0.97 0.015 100);
-  --border: oklch(0.32 0.008 158);
-  --input: oklch(0.32 0.008 158);
-  --ring: oklch(0.7 0.13 152); /* green glow / focus */
-  --voice-accent: oklch(0.72 0.14 150); /* bright green CTA */
-  --voice-accent-foreground: oklch(0.17 0.02 155);
+  --background: oklch(0.2 0.016 245); /* deep lake ink */
+  --foreground: oklch(0.93 0.01 240);
+  --card: oklch(0.25 0.018 245); /* raised lake surface */
+  --card-foreground: oklch(0.93 0.01 240);
+  --popover: oklch(0.25 0.018 245);
+  --popover-foreground: oklch(0.93 0.01 240);
+  --primary: oklch(0.66 0.16 14); /* lifted mineral crimson */
+  --primary-foreground: oklch(0.16 0.02 20);
+  --secondary: oklch(0.29 0.018 245);
+  --secondary-foreground: oklch(0.92 0.01 240);
+  --muted: oklch(0.28 0.016 245);
+  --muted-foreground: oklch(0.76 0.015 240); /* AA on lake ground */
+  --accent: oklch(0.33 0.04 16); /* soft crimson tint on ink */
+  --accent-foreground: oklch(0.85 0.09 16);
+  --destructive: oklch(0.62 0.19 27);
+  --destructive-foreground: oklch(0.98 0.015 60);
+  --border: oklch(0.33 0.018 245);
+  --input: oklch(0.33 0.018 245);
+  --ring: oklch(0.66 0.16 14); /* crimson glow / focus */
+  --voice-accent: oklch(0.68 0.17 14); /* bright crimson CTA */
+  --voice-accent-foreground: oklch(0.16 0.02 20);
   --ledger-done: oklch(0.72 0.12 150); /* green success */
-  --chart-1: oklch(0.66 0.14 32);
+  /* Graduated lake surfaces — the elevation ladder. */
+  --surface: oklch(0.235 0.017 245);
+  --surface-raised: oklch(0.285 0.02 245);
+  --surface-sunken: oklch(0.21 0.016 245);
+  /* Semantic status roles. */
+  --info: oklch(0.68 0.12 240);
+  --info-foreground: oklch(0.16 0.03 240);
+  --warning: oklch(0.78 0.13 76);
+  --warning-foreground: oklch(0.2 0.05 60);
+  --success: oklch(0.72 0.12 150);
+  --success-foreground: oklch(0.16 0.03 150);
+  /* Non-semantic atmosphere tints — lifted for the dark lake-ink ground so the
+     faint top-band wash still registers without leaning on state colors. */
+  --atmosphere-calm: oklch(0.68 0.15 14);
+  --atmosphere-vital: oklch(0.72 0.1 158);
+  --atmosphere-focus: oklch(0.7 0.1 244);
+  --chart-1: oklch(0.66 0.17 14);
   --chart-2: oklch(0.72 0.12 150);
   --chart-3: oklch(0.8 0.11 84);
   --chart-4: oklch(0.7 0.09 205);
   --chart-5: oklch(0.66 0.12 330);
-  --sidebar: oklch(0.2 0.006 158);
-  --sidebar-foreground: oklch(0.93 0.012 130);
-  --sidebar-primary: oklch(0.7 0.13 152);
-  --sidebar-primary-foreground: oklch(0.18 0.02 155);
-  --sidebar-accent: oklch(0.27 0.008 158);
-  --sidebar-accent-foreground: oklch(0.92 0.012 130);
-  --sidebar-border: oklch(0.3 0.008 158);
-  --sidebar-ring: oklch(0.7 0.13 152);
+  --sidebar: oklch(0.21 0.016 245);
+  --sidebar-foreground: oklch(0.93 0.01 240);
+  --sidebar-primary: oklch(0.66 0.16 14);
+  --sidebar-primary-foreground: oklch(0.16 0.02 20);
+  --sidebar-accent: oklch(0.28 0.016 245);
+  --sidebar-accent-foreground: oklch(0.92 0.01 240);
+  --sidebar-border: oklch(0.31 0.018 245);
+  --sidebar-ring: oklch(0.66 0.16 14);
 }
 
 @layer base {
@@ -164,6 +214,8 @@
     scrollbar-gutter: stable;
     height: auto;
     min-height: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
@@ -223,75 +275,133 @@
   }
 }
 
-/* === Contextual Zen Stack: ambient daypart washes ===========================
+/* === Contextual Zen Stack: photographic daypart backgrounds =================
    THEME (light/dark via .dark) and CONTEXT (data-daypart) are independent.
-   The wash is a very subtle full-page tint keyed to (theme x daypart); it only
-   shifts hue, never brightness, and content stays highly readable. Each combo
-   sets two radial glows layered over the base --background. A faint grain sits
-   on top via ::before. */
+   Each (theme x daypart) combo loads a full-bleed, highly detailed photographic
+   scene (aurora + mountains at night, sunrise ridge, dusk city, etc.) fixed
+   behind the whole page. A tuned scrim (::after) and faint grain (::before)
+   keep the glass cards and text readable over the imagery. The image is the
+   canvas; the cards float on top as glassmorphism. */
 .zen-ambient {
   position: relative;
+  /* The sticky shelf is now opaque with real height — content flows BELOW it,
+     never behind it. No negative margin / header pull. */
   min-height: 100dvh;
-  /* defaults (light-morning) overridden per data-daypart below */
-  --wash-1: oklch(0.9 0.05 70 / 0.5);
-  --wash-2: oklch(0.93 0.03 30 / 0.45);
-  --wash-pos-1: 20% 0%;
-  --wash-pos-2: 90% 12%;
-  background-color: var(--background);
-  background-image:
-    radial-gradient(120% 90% at var(--wash-pos-1), var(--wash-1), transparent 60%),
-    radial-gradient(110% 80% at var(--wash-pos-2), var(--wash-2), transparent 62%);
-  background-attachment: fixed;
+  /* Fallback base color while the image loads / if it fails. Defaults are
+     light-morning; the image + base are overridden per (theme x daypart). */
+  --wash-base: #fdeed6;
+  /* Scrim strength: how much the base tint darkens/lightens the photo so text
+     stays legible. Overridden per combo. */
+  --scrim: color-mix(in oklch, var(--wash-base) 40%, transparent);
+  --bg-image: url("/backgrounds/light-morning.png");
+  /* Photographic grade: a flat wash of the daypart base tint is BLENDED over
+     the image (multiply/soft-light) so the scene reads graded — morning is
+     de-saturated most, midday almost untouched, evening softened — without a
+     `filter` that would also grade the cards/text above. `--img-grade` is the
+     wash color+alpha and `--img-blend` the blend mode, both set per daypart. */
+  --img-grade: color-mix(in oklch, var(--wash-base) 22%, transparent);
+  --img-blend: soft-light;
+  background-color: var(--wash-base);
+  background-image: linear-gradient(var(--img-grade), var(--img-grade)), var(--bg-image);
+  background-position:
+    center top,
+    center top;
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-blend-mode: var(--img-blend), normal;
+  /* scroll on small screens; a fixed full-bleed scene only from lg up, where
+     the viewport is large enough that a pinned photo reads as depth, not lag. */
+  background-attachment: scroll;
+  isolation: isolate;
+}
+@media (min-width: 1024px) {
+  .zen-ambient {
+    /* Fixed only at lg+; every background layer (wash + photo, plus any
+       atmosphere tint) pins together — a single value applies to all layers. */
+    background-attachment: fixed;
+  }
+  .zen-ambient::after,
+  .zen-ambient::before {
+    position: fixed;
+  }
 }
 
-/* Light · morning — warm peach / mist sunrise */
+/* Readability scrim over the photo: a soft vertical veil, denser at the top
+   (behind nav + greeting) and bottom, lighter through the card band. */
+.zen-ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    var(--scrim) 0%,
+    color-mix(in oklch, var(--scrim) 46%, transparent) 34%,
+    color-mix(in oklch, var(--scrim) 36%, transparent) 66%,
+    var(--scrim) 100%
+  );
+}
+
+/* --- Light theme scenes --------------------------------------------------- */
+/* Daypart image grade: morning gets the strongest de-saturating wash, midday is
+   almost untouched (photo reads at nearly full saturation), evening is softened
+   to a mid grade. */
 .zen-ambient[data-daypart="morning"] {
-  --wash-1: oklch(0.9 0.055 68 / 0.55);
-  --wash-2: oklch(0.92 0.035 28 / 0.4);
-  --wash-pos-1: 18% 0%;
-  --wash-pos-2: 88% 8%;
+  --wash-base: #fdeed6;
+  --scrim: color-mix(in oklch, #fdeed6 46%, transparent);
+  --bg-image: url("/backgrounds/light-morning.png");
+  --img-grade: color-mix(in oklch, #fdeed6 34%, transparent);
+  --img-blend: soft-light;
 }
-/* Light · midday — airy clear neutral, faint green freshness */
 .zen-ambient[data-daypart="midday"] {
-  --wash-1: oklch(0.94 0.03 150 / 0.4);
-  --wash-2: oklch(0.95 0.02 200 / 0.35);
-  --wash-pos-1: 50% 0%;
-  --wash-pos-2: 100% 100%;
+  --wash-base: #eef4f2;
+  --scrim: color-mix(in oklch, #eef4f2 44%, transparent);
+  --bg-image: url("/backgrounds/light-midday.png");
+  --img-grade: color-mix(in oklch, #eef4f2 8%, transparent);
+  --img-blend: soft-light;
 }
-/* Light · evening — pale lavender / rose dusk on linen */
 .zen-ambient[data-daypart="evening"] {
-  --wash-1: oklch(0.9 0.04 330 / 0.5);
-  --wash-2: oklch(0.91 0.035 20 / 0.42);
-  --wash-pos-1: 12% 4%;
-  --wash-pos-2: 92% 96%;
+  --wash-base: #f4ece6;
+  --scrim: color-mix(in oklch, #f4ece6 44%, transparent);
+  --bg-image: url("/backgrounds/light-evening.png");
+  --img-grade: color-mix(in oklch, #f4ece6 20%, transparent);
+  --img-blend: soft-light;
 }
 
-/* Dark · morning — deep slate with faint warm ember glow from bottom */
+/* --- Dark theme scenes ----------------------------------------------------- */
+/* Dark mode adds a deep lake-ink overlay (multiply) so night scenes settle into
+   the blue-slate ground rather than glowing. Morning still de-saturates most. */
+.dark .zen-ambient {
+  --wash-base: #05070d;
+  --img-blend: multiply;
+}
 .dark .zen-ambient[data-daypart="morning"] {
-  --wash-1: oklch(0.42 0.07 55 / 0.35);
-  --wash-2: oklch(0.3 0.04 40 / 0.3);
-  --wash-pos-1: 50% 100%;
-  --wash-pos-2: 15% 90%;
+  --wash-base: #0a0806;
+  --scrim: color-mix(in oklch, #0a0806 52%, transparent);
+  --bg-image: url("/backgrounds/dark-morning.png");
+  --img-grade: color-mix(in oklch, #0b1220 46%, transparent);
+  --img-blend: multiply;
 }
-/* Dark · midday — cool calm slate, faint green mist */
 .dark .zen-ambient[data-daypart="midday"] {
-  --wash-1: oklch(0.4 0.05 160 / 0.3);
-  --wash-2: oklch(0.36 0.04 200 / 0.28);
-  --wash-pos-1: 50% 0%;
-  --wash-pos-2: 100% 100%;
+  --wash-base: #05090d;
+  --scrim: color-mix(in oklch, #05090d 58%, transparent);
+  --bg-image: url("/backgrounds/dark-midday.png");
+  --img-grade: color-mix(in oklch, #0b1220 26%, transparent);
+  --img-blend: multiply;
 }
-/* Dark · evening — twilight slate with soft aurora glow */
 .dark .zen-ambient[data-daypart="evening"] {
-  --wash-1: oklch(0.42 0.07 300 / 0.34);
-  --wash-2: oklch(0.44 0.06 200 / 0.3);
-  --wash-pos-1: 22% 8%;
-  --wash-pos-2: 88% 88%;
+  --wash-base: #02060f;
+  --scrim: color-mix(in oklch, #02060f 56%, transparent);
+  --bg-image: url("/backgrounds/dark-evening.png");
+  --img-grade: color-mix(in oklch, #0b1220 38%, transparent);
+  --img-blend: multiply;
 }
 
-/* Faint grain over the wash so it reads as texture, not a flat gradient. */
+/* Faint grain over the scene so it reads as texture, not a flat photo. */
 .zen-ambient::before {
   content: "";
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
@@ -300,46 +410,150 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 .dark .zen-ambient::before {
-  opacity: 0.035;
+  opacity: 0.03;
 }
 
-/* Floating card for the Action Stack — soft shadow, generous radius, no heavy
-   border. Sits above the ambient wash (::before) via relative z-index. */
+/* Near-opaque mineral card for the Action Stack — graduated opacity + blur by
+   route density (see below). The surface stays legible over any background;
+   blur is a light gloss, not a heavy frost. A hairline edge and layered shadow
+   lift it off the photographic scene. Sits above the scrim via relative
+   z-index. The default (Today / vivid) tier is the most translucent; medium and
+   dense routes step toward opaque so busy content never fights the photo. */
 .zen-card {
   position: relative;
   z-index: 1;
-  border-radius: var(--radius-3xl);
-  background-color: color-mix(in oklch, var(--card) 88%, transparent);
-  backdrop-filter: blur(8px);
+  /* Graduated tokens — overridden per route density on the .zen-ambient parent.
+     Low base opacity + heavy blur + high saturation = luminous glass: the scene
+     blooms through as warm-white (light) / deep-blue (dark) rather than graying
+     out. Saturation is what kills the "gray box" look. */
+  --zen-opacity: 58%;
+  --zen-blur: 30px;
+  border-radius: var(--radius-xl);
+  border: 0;
+  outline: 1px solid rgb(255 255 255 / 0.3);
+  outline-offset: -1px;
+  background-color: color-mix(in oklch, var(--card) var(--zen-opacity), transparent);
+  backdrop-filter: blur(var(--zen-blur)) saturate(1.85);
+  -webkit-backdrop-filter: blur(var(--zen-blur)) saturate(1.85);
+  /* Lit-glass shadow: a bright top inner highlight reads as light catching the
+     pane edge, then a soft diffuse drop lifts it off the scene. */
   box-shadow:
-    0 1px 2px oklch(0.2 0.02 150 / 0.04),
-    0 12px 32px -12px oklch(0.2 0.02 150 / 0.16);
+    inset 0 1px 0 0 rgb(255 255 255 / 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 8px 16px -8px rgba(0, 0, 0, 0.08),
+    0 20px 44px -20px rgba(0, 0, 0, 0.12);
 }
 .dark .zen-card {
-  background-color: color-mix(in oklch, var(--card) 80%, transparent);
+  /* Deep blue-black lake glass with a faint cool luminous edge so the aurora /
+     sky bleeds through the pane rather than sitting on an opaque box. */
+  outline-color: color-mix(in oklch, var(--primary) 30%, rgb(190 205 255 / 0.22));
   box-shadow:
-    0 1px 2px oklch(0 0 0 / 0.3),
-    0 16px 40px -16px oklch(0 0 0 / 0.5);
+    inset 0 1px 0 0 rgb(200 214 255 / 0.14),
+    0 1px 2px oklch(0 0 0 / 0.2),
+    0 10px 20px -10px oklch(0 0 0 / 0.35),
+    0 24px 48px -24px oklch(0 0 0 / 0.5);
+}
+
+/* Graduated opacity/blur by route density. Today (no data-density) keeps the
+   most translucent default above. Medium routes (workouts, nutrition) step up
+   so busy content stays crisp; dense routes (weekly, analytics) step up more so
+   tables read cleanly. Blur eases down as opacity rises. */
+.zen-ambient[data-density="medium"] .zen-card {
+  --zen-opacity: 66%;
+  --zen-blur: 24px;
+}
+.zen-ambient[data-density="dense"] .zen-card {
+  --zen-opacity: 78%;
+  --zen-blur: 20px;
+}
+
+/* === Nested surfaces & controls inside a zen-card =========================
+   The zen-card is the ONE elevated glass tier. Anything nested inside it —
+   sub-panels, list rows, inline stats, inputs, chips — reads as a quiet
+   recessed glass pane, never a second competing tier. Tinted from --card (with
+   a whisper of --primary) rather than neutral --muted so they pick up the
+   theme hue instead of flat gray. No blur (they sit on an already-blurred
+   card); a hairline edge + inset highlight sells the recess. */
+.zen-surface-nested {
+  border-radius: var(--radius-lg);
+  background-color: color-mix(
+    in oklch,
+    color-mix(in oklch, var(--card) 92%, var(--primary)) 22%,
+    transparent
+  );
+  outline: 1px solid rgb(255 255 255 / 0.14);
+  outline-offset: -1px;
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.16),
+    inset 0 -8px 20px -16px oklch(0 0 0 / 0.25);
+}
+.dark .zen-surface-nested {
+  background-color: color-mix(
+    in oklch,
+    color-mix(in oklch, var(--card) 88%, var(--primary)) 30%,
+    transparent
+  );
+  outline-color: rgb(190 205 255 / 0.09);
+  box-shadow:
+    inset 0 1px 0 0 rgb(200 214 255 / 0.07),
+    inset 0 -8px 20px -16px oklch(0 0 0 / 0.4);
+}
+
+/* Control surface — inputs, chips, quiet toggles nested in a card. Same tinted
+   glass recess as the nested panel but a touch more opaque so text stays crisp,
+   and a border (not outline) so focus rings layer cleanly. */
+.zen-input {
+  background-color: color-mix(
+    in oklch,
+    color-mix(in oklch, var(--card) 90%, var(--primary)) 32%,
+    transparent
+  );
+  border-color: rgb(255 255 255 / 0.16);
+}
+.dark .zen-input {
+  background-color: color-mix(
+    in oklch,
+    color-mix(in oklch, var(--card) 86%, var(--primary)) 40%,
+    transparent
+  );
+  border-color: rgb(190 205 255 / 0.12);
 }
 
 /* Signature hero surface — no gradient. A quiet raised card carrying a very
    subtle contour-dot pattern (topographic "map" texture, a nod to a compass /
-   finding your way) plus a whisper of green only at the far corner. The pattern
-   gives depth; the color stays calm. */
+   finding your way) plus a whisper of the crimson brand only at the far corner.
+   The pattern gives depth; the color stays a mineral/crimson whisper — no green
+   tint. */
 .aurora-hero {
   position: relative;
   background-color: var(--card);
   background-image:
-    radial-gradient(circle at 1px 1px, oklch(0.52 0.108 151 / 0.06) 1px, transparent 0),
-    radial-gradient(120% 140% at 100% 0%, oklch(0.52 0.108 151 / 0.05), transparent 55%);
+    radial-gradient(
+      circle at 1px 1px,
+      color-mix(in oklch, var(--primary) 6%, transparent) 1px,
+      transparent 0
+    ),
+    radial-gradient(
+      120% 140% at 100% 0%,
+      color-mix(in oklch, var(--primary) 5%, transparent),
+      transparent 55%
+    );
   background-size:
     22px 22px,
     100% 100%;
 }
 .dark .aurora-hero {
   background-image:
-    radial-gradient(circle at 1px 1px, oklch(0.7 0.13 152 / 0.07) 1px, transparent 0),
-    radial-gradient(120% 140% at 100% 0%, oklch(0.7 0.13 152 / 0.06), transparent 55%);
+    radial-gradient(
+      circle at 1px 1px,
+      color-mix(in oklch, var(--primary) 8%, transparent) 1px,
+      transparent 0
+    ),
+    radial-gradient(
+      120% 140% at 100% 0%,
+      color-mix(in oklch, var(--primary) 7%, transparent),
+      transparent 55%
+    );
   background-size:
     22px 22px,
     100% 100%;
@@ -354,17 +568,35 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Typography hierarchy — friendly sans UI, with the coach's spoken lines set
-   in Fraunces so the voice reads as a warm human presence. */
+/* Typography hierarchy — a single friendly grotesk carries both UI and voice.
+   Headings lean into a bold, modern sans-serif treatment with tight tracking. */
 .display-title {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
-h1,
 .ledger-title {
   font-family: var(--font-display);
+  font-weight: 700;
+}
+
+/* The greeting hero — elegant serif with a softer weight and tracked slightly in. */
+.greeting-display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+}
+
+/* Text that sits directly on the photographic scene (greeting, subtitle, the
+   ACTION STACK label) gets a soft shadow so it stays legible over bright or
+   busy areas of the image without needing an opaque plate. */
+.on-scene {
+  text-shadow: 0 1px 14px rgb(0 0 0 / 0.28);
+}
+.dark .on-scene {
+  text-shadow: 0 1px 18px rgb(0 0 0 / 0.55);
 }
 
 /* The coach's voice — greetings and spoken lines. Set in the same friendly
@@ -411,7 +643,7 @@ h1,
 }
 
 .ledger-progress-fill {
-  background: var(--primary);
+  background: var(--info);
   transition: width 200ms ease;
 }
 
@@ -449,12 +681,352 @@ h1,
 
 /* Kanban board polish for life assistant */
 .kanban-board {
-  scrollbar-width: thin;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 .kanban-board::-webkit-scrollbar {
-  height: 4px;
+  display: none;
 }
-.kanban-board::-webkit-scrollbar-thumb {
-  background: var(--muted-foreground);
-  border-radius: 2px;
+
+/* === Navigation shell: the opaque compact sticky shelf ====================
+   A theme-neutral, glass shelf so page content glows through it.
+   Compact height: 72px on desktop, 60px on narrow screens (safe-area aware on
+   the bottom bar). It sits above the ambient scene (z-50) and reserves its own
+   space, so there is no negative overlap. */
+:root {
+  --shelf-h: 60px;
+  /* Bottom tab bar height (below lg) + the device safe-area inset, so a
+     full-viewport route (chat) can subtract the exact reserved space and never
+     overflow into a scrollable document. Zero at lg+ where the tab bar hides. */
+  --tabbar-h: calc(64px + env(safe-area-inset-bottom));
+}
+@media (min-width: 1024px) {
+  :root {
+    --shelf-h: 72px;
+    --tabbar-h: 0px;
+  }
+}
+.app-shelf {
+  height: var(--shelf-h);
+  /* Luminous glass: --card mixes to a warm-white (light) / deep-blue (dark)
+     translucency; a heavy blur + saturation lets the scene bloom through
+     without graying out. */
+  background-color: color-mix(in oklch, var(--card) 52%, transparent);
+  backdrop-filter: blur(26px) saturate(1.85);
+  -webkit-backdrop-filter: blur(26px) saturate(1.85);
+  /* Separation comes from a layered shadow, not a dominant hard border. A
+     hairline low-opacity edge + soft shadow reads as a lifted glass shelf. */
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.12),
+    inset 0 -1px 0 0 color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 4px 16px -10px oklch(0 0 0 / 0.15),
+    0 12px 28px -18px oklch(0 0 0 / 0.12);
+}
+.dark .app-shelf {
+  background-color: color-mix(in oklch, var(--card) 50%, transparent);
+  border-bottom-color: color-mix(in oklch, var(--border) 50%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+    inset 0 -1px 0 0 color-mix(in oklch, var(--foreground) 5%, transparent),
+    0 4px 16px -10px oklch(0 0 0 / 0.4),
+    0 12px 28px -18px oklch(0 0 0 / 0.35);
+}
+
+/* Bottom tab bar (below lg). Glass, safe-area padded, elevated center slot.
+   Layered shadow above the bar; the top edge is a soft hairline, not a hard rule. */
+.app-tabbar {
+  background-color: color-mix(in oklch, var(--card) 52%, transparent);
+  backdrop-filter: blur(26px) saturate(1.85);
+  -webkit-backdrop-filter: blur(26px) saturate(1.85);
+  border-top: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.12),
+    0 -3px 12px -8px oklch(0 0 0 / 0.16),
+    0 -10px 26px -16px oklch(0 0 0 / 0.14);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.dark .app-tabbar {
+  background-color: color-mix(in oklch, var(--card) 50%, transparent);
+  border-top-color: color-mix(in oklch, var(--border) 50%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+    0 -3px 12px -8px oklch(0 0 0 / 0.4),
+    0 -10px 26px -16px oklch(0 0 0 / 0.35);
+}
+
+/* Active-tab "needle" marker — a slim, tapered crimson pointer echoing the
+   compass needle, anchored under (bottom bar) or over (desktop) the active tab.
+   The taper (clip-path) narrows to a point so it reads as a needle, not a bar. */
+.nav-needle {
+  background: var(--primary);
+  border-radius: 9999px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.2s ease;
+}
+
+/* Elevated center Coach tab on the bottom bar — a subtly raised MINERAL neutral
+   surface (not a solid crimson FAB) with a fine crimson ring + crimson icon so
+   it reads as "the coach" through restrained detail, not a loud brand blob. */
+.nav-coach {
+  background: var(--surface-raised);
+  color: var(--primary);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklch, var(--primary) 45%, transparent),
+    0 4px 12px -6px oklch(0 0 0 / 0.16),
+    0 2px 6px -3px oklch(0 0 0 / 0.12);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+.nav-coach:active {
+  transform: scale(0.96);
+}
+/* Active Coach: firm up the crimson ring + a faint crimson wash, but keep the
+   mineral surface — the standard needle marker still carries "active". */
+.nav-coach[data-active="true"] {
+  background: color-mix(in oklch, var(--primary) 10%, var(--surface-raised));
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklch, var(--primary) 65%, transparent),
+    0 4px 12px -6px oklch(0 0 0 / 0.18),
+    0 2px 6px -3px oklch(0 0 0 / 0.14);
+}
+
+/* Theme-aware explicit logo crossfade. Both marks are stacked; the pair for the
+   inactive theme fades to 0. Driven purely by the `.dark` class, so it matches
+   the resolved theme with no JS and no flash. */
+.logo-crossfade {
+  position: relative;
+  display: inline-block;
+}
+.logo-crossfade img {
+  display: block;
+  transition: opacity 0.35s ease;
+}
+.logo-crossfade .logo-dark {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.dark .logo-crossfade .logo-light {
+  opacity: 0;
+}
+.dark .logo-crossfade .logo-dark {
+  opacity: 1;
+}
+
+/* === Route atmosphere ======================================================
+   Route wrappers set `data-atmosphere` on the .zen-ambient container. These map
+   to the ACTUAL attribute values the routes emit today:
+     vivid  — Today (index): the fullest, most colorful scene (no extra wash).
+     calm   — Coach (chat): a quiet crimson whisper so the scene recedes.
+     vital  — Health routes (workouts, nutrition): a faint sage-tinted lift.
+     focus  — Review routes (weekly, analytics): a faint slate-tinted grade.
+   Each pulls a DEDICATED, non-semantic atmosphere token (--atmosphere-*) that is
+   tuned independently in light/dark — decorative only, never borrowing meaning
+   from the semantic success/info state roles. The tint is a very light top-band
+   gradient — atmosphere, never a color fill. */
+.zen-ambient[data-atmosphere="calm"] {
+  --atmo-tint: color-mix(in oklch, var(--atmosphere-calm) 5%, transparent);
+}
+.zen-ambient[data-atmosphere="vital"] {
+  --atmo-tint: color-mix(in oklch, var(--atmosphere-vital) 7%, transparent);
+}
+.zen-ambient[data-atmosphere="focus"] {
+  --atmo-tint: color-mix(in oklch, var(--atmosphere-focus) 7%, transparent);
+}
+.zen-ambient[data-atmosphere] {
+  /* Painted on the scrim pseudo so it layers with the readability veil, not on
+     the element background (which already carries the graded photo). */
+  background-image:
+    linear-gradient(180deg, var(--atmo-tint, transparent) 0%, transparent 42%),
+    linear-gradient(var(--img-grade), var(--img-grade)), var(--bg-image);
+  background-position:
+    center top,
+    center top,
+    center top;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-size: cover, cover, cover;
+  background-blend-mode: normal, var(--img-blend), normal;
+}
+/* vivid (Today) intentionally adds NO wash — the scene stays at full vibrancy. */
+
+/* Ambient streaming breath (Coach chat) — while the coach streams a reply the
+   scene gently inhales: a soft radial crimson glow pulses over the scrim so the
+   room feels alive without touching the message bubbles or their cursor. Very
+   subtle (a few % tint, ~2.4s) and fully disabled under reduced motion. */
+.zen-ambient[data-streaming="true"]::after {
+  animation: coach-breath 2.4s ease-in-out infinite;
+}
+@keyframes coach-breath {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: color-mix(in oklch, var(--atmosphere-calm) 9%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zen-ambient[data-streaming="true"]::after {
+    animation: none;
+  }
+}
+
+/* Respect explicit reduced-data preferences by skipping multi-megabyte photos.
+   The tuned mineral wash and atmosphere remain complete without imagery. */
+@media (prefers-reduced-data: reduce) {
+  .zen-ambient {
+    --bg-image: none !important;
+    background-image: linear-gradient(var(--img-grade), var(--img-grade));
+    background-attachment: scroll;
+  }
+}
+
+/* Graduated mineral surfaces — an explicit elevation ladder pages can use to
+   grade cards from sunken → base → raised without reaching for ad-hoc colors. */
+.surface-sunken {
+  background-color: var(--surface-sunken);
+}
+.surface-base {
+  background-color: var(--surface);
+}
+.surface-raised {
+  background-color: var(--surface-raised);
+}
+
+/* === Coach chat immersion ==================================================
+   Small, self-contained decorations that give the conversation a sense of
+   presence and depth. All are pure CSS and fully disabled under reduced motion. */
+
+/* Breathing "presence" orb for the empty state — concentric aura rings inhale
+   and exhale around the sparkle so the coach feels alive before a word is said. */
+.coach-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.coach-orb::before,
+.coach-orb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--primary) 32%, transparent),
+    transparent 68%
+  );
+  animation: coach-orb-pulse 3.8s ease-in-out infinite;
+}
+.coach-orb::after {
+  animation-delay: 1.9s;
+}
+@keyframes coach-orb-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Soft top fade for the transcript so messages dissolve as they scroll beneath
+   the header instead of hard-clipping against it. */
+.chat-scroll {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1.5rem, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 1.5rem, #000 100%);
+}
+
+/* Speech-bubble tails — clip-path triangles on a square bottom-outer corner so
+   the triangle meets the body with no gap. zen-card's full border-radius is
+   overridden on the tailed corner. Coach mirrors the glass fill + blur; user
+   matches solid primary. */
+.chat-bubble-coach {
+  border-bottom-left-radius: 0 !important;
+  /* zen-card uses `outline`, which paints ABOVE the ::before tail and leaves a
+     seam at the body↔tail junction that overlap can't cover. Drop the outline
+     and re-create the hairline edge as an INSET box-shadow ring, which paints
+     below the tail. Keep the rest of the zen-card shadow stack so the bubble
+     still reads as glass. */
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.3),
+    inset 0 1px 0 0 rgb(255 255 255 / 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 8px 16px -8px rgba(0, 0, 0, 0.08),
+    0 20px 44px -20px rgba(0, 0, 0, 0.12);
+}
+.dark .chat-bubble-coach {
+  box-shadow:
+    inset 0 0 0 1px rgb(190 205 255 / 0.14),
+    inset 0 1px 0 0 rgb(200 214 255 / 0.1),
+    0 1px 2px oklch(0 0 0 / 0.2),
+    0 10px 20px -10px oklch(0 0 0 / 0.35),
+    0 24px 48px -24px oklch(0 0 0 / 0.5);
+}
+.chat-bubble-user {
+  border-bottom-right-radius: 0 !important;
+}
+.chat-bubble-coach::before,
+.chat-bubble-user::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 9px;
+  pointer-events: none;
+}
+.chat-bubble-coach::before {
+  left: 0;
+  /* Overlap the square corner so the triangle reads as continuous with the body. */
+  transform: translateX(calc(-100% + 3px));
+  background-color: color-mix(in oklch, var(--card) var(--zen-opacity, 58%), transparent);
+  backdrop-filter: blur(var(--zen-blur, 30px)) saturate(1.85);
+  -webkit-backdrop-filter: blur(var(--zen-blur, 30px)) saturate(1.85);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+.chat-bubble-user::before {
+  right: 0;
+  transform: translateX(calc(100% - 2px));
+  background-color: var(--primary);
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
+}
+
+/* While the coach is composing, its bubble carries a faint living halo. */
+.coach-thinking {
+  animation: coach-halo 2.4s ease-in-out infinite;
+}
+@keyframes coach-halo {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 10px 30px -20px rgba(0, 0, 0, 0.8);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 10px 30px -20px rgba(0, 0, 0, 0.8),
+      0 0 24px -2px color-mix(in oklch, var(--atmosphere-calm) 34%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-orb::before,
+  .coach-orb::after,
+  .coach-thinking {
+    animation: none;
+  }
 }

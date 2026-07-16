@@ -14,12 +14,16 @@ export function sanitizeChatMessages(raw: unknown): ChatMessageRecord[] {
         message && (message.role === "user" || message.role === "assistant") && message.content,
     )
     .slice(-MAX_MESSAGES)
-    .map((message: any, index: number) => ({
-      id: String(message.id || `m-${index}`),
-      role: message.role as ChatMessageRecord["role"],
-      content: String(message.content).slice(0, MAX_CONTENT),
-      createdAt: Number(message.createdAt) || Date.now(),
-    }));
+    .map((message: any, index: number) => {
+      const record: ChatMessageRecord = {
+        id: String(message.id || `m-${index}`),
+        role: message.role as ChatMessageRecord["role"],
+        content: String(message.content).slice(0, MAX_CONTENT),
+        createdAt: Number(message.createdAt) || Date.now(),
+      };
+      if (message.kind === "notice") record.kind = "notice";
+      return record;
+    });
 }
 
 /** CAS-upsert a bounded transcript without losing another tab's conversations. */

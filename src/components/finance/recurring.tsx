@@ -97,12 +97,12 @@ const KIND_OPTIONS: {
   {
     key: "loan",
     label: "Loan",
-    activeClass: "bg-background text-amber-600 shadow-sm dark:text-amber-400",
+    activeClass: "bg-background text-warning shadow-sm",
   },
   {
     key: "bill",
     label: "Bill",
-    activeClass: "bg-background text-sky-600 shadow-sm dark:text-sky-400",
+    activeClass: "bg-background text-info shadow-sm",
   },
   {
     key: "subscription",
@@ -174,7 +174,7 @@ function NeedWantPicker({
             className={`h-10 rounded px-2.5 text-xs font-medium transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-50 ${
               active
                 ? g === "needs"
-                  ? "bg-background text-sky-600 shadow-sm dark:text-sky-400"
+                  ? "bg-background text-info shadow-sm"
                   : "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
@@ -215,7 +215,7 @@ function SaveWantPicker({
             className={`h-10 rounded px-2.5 text-xs font-medium transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:opacity-50 ${
               active
                 ? g === "savings"
-                  ? "bg-background text-emerald-600 shadow-sm dark:text-emerald-400"
+                  ? "bg-background text-success shadow-sm"
                   : "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
@@ -262,10 +262,10 @@ function RecurringUpdatesCard({
   }
 
   return (
-    <Card className="border-amber-200/70 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20">
+    <Card className="border-warning/30 bg-warning/10">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" /> Recurring updates
+          <AlertTriangle className="size-4 text-warning" /> Recurring updates
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -276,10 +276,7 @@ function RecurringUpdatesCard({
             const key = recurringInsightKey(insight);
             const busy = busyKey === key;
             return (
-              <li
-                key={key}
-                className="rounded-lg bg-background/80 p-3 text-sm ring-1 ring-foreground/10"
-              >
+              <li key={key} className="zen-surface-nested p-3 text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -369,10 +366,7 @@ function RecurringRow({
   const kind = recurringKindOf(s);
   const canceled = s.status === "canceled";
   const monthly = subscriptionMonthlyCost(s);
-  const chargeStatusClass =
-    chargeStatus?.tone === "paid"
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-amber-700 dark:text-amber-400";
+  const chargeStatusClass = chargeStatus?.tone === "paid" ? "text-success" : "text-warning";
 
   function startEdit() {
     setEditName(s.name);
@@ -537,7 +531,7 @@ function RecurringRow({
             </div>
           )}
           {amountChangeInsight?.suggestedAmount != null && !canceled && (
-            <div className="text-[11px] tabular-nums text-amber-700 dark:text-amber-400">
+            <div className="text-[11px] tabular-nums text-warning">
               Statement shows {fmtMoney(amountChangeInsight.suggestedAmount)} — tracked amount may
               be stale
             </div>
@@ -633,7 +627,7 @@ const SECTION_META: {
   },
 ];
 
-// One verification row: matched charge (green check + paid detail) or an
+// One verification row: matched charge (success check + paid detail) or an
 // unmatched item (muted circle + why it may be missing).
 function PaymentCheckRow({
   item,
@@ -716,14 +710,14 @@ function PaymentCheckRow({
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-2">
           {item.seenThisMonth ? (
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
           ) : (
             <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/50" />
           )}
           <div className="min-w-0">
             <div className="truncate">{cleanMerchantName(item.name)}</div>
             {item.seenThisMonth && item.matchedTxn ? (
-              <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+              <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-success">
                 <span>
                   {item.expectedThisMonth > 1
                     ? `${seenCount} of ${item.expectedThisMonth} seen; latest`
@@ -742,7 +736,7 @@ function PaymentCheckRow({
                   <>
                     <Badge
                       variant="secondary"
-                      className="h-5 gap-1 rounded-md px-1.5 text-[10px] text-primary"
+                      className="h-5 gap-1 rounded-md px-1.5 text-[10px] text-info"
                     >
                       <Sparkles className="size-3" />
                       AI-linked
@@ -766,7 +760,7 @@ function PaymentCheckRow({
                   <>
                     <Badge
                       variant="secondary"
-                      className="h-5 gap-1 rounded-md px-1.5 text-[10px] text-primary"
+                      className="h-5 gap-1 rounded-md px-1.5 text-[10px] text-info"
                     >
                       <Banknote className="size-3" />
                       Cash / Venmo
@@ -980,13 +974,7 @@ function MonthlyPaymentCheckCard({
       title="Monthly payment check"
       icon={ListChecks}
       summary={
-        <span
-          className={
-            allClear
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-amber-600 dark:text-amber-400"
-          }
-        >
+        <span className={allClear ? "text-success" : "text-warning"}>
           {seen} of {total} paid
         </span>
       }
@@ -1018,9 +1006,7 @@ function MonthlyPaymentCheckCard({
             <div className="flex items-center justify-between gap-3 text-sm">
               <span
                 className={
-                  allClear
-                    ? "flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400"
-                    : "font-medium"
+                  allClear ? "flex items-center gap-1.5 font-medium text-success" : "font-medium"
                 }
               >
                 {allClear && <CheckCircle2 className="size-4" />}
@@ -1037,7 +1023,7 @@ function MonthlyPaymentCheckCard({
             </div>
             <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
+                className="h-full rounded-full bg-success transition-[width] duration-300 ease-out"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -1194,7 +1180,7 @@ function DebtPayoffComparisonCard({ loans }: { loans: Subscription[] }) {
       summary={
         interestDelta > 0 ? `Avalanche saves ${fmtMoney(interestDelta)}` : `${debts.length} debts`
       }
-      className="border-amber-500/20 bg-linear-to-br from-amber-500/6 to-card"
+      className="border-warning/20 bg-linear-to-br from-warning/6 to-card"
     >
       <div className="mb-3 flex justify-end">
         <div className="flex items-center gap-2">

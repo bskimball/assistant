@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Compass">
+  <defs>
+    <radialGradient id="face-l" cx="42%" cy="34%" r="72%">
+      <stop offset="0%" stop-color="#fbf6ec" />
+      <stop offset="100%" stop-color="#efe7d6" />
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="104" fill="url(#face-l)" />
+  <path
+    d="M92 430c37 31 292 31 328 0"
+    fill="none"
+    stroke="rgba(70, 40, 44, 0.16)"
+    stroke-width="18"
+    stroke-linecap="round"
+    opacity=".42"
+  />
+
+  <g transform="translate(256 256)">
+    <circle
+      r="161"
+      fill="none"
+      stroke="#962d42"
+      stroke-width="18"
+      stroke-dasharray="130 34"
+      stroke-linecap="round"
+      transform="rotate(-45)"
+    />
+
+    <g fill="#3a2f31">
+      <path d="M-14-174 0-224 14-174 5-68h-10z" />
+      <path d="M174-14 224 0 174 14 68 5v-10z" />
+      <path d="M-174-14-224 0-174 14-68 5v-10z" />
+      <path d="M-14 174 0 224 14 174 5 68h-10z" />
+    </g>
+
+    <circle cx="0" cy="-204" r="24" fill="#8a9a86" />
+    <circle cx="0" cy="204" r="24" fill="#b88b45" />
+    <rect x="-224" y="-18" width="36" height="36" rx="6" fill="#8a9a86" transform="rotate(45 -206 0)" />
+    <rect x="188" y="-18" width="36" height="36" rx="6" fill="#b88b45" />
+
+    <path fill="#7d1829" d="M-126 174 48-28 160-170-14 32z" />
+    <path fill="#bd2f45" d="M-126 174 28-42 160-170 4 74z" />
+    <path fill="rgba(255,255,255,0.48)" d="M-8 18 118-130 44-18 30 82z" opacity=".72" />
+    <path fill="#7d1829" d="M48-28 126 136 4 74z" />
+    <path fill="#bd2f45" d="M4 74 126 136 30 82z" opacity=".92" />
+  </g>
+</svg>

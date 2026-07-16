@@ -17,6 +17,13 @@ describe("sanitizeChatMessages", () => {
       { id: "u1", role: "user", content: "  Hello  ", createdAt: 42 },
       { id: "x", role: "system", content: "ignore" },
       { role: "assistant", content: "Reply" },
+      {
+        id: "n1",
+        role: "assistant",
+        kind: "notice",
+        content: "✓ Logged meal: pie",
+        createdAt: 99,
+      },
       null,
     ]);
 
@@ -27,6 +34,13 @@ describe("sanitizeChatMessages", () => {
         role: "assistant",
         content: "Reply",
         createdAt: expect.any(Number),
+      },
+      {
+        id: "n1",
+        role: "assistant",
+        kind: "notice",
+        content: "✓ Logged meal: pie",
+        createdAt: 99,
       },
     ]);
   });

@@ -11,7 +11,7 @@
  * than refetching by hand. Use the exported `queryKeys` for invalidation.
  */
 
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   loadDailyDashboard,
   loadWorkoutSessions,
@@ -19,10 +19,13 @@ import {
   loadDailyNutrition,
   loadWeeklyReview,
   loadUserProfile,
+  loadRecommendationOutcomes,
+  loadMonthlyEffectiveness,
 } from "@/server/domain";
 import { getSimplefinStatus, loadFinanceHub, generateFinanceAdvice } from "@/server/finance";
 import { ensureWeeklyWorkoutPlan } from "@/server/coach";
-import type { ISODate } from "@/lib/domain";
+import { todayISO, toISOWeek, mondayOfISO, type ISODate } from "@/lib/domain";
+import { loadAnalyticsRange, loadWeeklyData, type AnalyticsRange } from "@/lib/review-data";
 
 export const queryKeys = {
   dashboard: (date: ISODate) => ["dashboard", date] as const,
@@ -35,6 +38,10 @@ export const queryKeys = {
   nutrition: (date: ISODate) => ["nutrition", date] as const,
   weeklyReview: (week: string) => ["weeklyReview", week] as const,
   userProfile: () => ["userProfile"] as const,
+  recommendationOutcomes: (dates: ISODate[]) => ["recommendationOutcomes", ...dates] as const,
+  weeklyData: (week: string) => ["weekly", week] as const,
+  analyticsRange: (range: AnalyticsRange, end: ISODate) => ["analytics", range, end] as const,
+  monthlyEffectiveness: (month: string) => ["effectiveness", month] as const,
 };
 
 export const dashboardQuery = (date: ISODate) =>
@@ -89,6 +96,48 @@ export const userProfileQuery = () =>
   queryOptions({
     queryKey: queryKeys.userProfile(),
     queryFn: () => loadUserProfile(),
+  });
+
+export const recommendationOutcomesQuery = (dates: ISODate[]) =>
+  queryOptions({
+    queryKey: queryKeys.recommendationOutcomes(dates),
+    queryFn: () => loadRecommendationOutcomes({ data: dates }),
+  });
+
+export const weeklyDataQuery = (anchor: ISODate) => {
+  const week = toISOWeek(mondayOfISO(anchor));
+  return queryOptions({
+    queryKey: queryKeys.weeklyData(week),
+    queryFn: () =>
+      loadWeeklyData(anchor, {
+        loadDashboard: (date) => loadDailyDashboard({ data: date }),
+        loadSessions: () => loadWorkoutSessions(),
+        loadReview: (reviewWeek) => loadWeeklyReview({ data: reviewWeek }),
+      }),
+    placeholderData: keepPreviousData,
+  });
+};
+
+export const analyticsRangeQuery = (range: AnalyticsRange, end: ISODate = todayISO()) =>
+  queryOptions({
+    queryKey: queryKeys.analyticsRange(range, end),
+    queryFn: () =>
+      loadAnalyticsRange(
+        range,
+        {
+          loadDashboard: (date) => loadDailyDashboard({ data: date }),
+          loadSessions: () => loadWorkoutSessions(),
+          loadTransactions: () => loadTransactions(),
+        },
+        end,
+      ),
+    placeholderData: keepPreviousData,
+  });
+
+export const monthlyEffectivenessQuery = (month: string) =>
+  queryOptions({
+    queryKey: queryKeys.monthlyEffectiveness(month),
+    queryFn: () => loadMonthlyEffectiveness({ data: month }),
   });
 
 export const financeAdviceQuery = (date: ISODate) =>

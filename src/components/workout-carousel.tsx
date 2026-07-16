@@ -3,12 +3,16 @@ import { Dumbbell, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ExercisePhase } from "@/lib/domain";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 import { Button } from "@/components/ui/button";
+import { ExerciseDetailDialog, type ExerciseDetail } from "@/components/exercise-detail-dialog";
 import { cn } from "@/lib/utils";
 
 export interface CarouselExercise {
   name: string;
   sets?: number;
   reps?: number | string;
+  weightLb?: number;
+  restSec?: number;
+  notes?: string;
   phase?: ExercisePhase;
 }
 
@@ -32,6 +36,7 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
   const [active, setActive] = useState(0);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
+  const [selected, setSelected] = useState<ExerciseDetail | null>(null);
 
   // Group in fixed phase order, dropping empty phases. Keep a flat list plus the
   // first flat index of each phase (for the jump chips).
@@ -154,7 +159,21 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
               }}
               className="w-36 shrink-0 snap-start sm:w-40"
             >
-              <ExerciseCard ex={ex} phase={phase} />
+              <ExerciseCard
+                ex={ex}
+                phase={phase}
+                onSelect={() =>
+                  setSelected({
+                    name: ex.name,
+                    sets: ex.sets,
+                    reps: ex.reps,
+                    weightLb: ex.weightLb,
+                    restSec: ex.restSec,
+                    notes: ex.notes,
+                    phase,
+                  })
+                }
+              />
             </div>
           ))}
         </div>
@@ -171,7 +190,7 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
               type="button"
               aria-label={`Go to exercise ${i + 1}`}
               onClick={() => scrollToIndex(i)}
-              className={`h-1.5 rounded-full transition-all duration-200 ${
+              className={`h-1.5 rounded-full transition-[width,background-color] duration-200 ${
                 isActive
                   ? `w-4 ${meta.dot}`
                   : "w-1.5 bg-muted-foreground/25 hover:bg-muted-foreground/50"
@@ -180,6 +199,14 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
           );
         })}
       </div>
+
+      <ExerciseDetailDialog
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+        exercise={selected}
+      />
     </div>
   );
 }
@@ -200,7 +227,7 @@ function CarouselArrow({
       onClick={onClick}
       disabled={disabled}
       aria-label={dir === "prev" ? "Previous exercise" : "Next exercise"}
-      className={`absolute top-[4.25rem] z-10 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background/80 text-foreground shadow-sm backdrop-blur transition-all hover:bg-background active:scale-95 disabled:pointer-events-none disabled:opacity-0 sm:size-9 ${
+      className={`absolute top-[4.25rem] z-10 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border bg-background/80 text-foreground shadow-sm backdrop-blur transition-[scale,background-color,opacity] hover:bg-background active:scale-[0.96] disabled:pointer-events-none disabled:opacity-0 ${
         dir === "prev" ? "left-1" : "right-1"
       }`}
     >
@@ -209,14 +236,27 @@ function CarouselArrow({
   );
 }
 
-function ExerciseCard({ ex, phase }: { ex: CarouselExercise; phase: ExercisePhase }) {
+function ExerciseCard({
+  ex,
+  phase,
+  onSelect,
+}: {
+  ex: CarouselExercise;
+  phase: ExercisePhase;
+  onSelect: () => void;
+}) {
   const meta = PHASE_META[phase];
   const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
   const reps = ex.reps ?? "";
   const setsReps = ex.sets ? `${ex.sets} × ${reps}` : String(reps);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-card shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06),0_2px_4px_0_rgba(0,0,0,0.04)] transition-[box-shadow] hover:shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.08),0_2px_4px_0_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)] dark:hover:shadow-[0_0_0_1px_rgba(255,255,255,0.13)]">
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-label={`View details for ${ex.name}`}
+      className="w-full overflow-hidden rounded-xl bg-card text-left shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06),0_2px_4px_0_rgba(0,0,0,0.04)] transition-[box-shadow] hover:shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_1px_2px_-1px_rgba(0,0,0,0.08),0_2px_4px_0_rgba(0,0,0,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)] dark:hover:shadow-[0_0_0_1px_rgba(255,255,255,0.13)]"
+    >
       {/* Photography media frame — warm neutral placeholder tone while the real
           exercise photo loads; the image fills the tile edge-to-edge. */}
       <div className="relative aspect-square w-full bg-muted outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10">
@@ -259,6 +299,6 @@ function ExerciseCard({ ex, phase }: { ex: CarouselExercise; phase: ExercisePhas
           <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">{setsReps}</div>
         )}
       </div>
-    </div>
+    </button>
   );
 }

@@ -36,10 +36,11 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { newId, todayISO } from "@/lib/domain";
+import { getDaypart, daypartGreeting } from "@/lib/scope";
+import { useSession } from "@/lib/auth-client";
 import type { ChatConversationSummary, ChatMessageRecord } from "@/lib/domain";
 import { upsertConversation } from "@/lib/chat";
 import {
@@ -80,8 +81,16 @@ interface UIMessage {
   content: string;
   createdAt: number;
   actions: UIAction[];
+  /** System confirmation from applying an action — not a coach reply. */
+  kind?: "notice";
   /** assistant message still receiving stream chunks */
   streaming?: boolean;
+}
+
+/** Legacy apply-result text stored as plain assistant bubbles before `kind`. */
+function isNoticeContent(content: string): boolean {
+  const t = content.trim();
+  return t.startsWith("✓ ") || t.startsWith("Couldn't do that:");
 }
 
 interface SSEFrame {
@@ -115,12 +124,16 @@ const cache: ChatCache = {
 function toRecords(messages: UIMessage[]): ChatMessageRecord[] {
   return messages
     .filter((m) => m.content.trim().length > 0)
-    .map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.content,
-      createdAt: m.createdAt,
-    }));
+    .map((m) => {
+      const record: ChatMessageRecord = {
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      };
+      if (m.kind === "notice") record.kind = "notice";
+      return record;
+    });
 }
 
 function fromRecords(records: ChatMessageRecord[]): UIMessage[] {
@@ -130,6 +143,10 @@ function fromRecords(records: ChatMessageRecord[]): UIMessage[] {
     content: r.content,
     createdAt: r.createdAt,
     actions: [],
+    kind:
+      r.kind === "notice" || (r.role === "assistant" && isNoticeContent(r.content))
+        ? "notice"
+        : undefined,
   }));
 }
 
@@ -251,11 +268,13 @@ function useChatStream(date: string) {
         streaming: true,
       };
 
-      // Snapshot the history we send (exclude the just-added empty assistant turn).
-      const history = [...messagesRef.current, userMsg].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // Snapshot the history we send (exclude notices + the empty assistant turn).
+      const history = [...messagesRef.current, userMsg]
+        .filter((m) => m.kind !== "notice")
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsLoading(true);
 
@@ -345,6 +364,7 @@ function useChatStream(date: string) {
           {
             id: newId("msg"),
             role: "assistant",
+            kind: "notice",
             content: result.ok ? `✓ ${result.message}` : `Couldn't do that: ${result.message}`,
             createdAt: Date.now(),
             actions: [],
@@ -513,16 +533,36 @@ function ChatPage() {
   }
 
   const empty = messages.length === 0;
+  const daypart = getDaypart(new Date());
+
+  const { data: greetSession } = useSession();
+  const firstName = (greetSession?.user?.name || "").trim().split(/\s+/)[0];
+  const greetingLead = `${daypartGreeting(daypart)}${firstName ? `, ${firstName}` : ""}.`;
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] w-full flex-col px-4 pb-24 pt-6 sm:px-6 sm:pb-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-page flex-1 flex-col">
-        {/* Header — eyebrow + title, consistent with the other pages */}
+    <div
+      className="zen-ambient !min-h-0 flex h-[calc(100dvh-var(--shelf-h)-var(--tabbar-h))] flex-col overflow-hidden px-4 pt-4 sm:px-6"
+      data-daypart={daypart}
+      data-density="medium"
+      data-atmosphere="calm"
+      data-streaming={isLoading ? "true" : undefined}
+    >
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
+        {/* Header — compresses once a conversation begins so the transcript leads. */}
         <div className="flex items-end justify-between gap-3 pb-4">
-          <div>
-            <div className="text-xs tracking-tight text-muted-foreground">Coach</div>
-            <h1 className="text-3xl font-semibold tracking-tighter">Chat</h1>
-          </div>
+          <AnimatePresence initial={false} mode="wait">
+            {empty && (
+              <motion.div
+                key="title"
+                initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
+                transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+              >
+                <h1 className="greeting-display on-scene text-3xl text-foreground">Chat</h1>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="flex shrink-0 items-center gap-1.5">
             <Button
@@ -534,20 +574,23 @@ function ChatPage() {
             >
               <Plus className="size-4" /> <span className="hidden sm:inline">New chat</span>
             </Button>
-            {/* History is a persistent sidebar on desktop; a drawer on smaller screens. */}
+            {/* History is always a drawer to keep the layout single-column and immersive. */}
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className={`gap-1.5 lg:hidden ${PRESS}`}>
+                <Button variant="outline" size="sm" className={`gap-1.5 ${PRESS}`}>
                   <History className="size-4" /> <span className="hidden sm:inline">History</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-sm">
-                <SheetHeader className="border-b">
+              <SheetContent
+                side="right"
+                className="flex w-full flex-col gap-0 border-l border-border/40 bg-popover/95 p-0 backdrop-blur-xl sm:max-w-sm"
+              >
+                <SheetHeader className="border-b border-border/40">
                   <SheetTitle className="flex items-center gap-2">
                     <History className="size-4" /> Chat history
                   </SheetTitle>
                 </SheetHeader>
-                <div className="p-3">
+                <div className="border-b border-border/25 p-3">
                   <Button
                     variant="outline"
                     size="sm"
@@ -574,79 +617,80 @@ function ChatPage() {
           </div>
         </div>
 
-        {/* Body: persistent history sidebar (desktop) + conversation */}
-        <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
-          <aside className="hidden min-h-0 lg:block">
-            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl bg-card/40 shadow-sm ring-1 ring-foreground/10">
-              <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <History className="size-4 text-muted-foreground" /> History
-                </div>
-                {chat.summaries.length > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="rounded-full text-xs text-muted-foreground [font-variant-numeric:tabular-nums]"
-                  >
-                    {chat.summaries.length}
-                  </Badge>
-                )}
-              </div>
-              <HistoryList
-                summaries={chat.summaries}
-                activeId={chat.activeId}
-                onSelect={chat.selectConversation}
-                onDelete={chat.removeConversation}
-              />
-            </div>
-          </aside>
-
-          <section className="flex min-h-0 min-w-0 flex-col">
+        {/* Body: a single centered conversation column — the ambient scene shows
+            through the transparent UI. */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Conversation — content anchors to the bottom so a short chat sits
               just above the composer instead of leaving a tall empty gap.
               Plain overflow (not Radix ScrollArea, whose inner display:table
               wrapper defeats `min-h-full`). */}
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
               <div
-                className={`mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 pb-4 ${
+                className={`flex min-h-full w-full flex-col gap-4 pb-4 ${
                   empty ? "justify-center" : "justify-end"
                 }`}
               >
-                {empty ? (
-                  <div className="mt-6 rounded-2xl border border-primary/20 bg-card p-6 text-center shadow-sm">
-                    <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                      <Sparkles className="size-6" />
-                    </div>
-                    <p className="text-balance text-sm font-medium">Your data-aware coach</p>
-                    <p className="mx-auto mt-1 max-w-sm text-pretty text-sm text-muted-foreground">
-                      I can see today's numbers and your 7-day trend. Try one of these:
-                    </p>
-                    <div className="mt-4 flex flex-wrap justify-center gap-2">
-                      {SUGGESTIONS.map((s) => (
-                        <Button
-                          key={s}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => send(s)}
-                          className={`rounded-full text-muted-foreground hover:text-foreground ${PRESS}`}
-                        >
-                          {s}
-                        </Button>
+                <AnimatePresence initial={false} mode="wait">
+                  {empty ? (
+                    <motion.div
+                      key="hero"
+                      initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
+                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, y: 12, filter: "blur(4px)" }}
+                      transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                      className="flex flex-col items-center px-2 text-center"
+                    >
+                      <motion.div
+                        animate={{ y: [0, -6, 0] }}
+                        transition={{ duration: 5, ease: "easeInOut", repeat: Infinity }}
+                        className="coach-orb mb-6 mt-6 size-14"
+                      >
+                        <div className="relative z-10 flex size-14 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-[0_8px_30px_-12px_var(--primary)] backdrop-blur-sm">
+                          <Sparkles className="size-6" />
+                        </div>
+                      </motion.div>
+                      <h2 className="greeting-display on-scene text-balance text-4xl text-foreground sm:text-5xl">
+                        {greetingLead}
+                      </h2>
+                      <p className="voice on-scene mt-3 text-pretty text-lg text-foreground/80">
+                        What's on your mind?
+                      </p>
+                      <div className="mt-7 flex flex-wrap justify-center gap-2">
+                        {SUGGESTIONS.map((s, i) => (
+                          <motion.button
+                            key={s}
+                            type="button"
+                            onClick={() => send(s)}
+                            initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+                            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                            whileHover={{ y: -2 }}
+                            transition={{
+                              type: "spring",
+                              duration: 0.35,
+                              bounce: 0,
+                              delay: 0.05 + i * 0.05,
+                            }}
+                            className={`zen-input min-h-9 rounded-full border px-4 text-sm text-foreground/80 shadow-sm hover:border-primary/30 hover:text-foreground hover:shadow-md ${PRESS}`}
+                          >
+                            {s}
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <AnimatePresence key="transcript" initial={false}>
+                      {messages.map((m) => (
+                        <MessageBubble
+                          key={m.id}
+                          message={m}
+                          onApply={(a) => chat.applyAction(m.id, a)}
+                          onDismiss={(id) => chat.dismissAction(m.id, id)}
+                        />
                       ))}
-                    </div>
-                  </div>
-                ) : (
-                  <AnimatePresence initial={false}>
-                    {messages.map((m) => (
-                      <MessageBubble
-                        key={m.id}
-                        message={m}
-                        onApply={(a) => chat.applyAction(m.id, a)}
-                        onDismiss={(id) => chat.dismissAction(m.id, id)}
-                      />
-                    ))}
-                  </AnimatePresence>
-                )}
+                    </AnimatePresence>
+                  )}
+                </AnimatePresence>
                 {error && (
                   <Reveal
                     as="div"
@@ -660,23 +704,30 @@ function ChatPage() {
               </div>
             </div>
 
-            {/* Composer */}
-            <div className="mx-auto w-full max-w-4xl pt-3">
-              <div className="flex items-end gap-2 rounded-2xl bg-card p-2 shadow-sm ring-1 ring-foreground/10 transition-[box-shadow] duration-150 ease-out focus-within:shadow-md focus-within:ring-ring/60">
+            {/* Composer — a plain shrink-0 flex child anchored at the bottom of
+                the full-height column, so it's pinned to the chat viewport floor
+                in every state (empty greeting included) without sticky/fixed. */}
+            <div className="group/composer relative z-20 shrink-0 pb-4 pt-3">
+              {/* Aurora glow — blooms softly behind the field on focus. */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-6 bottom-8 top-3 rounded-2xl bg-primary/20 opacity-0 blur-2xl transition-opacity duration-300 group-focus-within/composer:opacity-100 md:bottom-6"
+              />
+              <div className="zen-card relative flex items-end gap-2 p-2 transition-[box-shadow] duration-150 ease-out focus-within:shadow-lg focus-within:ring-1 focus-within:ring-ring/60">
                 <Textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={1}
                   placeholder="Message your coach…"
-                  className="max-h-40 min-h-9 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
+                  className="max-h-40 min-h-10 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
                 />
                 {isLoading ? (
                   <Button
                     type="button"
                     size="icon"
                     variant="secondary"
-                    className={`rounded-lg ${PRESS}`}
+                    className={`size-10 shrink-0 rounded-2xl ${PRESS}`}
                     onClick={chat.stop}
                     aria-label="Stop"
                   >
@@ -686,7 +737,7 @@ function ChatPage() {
                   <Button
                     type="button"
                     size="icon"
-                    className={`rounded-lg shadow-sm ${PRESS}`}
+                    className={`size-10 shrink-0 rounded-2xl shadow-sm ${PRESS}`}
                     onClick={submit}
                     disabled={!input.trim()}
                     aria-label="Send"
@@ -739,7 +790,9 @@ function HistoryList({
               key={s.id}
               delay={revealDelay(i)}
               className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
-                s.id === activeId ? "border-primary/40 bg-primary/5" : "hover:bg-muted"
+                s.id === activeId
+                  ? "border-primary/40 bg-primary/10"
+                  : "border-transparent hover:bg-muted/50"
               }`}
             >
               <button
@@ -751,7 +804,8 @@ function HistoryList({
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{s.title}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {formatDistanceToNow(s.updatedAt, { addSuffix: true })} · {s.messageCount} msg
+                    {formatDistanceToNow(s.updatedAt, { addSuffix: true })} ·{" "}
+                    <span className="tabular-nums">{s.messageCount}</span> msg
                   </span>
                 </span>
               </button>
@@ -781,34 +835,77 @@ function MessageBubble({
   onDismiss: (id: string) => void;
 }) {
   const isUser = message.role === "user";
+  const isNotice = message.kind === "notice";
+  const thinking = message.streaming && !message.content;
+
+  // Apply-result confirmations are system notices, not coach speech bubbles.
+  if (isNotice) {
+    const ok = message.content.trim().startsWith("✓");
+    const label = message.content.replace(/^✓\s*/, "").trim();
+    return (
+      <motion.div
+        layout="position"
+        initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+        className="flex justify-start"
+        role="status"
+      >
+        <div
+          className={`inline-flex max-w-[min(100%,28rem)] items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm ${
+            ok
+              ? "border-success/25 bg-success/10 text-success"
+              : "border-destructive/25 bg-destructive/10 text-destructive"
+          }`}
+        >
+          {ok ? <Check className="size-3.5 shrink-0" /> : <X className="size-3.5 shrink-0" />}
+          <span className="min-w-0 truncate font-medium">{label}</span>
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       layout="position"
       initial={{ opacity: 0, y: 10, x: isUser ? 12 : -12, filter: "blur(4px)" }}
       animate={{ opacity: 1, y: 0, x: 0, filter: "blur(0px)" }}
       transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+      className={`group/msg flex items-end gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
     >
       <div className={`flex max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
         <div
-          className={`whitespace-pre-wrap break-words px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
+          className={`chat-bubble whitespace-pre-wrap break-words px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
             isUser
-              ? "rounded-2xl rounded-br-md bg-linear-to-b from-primary to-primary/90 text-primary-foreground shadow-sm"
-              : "rounded-2xl rounded-bl-md bg-card text-card-foreground shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+              ? "chat-bubble-user relative rounded-2xl rounded-br-none bg-primary text-primary-foreground shadow-md shadow-primary/20"
+              : `chat-bubble-coach zen-card rounded-2xl rounded-bl-none text-card-foreground ${
+                  thinking ? "coach-thinking" : ""
+                }`
           }`}
         >
           {message.content}
-          {message.streaming && !message.content && (
+          {thinking && (
             <span className="flex items-center gap-1 py-1" aria-label="Coach is thinking">
-              <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/70" />
-              <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/70 [animation-delay:160ms]" />
-              <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/70 [animation-delay:320ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-primary/60" />
+              <span className="size-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:160ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-primary/60 [animation-delay:320ms]" />
             </span>
           )}
           {message.streaming && message.content && (
             <span className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-full bg-current align-middle" />
           )}
         </div>
+
+        {/* Timestamp — revealed on hover so it's there when wanted, quiet otherwise. */}
+        {!message.streaming && (
+          <span
+            className={`px-1 text-[10px] tabular-nums text-muted-foreground/70 opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100 ${
+              isUser ? "text-right" : "text-left"
+            }`}
+          >
+            {formatDistanceToNow(message.createdAt, { addSuffix: true })}
+          </span>
+        )}
 
         {message.actions.map((a) => (
           <ActionCard
@@ -844,7 +941,7 @@ function ActionCard({
         initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-        className="flex max-w-full items-center gap-1.5 rounded-full bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground ring-1 ring-foreground/10"
+        className="zen-surface-nested flex min-h-10 max-w-full items-center gap-1.5 rounded-full px-3 py-2 text-xs text-muted-foreground"
       >
         <Icon className="size-3.5 shrink-0" />
         <span className="min-w-0 truncate">{describeAction(action.name, action.args)}</span>
@@ -857,9 +954,9 @@ function ActionCard({
       initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
       transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-      className="flex w-full items-center gap-3 rounded-xl bg-background/70 px-3 py-2.5 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+      className="zen-surface-nested flex w-full items-center gap-3 px-3 py-2.5"
     >
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
         <Icon className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
@@ -871,7 +968,7 @@ function ActionCard({
           initial={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
           animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
           transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-          className="flex items-center gap-1 text-xs font-medium text-primary"
+          className="flex items-center gap-1 text-xs font-medium text-success"
         >
           <Check className="size-4" /> Done
         </motion.span>

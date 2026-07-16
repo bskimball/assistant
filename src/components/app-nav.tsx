@@ -1,248 +1,371 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   HeartPulse,
-  Dumbbell,
-  Utensils,
   KanbanSquare,
   CalendarRange,
   BarChart3,
   Wallet,
   Sparkles,
-  ChevronDown,
   UserCog,
   Info,
   LogOut,
   LogIn,
   Loader2,
+  MoreHorizontal,
+  type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import ThemeToggle from "@/components/theme-toggle";
 import { signIn, signOut, useSession } from "@/lib/auth-client";
+import {
+  activePrimaryKey,
+  BOTTOM_DESTINATIONS,
+  DESKTOP_DESTINATIONS,
+  MORE_ACTIVE_MATCH,
+  MORE_GROUPS,
+  type AppPath,
+  type IconKey,
+} from "@/lib/navigation";
 
-type Leaf = { to: string; label: string; Icon: typeof LayoutDashboard };
-type Tab =
-  | { kind: "link"; to: string; label: string; Icon: typeof LayoutDashboard }
-  | {
-      kind: "group";
-      label: string;
-      Icon: typeof LayoutDashboard;
-      items: Leaf[];
-    };
-
-// Top-level destinations, left→right. Health groups the body domains (Workouts
-// + Nutrition); Insights groups the review/analytics views. Grouping keeps the
-// bar at four tabs even as those areas grow.
-const TABS: Tab[] = [
-  { kind: "link", to: "/", label: "Today", Icon: LayoutDashboard },
-  { kind: "link", to: "/chat", label: "Coach", Icon: Sparkles },
-  {
-    kind: "group",
-    label: "Health",
-    Icon: HeartPulse,
-    items: [
-      { to: "/workouts", label: "Workouts", Icon: Dumbbell },
-      { to: "/nutrition", label: "Nutrition", Icon: Utensils },
-    ],
-  },
-  { kind: "link", to: "/kanban", label: "Tasks", Icon: KanbanSquare },
-  { kind: "link", to: "/finance", label: "Money", Icon: Wallet },
-  {
-    kind: "group",
-    label: "Insights",
-    Icon: BarChart3,
-    items: [
-      { to: "/weekly", label: "Weekly", Icon: CalendarRange },
-      { to: "/analytics", label: "Trends", Icon: BarChart3 },
-    ],
-  },
-];
-
-// Index of the active top-level tab (-1 = none), matching TABS order.
-function activeIndexFor(pathname: string): number {
-  return TABS.findIndex((t) =>
-    t.kind === "link"
-      ? t.to === "/"
-        ? pathname === "/"
-        : pathname.startsWith(t.to)
-      : t.items.some((it) => pathname.startsWith(it.to)),
-  );
-}
+const ICONS: Record<IconKey, LucideIcon> = {
+  today: LayoutDashboard,
+  coach: Sparkles,
+  health: HeartPulse,
+  tasks: KanbanSquare,
+  money: Wallet,
+  review: CalendarRange,
+  trends: BarChart3,
+  profile: UserCog,
+  about: Info,
+};
 
 export function AppNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const activeIndex = activeIndexFor(pathname);
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b bg-background/90 px-4 py-2 backdrop-blur sm:px-6">
-        <div className="mx-auto flex w-full max-w-page items-center justify-between gap-3">
-          <Link
-            to="/"
-            className="flex shrink-0 items-center gap-1.5 text-sm font-semibold tracking-tight"
-          >
-            <img src="/compass.svg" alt="" className="size-7 rounded-lg" />
-            Compass
-          </Link>
+      <header className="app-shelf sticky top-0 z-50">
+        <div className="mx-auto flex h-full w-full items-center justify-between px-4 lg:px-8">
+          {/* Left: Brand logo */}
+          <div className="flex shrink-0">
+            <Brand />
+          </div>
 
-          <DesktopTabs activeIndex={activeIndex} />
+          {/* Center: Desktop Nav */}
+          <div className="hidden flex-1 justify-center lg:flex">
+            <DesktopTabs pathname={pathname} />
+          </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          {/* Right: Theme & Account Menu */}
+          <div className="flex shrink-0 items-center gap-1 lg:gap-2">
+            <MoreMenu pathname={pathname} />
             <ThemeToggle />
             <AccountMenu />
           </div>
         </div>
       </header>
 
-      <BottomBar activeIndex={activeIndex} />
+      <BottomBar pathname={pathname} />
     </>
   );
 }
 
-// --- Desktop: pill tabs with a sliding active indicator -------------------
+// --- Brand: theme-aware explicit logo crossfade (no tagline) ---------------
 
-function DesktopTabs({ activeIndex }: { activeIndex: number }) {
-  const navRef = useRef<HTMLDivElement>(null);
-  const [openGroup, setOpenGroup] = useState<number | null>(null);
-  const [indicator, setIndicator] = useState<{
-    left: number;
-    width: number;
-  } | null>(null);
-
-  // Measure the active tab and slide the indicator to it. Re-measures on
-  // navigation and on resize. Hidden entirely when no tab is active.
-  useEffect(() => {
-    function measure() {
-      const container = navRef.current;
-      if (!container) return;
-      const tabs = container.querySelectorAll<HTMLElement>("[data-tab]");
-      const el = activeIndex >= 0 ? tabs[activeIndex] : null;
-      setIndicator(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
-    }
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [activeIndex]);
-
-  const tabClass = (active: boolean) =>
-    `relative z-10 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${
-      active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-    }`;
-
+function Brand() {
   return (
-    <div ref={navRef} className="relative hidden items-center gap-1 sm:flex">
-      {indicator && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 z-0 rounded-lg bg-primary transition-[transform,width] duration-300 ease-out"
-          style={{
-            transform: `translateX(${indicator.left}px)`,
-            width: indicator.width,
-          }}
+    <Link to="/" aria-label="Compass — home" className="flex shrink-0 items-center gap-2.5">
+      <span className="logo-crossfade size-9 sm:size-10">
+        <img
+          src="/compass-light.svg"
+          alt=""
+          className="logo-light size-9 rounded-full border border-border/40 shadow-sm sm:size-10"
         />
-      )}
-
-      {TABS.map((tab, i) => {
-        const active = activeIndex === i;
-        if (tab.kind === "link") {
-          return (
-            <Link key={tab.label} to={tab.to} data-tab className={tabClass(active)}>
-              <tab.Icon className="size-4" />
-              {tab.label}
-            </Link>
-          );
-        }
-        const open = openGroup === i;
-        return (
-          <Popover key={tab.label} open={open} onOpenChange={(o) => setOpenGroup(o ? i : null)}>
-            <PopoverTrigger asChild>
-              <button type="button" data-tab className={tabClass(active)}>
-                <tab.Icon className="size-4" />
-                {tab.label}
-                <ChevronDown
-                  className={`size-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-                />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-44 p-1">
-              {tab.items.map(({ to, label, Icon }) => (
-                <MenuLink
-                  key={to}
-                  to={to}
-                  Icon={Icon}
-                  label={label}
-                  onSelect={() => setOpenGroup(null)}
-                />
-              ))}
-            </PopoverContent>
-          </Popover>
-        );
-      })}
-    </div>
+        <img
+          src="/compass-dark.svg"
+          alt=""
+          className="logo-dark size-9 rounded-full border border-border/40 shadow-sm sm:size-10"
+        />
+      </span>
+      <span className="hidden text-[15px] font-semibold tracking-[0.18em] text-foreground lg:inline">
+        COMPASS
+      </span>
+    </Link>
   );
 }
 
-// --- Mobile: fixed bottom tab bar -----------------------------------------
+// --- Desktop: quiet tabs with a sliding crimson bottom-border underline ------
+// The active item is marked by a short crimson underline. A single absolutely
+// positioned bar is driven by the measured left/width of the active tab, so it
+// only ever slides HORIZONTALLY (a CSS transform transition) — it can never
+// drift vertically the way a viewport-measured layout animation can.
 
-function BottomBar({ activeIndex }: { activeIndex: number }) {
-  const [openGroup, setOpenGroup] = useState<number | null>(null);
+function DesktopTabs({ pathname }: { pathname: string }) {
+  const active = activePrimaryKey(DESKTOP_DESTINATIONS, pathname);
+  const navRef = useRef<HTMLElement>(null);
+  const [marker, setMarker] = useState<{ left: number; width: number } | null>(null);
 
-  const itemClass = (active: boolean) =>
-    `flex flex-1 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[10px] font-medium transition-colors ${
-      active ? "text-primary" : "text-muted-foreground"
-    }`;
-  const iconWrap = (active: boolean) =>
-    `flex size-8 items-center justify-center rounded-full transition-[background-color,transform] duration-200 ${
-      active ? "-translate-y-0.5 bg-primary/15" : ""
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const measure = () => {
+      const el = nav.querySelector<HTMLElement>(`[data-tab="${active}"]`);
+      if (!el) {
+        setMarker(null);
+        return;
+      }
+      // Underline spans the middle 60% of the tab.
+      const inset = el.offsetWidth * 0.2;
+      setMarker({ left: el.offsetLeft + inset, width: el.offsetWidth - inset * 2 });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [active]);
+
+  const tabClass = (on: boolean) =>
+    `relative flex min-h-10 items-center gap-2.5 px-3 pb-2.5 pt-2 text-[15px] font-medium transition-colors duration-200 ${
+      on ? "text-foreground" : "text-muted-foreground hover:text-foreground"
     }`;
 
   return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/90 backdrop-blur sm:hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-    >
-      <div className="mx-auto flex max-w-page items-stretch justify-around px-2 py-1.5">
-        {TABS.map((tab, i) => {
-          const active = activeIndex === i;
-          if (tab.kind === "link") {
+    <nav ref={navRef} aria-label="Primary" className="relative flex items-center gap-1">
+      {DESKTOP_DESTINATIONS.map((tab) => {
+        const on = active === tab.key;
+        const Icon = ICONS[tab.icon];
+        return (
+          <Link
+            key={tab.key}
+            to={tab.to}
+            data-tab={tab.key}
+            aria-current={on ? "page" : undefined}
+            className={tabClass(on)}
+          >
+            <Icon className={on ? "size-[18px] text-primary" : "size-[18px]"} strokeWidth={1.75} />
+            {tab.label}
+          </Link>
+        );
+      })}
+      {marker && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-t-sm bg-primary transition-[transform,width] duration-300 ease-out"
+          style={{ width: marker.width, transform: `translateX(${marker.left}px)` }}
+        />
+      )}
+    </nav>
+  );
+}
+
+// --- Below lg: fixed bottom tab bar with elevated center Coach -------------
+
+function BottomBar({ pathname }: { pathname: string }) {
+  const active = activePrimaryKey(BOTTOM_DESTINATIONS, pathname);
+
+  return (
+    <nav aria-label="Primary" className="app-tabbar fixed inset-x-0 bottom-0 z-50 lg:hidden">
+      <div className="mx-auto flex max-w-page items-end justify-around px-2 pt-1">
+        {BOTTOM_DESTINATIONS.map((tab) => {
+          const on = active === tab.key;
+          const Icon = ICONS[tab.icon];
+          if (tab.key === "coach") {
             return (
-              <Link key={tab.label} to={tab.to} className={itemClass(active)}>
-                <span className={iconWrap(active)}>
-                  <tab.Icon className="size-5" />
+              <Link
+                key={tab.key}
+                to={tab.to}
+                aria-label={tab.label}
+                aria-current={on ? "page" : undefined}
+                className="flex flex-1 flex-col items-center gap-1 pb-1.5"
+              >
+                <span
+                  data-active={on}
+                  className="nav-coach -mt-6 flex size-14 items-center justify-center rounded-full ring-4 ring-[var(--surface-raised)]"
+                >
+                  <Icon className="size-6" strokeWidth={1.75} />
                 </span>
-                {tab.label}
+                <span className="relative flex flex-col items-center">
+                  <span
+                    className={`text-[10px] font-medium ${on ? "text-primary" : "text-muted-foreground"}`}
+                  >
+                    {tab.label}
+                  </span>
+                  {on && (
+                    <span
+                      aria-hidden
+                      className="nav-needle absolute -bottom-1 left-1/2 h-1 w-4 -translate-x-1/2"
+                    />
+                  )}
+                </span>
               </Link>
             );
           }
-          const open = openGroup === i;
           return (
-            <Popover key={tab.label} open={open} onOpenChange={(o) => setOpenGroup(o ? i : null)}>
-              <PopoverTrigger asChild>
-                <button type="button" className={itemClass(active)}>
-                  <span className={iconWrap(active)}>
-                    <tab.Icon className="size-5" />
-                  </span>
-                  {tab.label}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="top" align="center" className="mb-2 w-44 p-1">
-                {tab.items.map(({ to, label, Icon }) => (
-                  <MenuLink
-                    key={to}
-                    to={to}
-                    Icon={Icon}
-                    label={label}
-                    onSelect={() => setOpenGroup(null)}
+            <Link
+              key={tab.key}
+              to={tab.to}
+              aria-current={on ? "page" : undefined}
+              className={`flex min-h-10 flex-1 flex-col items-center gap-1 rounded-lg py-1.5 text-[10px] font-medium transition-colors ${
+                on ? "text-primary" : "text-muted-foreground"
+              }`}
+            >
+              <span className="relative flex size-8 items-center justify-center">
+                <Icon className="size-5" strokeWidth={1.75} />
+                {on && (
+                  <span
+                    aria-hidden
+                    className="nav-needle absolute -bottom-1 left-1/2 h-1 w-4 -translate-x-1/2"
                   />
-                ))}
-              </PopoverContent>
-            </Popover>
+                )}
+              </span>
+              {tab.label}
+            </Link>
           );
         })}
       </div>
     </nav>
+  );
+}
+
+// --- "More" overflow: bottom Sheet on phones, Popover on tablet ------------
+// Both are always rendered; responsive display toggles which one is live so the
+// behavior matches device class without measuring the viewport in JS.
+
+function MoreMenu({ pathname }: { pathname: string }) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [popOpen, setPopOpen] = useState(false);
+
+  // The More trigger carries the active marker while a Review destination
+  // (/weekly or /analytics) is open, so overflow state stays legible.
+  const moreActive = MORE_ACTIVE_MATCH.some((m) => pathname.startsWith(m));
+  // Accessible name reflects the active overflow state so screen readers hear
+  // "More, Review selected" — state is not conveyed by the marker color alone.
+  const triggerLabel = moreActive ? "More, Review selected" : "More";
+  const triggerClass =
+    "relative flex min-h-10 min-w-10 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground lg:hidden";
+  const marker = moreActive && (
+    <span aria-hidden className="nav-needle absolute bottom-1 left-1/2 h-1 w-4 -translate-x-1/2" />
+  );
+
+  return (
+    <>
+      {/* Phones: bottom sheet */}
+      <div className="md:hidden">
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <SheetTrigger
+            aria-label={triggerLabel}
+            aria-current={moreActive ? "page" : undefined}
+            data-active={moreActive}
+            className={triggerClass}
+          >
+            <MoreHorizontal className="size-5" strokeWidth={1.75} />
+            {marker}
+          </SheetTrigger>
+          <SheetContent
+            side="bottom"
+            className="rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+          >
+            <SheetHeader>
+              <SheetTitle>More</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4 px-4 pb-4">
+              {MORE_GROUPS.map((group) => (
+                <div key={group.heading}>
+                  <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {group.heading}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.links.map(({ to, label, icon }) => (
+                      <MoreTile
+                        key={to}
+                        to={to}
+                        Icon={ICONS[icon]}
+                        label={label}
+                        pathname={pathname}
+                        onSelect={() => setSheetOpen(false)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+
+      {/* Tablets (md → lg): popover */}
+      <div className="hidden md:block lg:hidden">
+        <Popover open={popOpen} onOpenChange={setPopOpen}>
+          <PopoverTrigger
+            aria-label={triggerLabel}
+            aria-current={moreActive ? "page" : undefined}
+            data-active={moreActive}
+            className={triggerClass}
+          >
+            <MoreHorizontal className="size-5" strokeWidth={1.75} />
+            {marker}
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-52 p-1">
+            {MORE_GROUPS.map((group, gi) => (
+              <div key={group.heading} className={gi > 0 ? "mt-1 border-t pt-1" : undefined}>
+                <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {group.heading}
+                </div>
+                {group.links.map(({ to, label, icon }) => (
+                  <MenuLink
+                    key={to}
+                    to={to}
+                    Icon={ICONS[icon]}
+                    label={label}
+                    onSelect={() => setPopOpen(false)}
+                  />
+                ))}
+              </div>
+            ))}
+          </PopoverContent>
+        </Popover>
+      </div>
+    </>
+  );
+}
+
+function MoreTile({
+  to,
+  Icon,
+  label,
+  pathname,
+  onSelect,
+}: {
+  to: AppPath;
+  Icon: LucideIcon;
+  label: string;
+  pathname: string;
+  onSelect: () => void;
+}) {
+  const on = pathname.startsWith(to);
+  return (
+    <Link
+      to={to}
+      onClick={onSelect}
+      aria-current={on ? "page" : undefined}
+      className={`relative flex min-h-10 items-center gap-3 rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
+        on
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-border bg-card text-foreground hover:bg-muted"
+      }`}
+    >
+      <Icon className="size-5 text-primary" strokeWidth={1.75} /> {label}
+      {on && (
+        <span
+          aria-hidden
+          className="nav-needle absolute right-3 top-1/2 h-1 w-4 -translate-y-1/2 rotate-90"
+        />
+      )}
+    </Link>
   );
 }
 
@@ -254,7 +377,11 @@ function AccountMenu() {
   const [busy, setBusy] = useState(false);
 
   if (isPending) {
-    return <Loader2 className="size-4 animate-spin text-muted-foreground" />;
+    return (
+      <span className="flex size-10 items-center justify-center">
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      </span>
+    );
   }
 
   if (!session?.user) {
@@ -290,21 +417,20 @@ function AccountMenu() {
         <button
           type="button"
           aria-label="Account menu"
-          className="flex items-center gap-1 rounded-full p-0.5 pr-1.5 transition-colors hover:bg-muted"
+          className="flex min-h-10 min-w-10 items-center justify-center rounded-full ring-2 ring-border/50 ring-offset-2 ring-offset-[var(--surface-raised)] transition-[box-shadow] hover:ring-primary/50 active:scale-[0.96]"
         >
           {u.image ? (
             <img
               src={u.image}
               alt=""
-              className="size-7 rounded-full"
+              className="size-9 rounded-full object-cover"
               referrerPolicy="no-referrer"
             />
           ) : (
-            <span className="flex size-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+            <span className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
               {initial}
             </span>
           )}
-          <ChevronDown className="size-3.5 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-1">
@@ -321,7 +447,7 @@ function AccountMenu() {
             type="button"
             onClick={handleSignOut}
             disabled={busy}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}{" "}
             Sign out
@@ -338,18 +464,22 @@ function MenuLink({
   label,
   onSelect,
 }: {
-  to: string;
-  Icon: typeof UserCog;
+  to: AppPath;
+  Icon: LucideIcon;
   label: string;
   onSelect: () => void;
 }) {
-  const base = "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors";
+  const base =
+    "relative flex min-h-10 items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors";
   return (
     <Link
       to={to}
       onClick={onSelect}
       className={`${base} text-muted-foreground hover:bg-muted hover:text-foreground`}
-      activeProps={{ className: `${base} bg-muted text-foreground` }}
+      activeProps={{
+        className: `${base} bg-muted font-medium text-foreground`,
+        "aria-current": "page",
+      }}
     >
       <Icon className="size-4 text-primary" /> {label}
     </Link>

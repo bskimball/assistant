@@ -229,6 +229,8 @@ export type WorkoutVariant = "full" | "short" | "minimum";
 export interface WorkoutSession extends BaseEntity {
   performedAt: Timestamp;
   planId?: string;
+  /** Immutable planned-session identity used to validate Health workflow completion. */
+  plannedSessionTitle?: string;
   variant?: WorkoutVariant;
   exercises: PerformedExercise[];
   volume?: number;
@@ -689,14 +691,43 @@ export interface RecommendationOutcome {
   /** Stable recommendation identifier, not a generated event identifier. */
   id: string;
   date: ISODate;
-  source: "coach-daily" | "coach-weekly" | "next-best-action";
+  source: "coach-daily" | "coach-weekly" | "next-best-action" | "health-next-action";
   text: string;
   /** Lifecycle of the recommendation; helpful/not-helpful is the optional `helpful` flag. */
   status: "accepted" | "dismissed" | "snoozed" | "completed";
   /** true = helpful, false = not-helpful; omit when unknown. */
   helpful?: boolean;
   taskId?: string;
+  /** Validated workflow metadata for personal Health recommendations (ADR-026). */
+  health?: {
+    actionType: "start-workout" | "choose-workout" | "log-meal" | "add-water" | "view-progress";
+    criterion?:
+      | "planned-workout"
+      | "choose-workout"
+      | "meal-timing"
+      | "protein-gap"
+      | "hydration"
+      | "on-track";
+    /** Planned workout title that a start-workout completion must match. */
+    targetTitle?: string;
+    /** Hydration total when the recommendation was accepted. */
+    acceptedWaterMl?: number;
+    /** Server-validated source-of-truth evidence attached only on completion. */
+    evidence?:
+      | { kind: "workout-session"; sessionId: string }
+      | { kind: "meal"; mealId: string }
+      | { kind: "water"; savedTotalMl: number; increaseMl: number };
+  };
   recordedAt: Timestamp;
+}
+
+/** Motivational daily quote persisted on the plan (stable per day unless forced). */
+export interface DailyQuote {
+  text: string;
+  author?: string;
+  /** ISO timestamp when the quote was generated. */
+  generatedAt: string;
+  generatedBy: "ai" | "fallback";
 }
 
 export interface DailyPlan extends BaseEntity {
@@ -708,6 +739,8 @@ export interface DailyPlan extends BaseEntity {
   acceptedSuggestionIds?: string[];
   aiSuggestions?: string[];
   aiCoaching?: DailyCoachingSnapshot;
+  /** Optional AI/fallback daily quote (Feature: AI daily quote). */
+  dailyQuote?: DailyQuote;
   voiceNoteIds?: string[];
   eveningCheckIn?: EveningCheckIn;
   notes?: string;
@@ -812,6 +845,8 @@ export interface ChatMessageRecord {
   role: ChatRole;
   content: string;
   createdAt: number;
+  /** System confirmation from applying an action — not a coach reply. */
+  kind?: "notice";
 }
 
 /** A full coach conversation (transcript + metadata), stored per-user. */
@@ -1049,9 +1084,83 @@ export function addDaysISO(date: ISODate, days: number): ISODate {
   return d.toISOString().slice(0, 10);
 }
 
+/** Monday of the ISO week containing `date` (Mon–Sun weeks). Pure day math. */
+export function mondayOfISO(date: ISODate): ISODate {
+  const d = new Date(date + "T12:00:00Z");
+  // UTC day: Mon=1 … Sun=0 → Mon=0 … Sun=6
+  const dayMon0 = (d.getUTCDay() + 6) % 7;
+  return addDaysISO(date, -dayMon0);
+}
+
+/** Seven ISO dates Mon→Sun for the week containing `date`. */
+export function weekDatesISO(date: ISODate): ISODate[] {
+  const monday = mondayOfISO(date);
+  return Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+}
+
+/** Trailing N member-local days ending at `end` (default: today), oldest first. */
+export function lastNDatesISO(n: number, end: ISODate = todayISO()): ISODate[] {
+  if (n <= 0) return [];
+  return Array.from({ length: n }, (_, i) => addDaysISO(end, -(n - 1 - i)));
+}
+
+/**
+ * Local-calendar midnight and end-of-day timestamps for an ISO day key.
+ * Display/containment only — never use for day arithmetic (use addDaysISO).
+ */
+export function dayBoundsLocal(date: ISODate): { start: number; end: number } {
+  return {
+    start: new Date(date + "T00:00:00").getTime(),
+    end: new Date(date + "T23:59:59.999").getTime(),
+  };
+}
+
+/** True when `ts` falls on the local calendar day `date`. */
+export function isTimestampOnLocalDay(ts: number, date: ISODate): boolean {
+  const { start, end } = dayBoundsLocal(date);
+  return ts >= start && ts <= end;
+}
+
+/** Format an ISO day key for UI (local calendar, no arithmetic). */
+export function formatISODate(
+  date: ISODate,
+  options: Intl.DateTimeFormatOptions = {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  },
+): string {
+  return new Date(date + "T00:00:00").toLocaleDateString([], options);
+}
+
+/** Local-calendar day key for a timestamp (browser/runtime local, not household TZ). */
+export function localDayKey(ts: number): ISODate {
+  return toISODate(ts);
+}
+
+/**
+ * Wall-clock timestamp on a selected local day: "now" when the day is today,
+ * otherwise the selected day at the current local clock time.
+ */
+export function timestampOnLocalDay(date: ISODate, now: number = Date.now()): number {
+  if (date === todayISO()) return now;
+  const current = new Date(now);
+  const d = new Date(date + "T00:00:00");
+  d.setHours(
+    current.getHours(),
+    current.getMinutes(),
+    current.getSeconds(),
+    current.getMilliseconds(),
+  );
+  return d.getTime();
+}
+
 /** Simple ISO week (approximate, sufficient for personal use) */
-export function toISOWeek(d: Date | number = new Date()): ISOWeek {
-  const date = typeof d === "number" ? new Date(d) : d;
+export function toISOWeek(d: Date | number | ISODate = new Date()): ISOWeek {
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    return toISOWeek(new Date(d + "T12:00:00Z"));
+  }
+  const date = typeof d === "number" ? new Date(d) : (d as Date);
   const year = date.getFullYear();
   // Use a simple week number (Mon-based approximation)
   const firstJan = new Date(year, 0, 1);

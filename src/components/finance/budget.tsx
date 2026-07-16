@@ -718,7 +718,7 @@ function BudgetBreakdownDialog({
                           </span>
                           <Badge
                             variant="outline"
-                            className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                            className="border-warning/30 bg-warning/10 text-warning-foreground"
                           >
                             One-time
                           </Badge>
@@ -910,12 +910,12 @@ function BudgetSettingsEditor({
 }
 
 const SORTER_BUCKETS: { key: BudgetBucket; label: string; accent: string }[] = [
-  { key: "needs", label: "Needs", accent: "text-sky-600 dark:text-sky-400" },
+  { key: "needs", label: "Needs", accent: "text-info" },
   { key: "wants", label: "Wants", accent: "text-foreground" },
   {
     key: "savings",
     label: "Savings",
-    accent: "text-emerald-600 dark:text-emerald-400",
+    accent: "text-success",
   },
 ];
 
@@ -1059,7 +1059,7 @@ function ExpenseCard({
             {excluded && (
               <Badge
                 variant="outline"
-                className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                className="border-warning/30 bg-warning/10 text-warning-foreground"
               >
                 One-time
               </Badge>
@@ -1136,7 +1136,7 @@ function RecentTransactions({
               </Select>
               <span
                 className={`w-20 shrink-0 text-right tabular-nums ${
-                  t.amount < 0 ? "text-foreground" : "text-green-600 dark:text-green-500"
+                  t.amount < 0 ? "text-foreground" : "text-info"
                 }`}
               >
                 {t.amount < 0 ? "-" : "+"}
@@ -1166,10 +1166,10 @@ function OneTimeCandidatesCard({
   const visible = showAll ? candidates : candidates.slice(0, 3);
 
   return (
-    <Card className="border-amber-500/25 bg-linear-to-br from-amber-500/8 to-card">
+    <Card className="border-warning/25 bg-linear-to-br from-warning/8 to-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Receipt className="size-4 text-amber-600 dark:text-amber-400" />
+          <Receipt className="size-4 text-warning" />
           Possible one-time charges
         </CardTitle>
       </CardHeader>
@@ -1178,14 +1178,14 @@ function OneTimeCandidatesCard({
           {visible.map((candidate) => (
             <div
               key={candidate.transactionId}
-              className="flex flex-col gap-2 rounded-lg bg-background/70 p-3 ring-1 ring-foreground/10 sm:flex-row sm:items-center sm:justify-between"
+              className="zen-surface-nested flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                   <span className="truncate">{candidate.merchant}</span>
                   <Badge
                     variant="outline"
-                    className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    className="border-warning/30 bg-warning/10 text-warning-foreground"
                   >
                     {fmtMoney(candidate.amount)}
                   </Badge>

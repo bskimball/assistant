@@ -2,13 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   addDaysISO,
   assertValidWorkoutSessionDate,
+  dayBoundsLocal,
+  formatISODate,
   isBillSubscription,
   isCuttableSubscription,
+  isTimestampOnLocalDay,
+  lastNDatesISO,
   loanPayoffMonths,
+  mondayOfISO,
   recurringBudgetBucket,
   recurringKindOf,
   resolveVoiceTargetDate,
+  timestampOnLocalDay,
   toISODate,
+  weekDatesISO,
   type PerformedExercise,
 } from "@/lib/domain";
 
@@ -31,6 +38,58 @@ describe("addDaysISO", () => {
     expect(addDaysISO("2026-03-08", 1)).toBe("2026-03-09");
     expect(addDaysISO("2026-10-31", 1)).toBe("2026-11-01");
     expect(addDaysISO("2026-11-01", 1)).toBe("2026-11-02");
+  });
+});
+
+describe("mondayOfISO / weekDatesISO", () => {
+  it("returns Monday for mid-week and weekend anchors", () => {
+    expect(mondayOfISO("2026-07-15")).toBe("2026-07-13"); // Wed
+    expect(mondayOfISO("2026-07-13")).toBe("2026-07-13"); // Mon
+    expect(mondayOfISO("2026-07-19")).toBe("2026-07-13"); // Sun
+  });
+
+  it("lists Mon→Sun", () => {
+    expect(weekDatesISO("2026-07-15")).toEqual([
+      "2026-07-13",
+      "2026-07-14",
+      "2026-07-15",
+      "2026-07-16",
+      "2026-07-17",
+      "2026-07-18",
+      "2026-07-19",
+    ]);
+  });
+});
+
+describe("lastNDatesISO", () => {
+  it("returns oldest→newest trailing days", () => {
+    expect(lastNDatesISO(3, "2026-07-15")).toEqual(["2026-07-13", "2026-07-14", "2026-07-15"]);
+  });
+});
+
+describe("dayBoundsLocal / isTimestampOnLocalDay", () => {
+  it("contains local midnight and excludes the next day", () => {
+    const { start, end } = dayBoundsLocal("2026-07-15");
+    expect(isTimestampOnLocalDay(start, "2026-07-15")).toBe(true);
+    expect(isTimestampOnLocalDay(end, "2026-07-15")).toBe(true);
+    expect(isTimestampOnLocalDay(end + 1, "2026-07-15")).toBe(false);
+  });
+});
+
+describe("formatISODate / timestampOnLocalDay", () => {
+  it("formats without throwing", () => {
+    expect(formatISODate("2026-07-15")).toMatch(/15/);
+  });
+
+  it("uses now for today and pins wall clock on other days", () => {
+    const now = new Date("2026-07-15T14:30:00").getTime();
+    // When date is not todayISO(), pin to that local day at current clock.
+    const pinned = timestampOnLocalDay("2020-01-02", now);
+    const d = new Date(pinned);
+    expect(d.getFullYear()).toBe(2020);
+    expect(d.getMonth()).toBe(0);
+    expect(d.getDate()).toBe(2);
+    expect(d.getHours()).toBe(new Date(now).getHours());
   });
 });
 

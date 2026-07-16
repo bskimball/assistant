@@ -57,8 +57,8 @@ function LoginPage() {
         className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-linear-to-b from-primary/6 to-transparent"
       />
       <div className="relative mx-auto w-full max-w-sm">
-        <div className="rounded-2xl border-primary/20 bg-card p-6 text-center shadow-sm ring-1 ring-foreground/10 sm:p-8">
-          <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-background/70 shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10">
+        <div className="zen-card p-6 text-center sm:p-8">
+          <div className="zen-surface-nested mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl">
             <img src="/compass.svg" alt="" className="size-12 rounded-xl" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tighter sm:text-3xl">Compass</h1>
@@ -87,7 +87,7 @@ function LoginPage() {
           {hint && (
             <div
               role="status"
-              className="mt-4 rounded-lg bg-background/70 px-3 py-2 text-pretty text-xs text-muted-foreground shadow-[0_1px_0_rgba(0,0,0,0.05)] ring-1 ring-foreground/10"
+              className="zen-surface-nested mt-4 px-3 py-2 text-pretty text-xs text-muted-foreground"
             >
               {hint}
             </div>

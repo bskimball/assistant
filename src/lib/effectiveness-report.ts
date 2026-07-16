@@ -19,7 +19,12 @@ export interface EffectivenessReport extends EffectivenessBreakdown {
   topCompleted: string[];
 }
 
-const SOURCES: RecommendationSource[] = ["coach-daily", "coach-weekly", "next-best-action"];
+const SOURCES: RecommendationSource[] = [
+  "coach-daily",
+  "coach-weekly",
+  "next-best-action",
+  "health-next-action",
+];
 
 function emptyBreakdown(): EffectivenessBreakdown {
   return {

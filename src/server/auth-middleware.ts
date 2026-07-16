@@ -28,8 +28,15 @@ export const userScopeMiddleware = createMiddleware({ type: "function" }).server
     // middleware covers every path that touches domain data — including server
     // fns invoked during SSR. `getRequest()` yields the active request (with
     // auth cookies) in that server context.
-    const { getRequest } = await import("@tanstack/react-start/server");
-    const request = getRequest();
+    let request: Request | undefined;
+    try {
+      const server = await import("@tanstack/react-start/server");
+      if (typeof server.getRequest === "function") {
+        request = server.getRequest();
+      }
+    } catch {
+      request = undefined;
+    }
     const scope = await resolveScopeForRequest(request);
     if (scope) {
       const { runWithUserScope } = await import("@/server/request-context.server");

@@ -58,6 +58,16 @@ describe("buildEffectivenessReport", () => {
           helpfulNo: 0,
           completionRate: 0,
         },
+        "health-next-action": {
+          total: 0,
+          accepted: 0,
+          completed: 0,
+          dismissed: 0,
+          snoozed: 0,
+          helpfulYes: 0,
+          helpfulNo: 0,
+          completionRate: 0,
+        },
       },
       topCompleted: [],
     });
@@ -91,20 +101,27 @@ describe("buildEffectivenessReport", () => {
           recordedAt: 4.5,
         }),
         outcome({ id: "outside-month", date: "2026-08-01", status: "completed", recordedAt: 5 }),
+        outcome({
+          id: "health",
+          source: "health-next-action",
+          text: "Drink water",
+          status: "completed",
+          recordedAt: 6,
+        }),
       ],
       "2026-07",
     );
 
     expect(report).toMatchObject({
-      total: 4,
+      total: 5,
       accepted: 1,
-      completed: 1,
+      completed: 2,
       dismissed: 1,
       snoozed: 1,
       helpfulYes: 1,
       helpfulNo: 1,
-      completionRate: 0.5,
-      topCompleted: ["Take a walk"],
+      completionRate: 2 / 3,
+      topCompleted: ["Drink water", "Take a walk"],
     });
     expect(report.bySource["coach-daily"]).toMatchObject({
       total: 1,
@@ -117,6 +134,11 @@ describe("buildEffectivenessReport", () => {
       accepted: 1,
       helpfulNo: 1,
       completionRate: 0,
+    });
+    expect(report.bySource["health-next-action"]).toMatchObject({
+      total: 1,
+      completed: 1,
+      completionRate: 1,
     });
   });
 

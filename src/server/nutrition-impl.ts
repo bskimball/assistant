@@ -1,4 +1,4 @@
-import type { DailyNutrition, ISODate } from "@/lib/domain";
+import type { DailyNutrition, ISODate, MealLog } from "@/lib/domain";
 import { assertValidMealLog, type Macros } from "@/lib/domain";
 import { getDomainStore } from "@/server/store";
 
@@ -99,16 +99,88 @@ export async function saveDailyNutritionImpl(data: {
   nutrition: Omit<DailyNutrition, "id" | "createdAt" | "updatedAt" | "deletedAt" | "date">;
 }): Promise<DailyNutritionPayload> {
   data.nutrition.mealLogs.forEach(assertValidMealLog);
-  const now = Date.now();
-  const full: DailyNutritionPayload = {
-    id: `nutrition-${data.date}`,
-    date: data.date,
-    ...(data.nutrition as any),
-    totals: sumMealMacros(data.nutrition.mealLogs),
-    createdAt: (data.nutrition as any).createdAt ?? now,
+  return updateDailyNutrition(data.date, (current) => {
+    const currentMealIds = new Set(current.mealLogs.map((meal) => meal.id));
+    const incomingMeals = new Map(data.nutrition.mealLogs.map((meal) => [meal.id, meal]));
+    return {
+      ...current,
+      ...data.nutrition,
+      mealLogs: [
+        ...current.mealLogs.map((meal) => incomingMeals.get(meal.id) ?? meal),
+        ...data.nutrition.mealLogs.filter((meal) => !currentMealIds.has(meal.id)),
+      ],
+    };
+  });
+}
+
+function emptyDailyNutrition(date: ISODate, now: number): DailyNutritionPayload {
+  return {
+    id: `nutrition-${date}`,
+    date,
+    mealLogs: [],
+    totals: emptyMacros(),
+    createdAt: now,
     updatedAt: now,
   };
+}
+
+async function updateDailyNutrition(
+  date: ISODate,
+  mutate: (current: DailyNutritionPayload) => DailyNutritionPayload,
+): Promise<DailyNutritionPayload> {
   const store = await getDomainStore();
-  await store.daily.put("daily-nutrition", data.date, full);
-  return full;
+  return store.daily.update<DailyNutritionPayload>("daily-nutrition", date, (stored) => {
+    const now = Date.now();
+    const next = mutate(stored ?? emptyDailyNutrition(date, now));
+    return { ...next, totals: sumMealMacros(next.mealLogs), updatedAt: now };
+  });
+}
+
+export async function appendMealLogImpl(data: {
+  date: ISODate;
+  meal: MealLog;
+}): Promise<DailyNutritionPayload> {
+  assertValidMealLog(data.meal);
+  return updateDailyNutrition(data.date, (current) => ({
+    ...current,
+    mealLogs: current.mealLogs.some((meal) => meal.id === data.meal.id)
+      ? current.mealLogs
+      : [...current.mealLogs, data.meal],
+  }));
+}
+
+export async function setDailyWaterImpl(data: {
+  date: ISODate;
+  waterMl: number;
+}): Promise<DailyNutritionPayload> {
+  if (!Number.isFinite(data.waterMl) || data.waterMl < 0)
+    throw new Error("Valid water total is required");
+  return updateDailyNutrition(data.date, (current) => ({
+    ...current,
+    waterMl: Math.round(data.waterMl),
+  }));
+}
+
+export async function addDailyWaterImpl(data: {
+  date: ISODate;
+  amountMl: number;
+}): Promise<DailyNutritionPayload> {
+  if (!Number.isFinite(data.amountMl) || data.amountMl <= 0)
+    throw new Error("Valid water amount is required");
+  return updateDailyNutrition(data.date, (current) => ({
+    ...current,
+    waterMl: Math.max(0, Math.round((current.waterMl ?? 0) + data.amountMl)),
+  }));
+}
+
+export async function removeMealLogImpl(data: {
+  date: ISODate;
+  mealId: string;
+}): Promise<DailyNutritionPayload> {
+  const mealId = data.mealId.trim();
+  if (!mealId) throw new Error("Meal id is required");
+  return updateDailyNutrition(data.date, (current) => ({
+    ...current,
+    mealLogs: current.mealLogs.filter((meal) => meal.id !== mealId),
+  }));
 }

@@ -9,38 +9,31 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WorkoutsRouteImport } from './routes/workouts'
-import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as NutritionRouteImport } from './routes/nutrition'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as KanbanRouteImport } from './routes/kanban'
+import { Route as HealthRouteImport } from './routes/health'
 import { Route as FinanceRouteImport } from './routes/finance'
 import { Route as ChatRouteImport } from './routes/chat'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as ReviewRouteImport } from './routes/_review'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as HealthIndexRouteImport } from './routes/health.index'
+import { Route as FinanceIndexRouteImport } from './routes/finance.index'
+import { Route as HealthWorkoutsRouteImport } from './routes/health.workouts'
+import { Route as HealthNutritionRouteImport } from './routes/health.nutrition'
+import { Route as FinanceRecurringRouteImport } from './routes/finance.recurring'
+import { Route as FinanceInvestmentsRouteImport } from './routes/finance.investments'
+import { Route as FinanceGrowRouteImport } from './routes/finance.grow'
+import { Route as FinanceBudgetRouteImport } from './routes/finance.budget'
+import { Route as ReviewWeeklyRouteImport } from './routes/_review/weekly'
+import { Route as ReviewAnalyticsRouteImport } from './routes/_review/analytics'
 import { Route as ApiExerciseImageSlugRouteImport } from './routes/api/exercise-image/$slug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
-const WorkoutsRoute = WorkoutsRouteImport.update({
-  id: '/workouts',
-  path: '/workouts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeeklyRoute = WeeklyRouteImport.update({
-  id: '/weekly',
-  path: '/weekly',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NutritionRoute = NutritionRouteImport.update({
-  id: '/nutrition',
-  path: '/nutrition',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -53,6 +46,11 @@ const KanbanRoute = KanbanRouteImport.update({
   path: '/kanban',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FinanceRoute = FinanceRouteImport.update({
   id: '/finance',
   path: '/finance',
@@ -63,20 +61,69 @@ const ChatRoute = ChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewRoute = ReviewRouteImport.update({
+  id: '/_review',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const HealthIndexRoute = HealthIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => HealthRoute,
+} as any)
+const FinanceIndexRoute = FinanceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => FinanceRoute,
+} as any)
+const HealthWorkoutsRoute = HealthWorkoutsRouteImport.update({
+  id: '/workouts',
+  path: '/workouts',
+  getParentRoute: () => HealthRoute,
+} as any)
+const HealthNutritionRoute = HealthNutritionRouteImport.update({
+  id: '/nutrition',
+  path: '/nutrition',
+  getParentRoute: () => HealthRoute,
+} as any)
+const FinanceRecurringRoute = FinanceRecurringRouteImport.update({
+  id: '/recurring',
+  path: '/recurring',
+  getParentRoute: () => FinanceRoute,
+} as any)
+const FinanceInvestmentsRoute = FinanceInvestmentsRouteImport.update({
+  id: '/investments',
+  path: '/investments',
+  getParentRoute: () => FinanceRoute,
+} as any)
+const FinanceGrowRoute = FinanceGrowRouteImport.update({
+  id: '/grow',
+  path: '/grow',
+  getParentRoute: () => FinanceRoute,
+} as any)
+const FinanceBudgetRoute = FinanceBudgetRouteImport.update({
+  id: '/budget',
+  path: '/budget',
+  getParentRoute: () => FinanceRoute,
+} as any)
+const ReviewWeeklyRoute = ReviewWeeklyRouteImport.update({
+  id: '/weekly',
+  path: '/weekly',
+  getParentRoute: () => ReviewRoute,
+} as any)
+const ReviewAnalyticsRoute = ReviewAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => ReviewRoute,
 } as any)
 const ApiExerciseImageSlugRoute = ApiExerciseImageSlugRouteImport.update({
   id: '/api/exercise-image/$slug',
@@ -92,46 +139,66 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/analytics': typeof AnalyticsRoute
   '/chat': typeof ChatRoute
-  '/finance': typeof FinanceRoute
+  '/finance': typeof FinanceRouteWithChildren
+  '/health': typeof HealthRouteWithChildren
   '/kanban': typeof KanbanRoute
   '/login': typeof LoginRoute
-  '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
-  '/weekly': typeof WeeklyRoute
-  '/workouts': typeof WorkoutsRoute
+  '/analytics': typeof ReviewAnalyticsRoute
+  '/weekly': typeof ReviewWeeklyRoute
+  '/finance/budget': typeof FinanceBudgetRoute
+  '/finance/grow': typeof FinanceGrowRoute
+  '/finance/investments': typeof FinanceInvestmentsRoute
+  '/finance/recurring': typeof FinanceRecurringRoute
+  '/health/nutrition': typeof HealthNutritionRoute
+  '/health/workouts': typeof HealthWorkoutsRoute
+  '/finance/': typeof FinanceIndexRoute
+  '/health/': typeof HealthIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/analytics': typeof AnalyticsRoute
   '/chat': typeof ChatRoute
-  '/finance': typeof FinanceRoute
   '/kanban': typeof KanbanRoute
   '/login': typeof LoginRoute
-  '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
-  '/weekly': typeof WeeklyRoute
-  '/workouts': typeof WorkoutsRoute
+  '/analytics': typeof ReviewAnalyticsRoute
+  '/weekly': typeof ReviewWeeklyRoute
+  '/finance/budget': typeof FinanceBudgetRoute
+  '/finance/grow': typeof FinanceGrowRoute
+  '/finance/investments': typeof FinanceInvestmentsRoute
+  '/finance/recurring': typeof FinanceRecurringRoute
+  '/health/nutrition': typeof HealthNutritionRoute
+  '/health/workouts': typeof HealthWorkoutsRoute
+  '/finance': typeof FinanceIndexRoute
+  '/health': typeof HealthIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_review': typeof ReviewRouteWithChildren
   '/about': typeof AboutRoute
-  '/analytics': typeof AnalyticsRoute
   '/chat': typeof ChatRoute
-  '/finance': typeof FinanceRoute
+  '/finance': typeof FinanceRouteWithChildren
+  '/health': typeof HealthRouteWithChildren
   '/kanban': typeof KanbanRoute
   '/login': typeof LoginRoute
-  '/nutrition': typeof NutritionRoute
   '/profile': typeof ProfileRoute
-  '/weekly': typeof WeeklyRoute
-  '/workouts': typeof WorkoutsRoute
+  '/_review/analytics': typeof ReviewAnalyticsRoute
+  '/_review/weekly': typeof ReviewWeeklyRoute
+  '/finance/budget': typeof FinanceBudgetRoute
+  '/finance/grow': typeof FinanceGrowRoute
+  '/finance/investments': typeof FinanceInvestmentsRoute
+  '/finance/recurring': typeof FinanceRecurringRoute
+  '/health/nutrition': typeof HealthNutritionRoute
+  '/health/workouts': typeof HealthWorkoutsRoute
+  '/finance/': typeof FinanceIndexRoute
+  '/health/': typeof HealthIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/exercise-image/$slug': typeof ApiExerciseImageSlugRoute
 }
@@ -140,93 +207,90 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
-    | '/analytics'
     | '/chat'
     | '/finance'
+    | '/health'
     | '/kanban'
     | '/login'
-    | '/nutrition'
     | '/profile'
+    | '/analytics'
     | '/weekly'
-    | '/workouts'
+    | '/finance/budget'
+    | '/finance/grow'
+    | '/finance/investments'
+    | '/finance/recurring'
+    | '/health/nutrition'
+    | '/health/workouts'
+    | '/finance/'
+    | '/health/'
     | '/api/auth/$'
     | '/api/exercise-image/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
-    | '/analytics'
     | '/chat'
-    | '/finance'
     | '/kanban'
     | '/login'
-    | '/nutrition'
     | '/profile'
+    | '/analytics'
     | '/weekly'
-    | '/workouts'
+    | '/finance/budget'
+    | '/finance/grow'
+    | '/finance/investments'
+    | '/finance/recurring'
+    | '/health/nutrition'
+    | '/health/workouts'
+    | '/finance'
+    | '/health'
     | '/api/auth/$'
     | '/api/exercise-image/$slug'
   id:
     | '__root__'
     | '/'
+    | '/_review'
     | '/about'
-    | '/analytics'
     | '/chat'
     | '/finance'
+    | '/health'
     | '/kanban'
     | '/login'
-    | '/nutrition'
     | '/profile'
-    | '/weekly'
-    | '/workouts'
+    | '/_review/analytics'
+    | '/_review/weekly'
+    | '/finance/budget'
+    | '/finance/grow'
+    | '/finance/investments'
+    | '/finance/recurring'
+    | '/health/nutrition'
+    | '/health/workouts'
+    | '/finance/'
+    | '/health/'
     | '/api/auth/$'
     | '/api/exercise-image/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ReviewRoute: typeof ReviewRouteWithChildren
   AboutRoute: typeof AboutRoute
-  AnalyticsRoute: typeof AnalyticsRoute
   ChatRoute: typeof ChatRoute
-  FinanceRoute: typeof FinanceRoute
+  FinanceRoute: typeof FinanceRouteWithChildren
+  HealthRoute: typeof HealthRouteWithChildren
   KanbanRoute: typeof KanbanRoute
   LoginRoute: typeof LoginRoute
-  NutritionRoute: typeof NutritionRoute
   ProfileRoute: typeof ProfileRoute
-  WeeklyRoute: typeof WeeklyRoute
-  WorkoutsRoute: typeof WorkoutsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiExerciseImageSlugRoute: typeof ApiExerciseImageSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/workouts': {
-      id: '/workouts'
-      path: '/workouts'
-      fullPath: '/workouts'
-      preLoaderRoute: typeof WorkoutsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weekly': {
-      id: '/weekly'
-      path: '/weekly'
-      fullPath: '/weekly'
-      preLoaderRoute: typeof WeeklyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/profile': {
       id: '/profile'
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/nutrition': {
-      id: '/nutrition'
-      path: '/nutrition'
-      fullPath: '/nutrition'
-      preLoaderRoute: typeof NutritionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -243,6 +307,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KanbanRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/finance': {
       id: '/finance'
       path: '/finance'
@@ -257,18 +328,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/analytics': {
-      id: '/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/about': {
       id: '/about'
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_review': {
+      id: '/_review'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof ReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -277,6 +348,76 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/health/': {
+      id: '/health/'
+      path: '/'
+      fullPath: '/health/'
+      preLoaderRoute: typeof HealthIndexRouteImport
+      parentRoute: typeof HealthRoute
+    }
+    '/finance/': {
+      id: '/finance/'
+      path: '/'
+      fullPath: '/finance/'
+      preLoaderRoute: typeof FinanceIndexRouteImport
+      parentRoute: typeof FinanceRoute
+    }
+    '/health/workouts': {
+      id: '/health/workouts'
+      path: '/workouts'
+      fullPath: '/health/workouts'
+      preLoaderRoute: typeof HealthWorkoutsRouteImport
+      parentRoute: typeof HealthRoute
+    }
+    '/health/nutrition': {
+      id: '/health/nutrition'
+      path: '/nutrition'
+      fullPath: '/health/nutrition'
+      preLoaderRoute: typeof HealthNutritionRouteImport
+      parentRoute: typeof HealthRoute
+    }
+    '/finance/recurring': {
+      id: '/finance/recurring'
+      path: '/recurring'
+      fullPath: '/finance/recurring'
+      preLoaderRoute: typeof FinanceRecurringRouteImport
+      parentRoute: typeof FinanceRoute
+    }
+    '/finance/investments': {
+      id: '/finance/investments'
+      path: '/investments'
+      fullPath: '/finance/investments'
+      preLoaderRoute: typeof FinanceInvestmentsRouteImport
+      parentRoute: typeof FinanceRoute
+    }
+    '/finance/grow': {
+      id: '/finance/grow'
+      path: '/grow'
+      fullPath: '/finance/grow'
+      preLoaderRoute: typeof FinanceGrowRouteImport
+      parentRoute: typeof FinanceRoute
+    }
+    '/finance/budget': {
+      id: '/finance/budget'
+      path: '/budget'
+      fullPath: '/finance/budget'
+      preLoaderRoute: typeof FinanceBudgetRouteImport
+      parentRoute: typeof FinanceRoute
+    }
+    '/_review/weekly': {
+      id: '/_review/weekly'
+      path: '/weekly'
+      fullPath: '/weekly'
+      preLoaderRoute: typeof ReviewWeeklyRouteImport
+      parentRoute: typeof ReviewRoute
+    }
+    '/_review/analytics': {
+      id: '/_review/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof ReviewAnalyticsRouteImport
+      parentRoute: typeof ReviewRoute
     }
     '/api/exercise-image/$slug': {
       id: '/api/exercise-image/$slug'
@@ -295,18 +436,63 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ReviewRouteChildren {
+  ReviewAnalyticsRoute: typeof ReviewAnalyticsRoute
+  ReviewWeeklyRoute: typeof ReviewWeeklyRoute
+}
+
+const ReviewRouteChildren: ReviewRouteChildren = {
+  ReviewAnalyticsRoute: ReviewAnalyticsRoute,
+  ReviewWeeklyRoute: ReviewWeeklyRoute,
+}
+
+const ReviewRouteWithChildren =
+  ReviewRoute._addFileChildren(ReviewRouteChildren)
+
+interface FinanceRouteChildren {
+  FinanceBudgetRoute: typeof FinanceBudgetRoute
+  FinanceGrowRoute: typeof FinanceGrowRoute
+  FinanceInvestmentsRoute: typeof FinanceInvestmentsRoute
+  FinanceRecurringRoute: typeof FinanceRecurringRoute
+  FinanceIndexRoute: typeof FinanceIndexRoute
+}
+
+const FinanceRouteChildren: FinanceRouteChildren = {
+  FinanceBudgetRoute: FinanceBudgetRoute,
+  FinanceGrowRoute: FinanceGrowRoute,
+  FinanceInvestmentsRoute: FinanceInvestmentsRoute,
+  FinanceRecurringRoute: FinanceRecurringRoute,
+  FinanceIndexRoute: FinanceIndexRoute,
+}
+
+const FinanceRouteWithChildren =
+  FinanceRoute._addFileChildren(FinanceRouteChildren)
+
+interface HealthRouteChildren {
+  HealthNutritionRoute: typeof HealthNutritionRoute
+  HealthWorkoutsRoute: typeof HealthWorkoutsRoute
+  HealthIndexRoute: typeof HealthIndexRoute
+}
+
+const HealthRouteChildren: HealthRouteChildren = {
+  HealthNutritionRoute: HealthNutritionRoute,
+  HealthWorkoutsRoute: HealthWorkoutsRoute,
+  HealthIndexRoute: HealthIndexRoute,
+}
+
+const HealthRouteWithChildren =
+  HealthRoute._addFileChildren(HealthRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ReviewRoute: ReviewRouteWithChildren,
   AboutRoute: AboutRoute,
-  AnalyticsRoute: AnalyticsRoute,
   ChatRoute: ChatRoute,
-  FinanceRoute: FinanceRoute,
+  FinanceRoute: FinanceRouteWithChildren,
+  HealthRoute: HealthRouteWithChildren,
   KanbanRoute: KanbanRoute,
   LoginRoute: LoginRoute,
-  NutritionRoute: NutritionRoute,
   ProfileRoute: ProfileRoute,
-  WeeklyRoute: WeeklyRoute,
-  WorkoutsRoute: WorkoutsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiExerciseImageSlugRoute: ApiExerciseImageSlugRoute,
 }

@@ -112,14 +112,17 @@ export function Item({
   as = "div",
   children,
   className,
+  ...aria
 }: {
   as?: RevealTag;
   children: ReactNode;
   className?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
 }) {
   const M = TAGS[as];
   return (
-    <M className={cn(className)} variants={fadeUp}>
+    <M className={cn(className)} variants={fadeUp} {...aria}>
       {children}
     </M>
   );

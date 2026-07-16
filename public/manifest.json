@@ -10,8 +10,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "theme_color": "#f4f1ec",
-  "background_color": "#f4f1ec",
+  "theme_color": "#f7f2e9",
+  "background_color": "#efe7d6",
   "icons": [
     {
       "src": "/compass.svg",

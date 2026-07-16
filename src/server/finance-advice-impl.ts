@@ -7,6 +7,7 @@ import {
   recurringKindOf,
   subscriptionMonthlyCost,
 } from "@/lib/domain";
+import type { FinanceAdvicePayload } from "@/lib/finance-types";
 import {
   addUnseenRecurringToBuckets,
   fallbackFinanceAdvice,
@@ -21,6 +22,8 @@ import {
   loadUserProfileImpl,
 } from "@/server/domain-impl";
 import { loadFinanceSnapshotForHubImpl } from "@/server/finance-hub-impl";
+
+export type { FinanceAdvicePayload } from "@/lib/finance-types";
 
 export const ADVISOR_DISCLAIMER =
   "Educational guidance, not licensed financial advice. This advisor never moves money or executes trades.";
@@ -94,12 +97,6 @@ export function topMerchantsThisMonth(
     }))
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);
-}
-
-export interface FinanceAdvicePayload {
-  items: FinanceAdviceItem[];
-  generatedBy: "ai" | "fallback";
-  disclaimer: string;
 }
 
 /** Gather finance data, construct the advisor prompt, and preserve the deterministic fallback. */
