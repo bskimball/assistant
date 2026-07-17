@@ -1349,7 +1349,7 @@ describe("finance math", () => {
       transactionsForMonth(
         [
           txn({ id: "jan", timestamp: jan }),
-          txn({ id: "local-jan", timestamp: Date.parse("2026-02-01T02:00:00Z") }),
+          txn({ id: "local-jan", timestamp: new Date(2026, 0, 31, 23).getTime() }),
           txn({ id: "feb", timestamp: feb }),
         ],
         "2026-01",
