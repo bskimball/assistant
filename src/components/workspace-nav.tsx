@@ -10,10 +10,7 @@ export function WorkspaceNav({ workspace }: { workspace: Workspace }) {
   const config = WORKSPACES[workspace];
 
   return (
-    <nav
-      aria-label={`${config.label} workspace`}
-      className="mb-6 overflow-x-auto"
-    >
+    <nav aria-label={`${config.label} workspace`} className="mb-6 overflow-x-auto">
       <div className="workspace-tabs-glass relative flex min-w-max items-center gap-1 rounded-xl p-1">
         {config.links.map((link) => {
           const active = pathname === link.to;
@@ -26,9 +23,7 @@ export function WorkspaceNav({ workspace }: { workspace: Workspace }) {
               aria-current={active ? "page" : undefined}
               className={cn(
                 "relative z-10 flex min-h-10 items-center rounded-lg px-3.5 py-2 text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring/60",
-                active
-                  ? "text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
+                active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {active && (

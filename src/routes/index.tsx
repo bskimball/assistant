@@ -753,6 +753,85 @@ function ZenStackDashboard() {
       data-daypart={daypart}
       data-atmosphere="vivid"
     >
+      {/* Slim utility row: daypart pills + date context. Deliberately quiet.
+          Lives OUTSIDE the centered column so it spans the full screen width —
+          pills flush left, weather/date flush right — instead of being boxed
+          into the narrow reading column. */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", duration: 0.4, bounce: 0 }}
+        className="relative z-10 mb-10 flex w-full flex-wrap items-center justify-center gap-3 sm:mb-14 sm:justify-between"
+      >
+        {isToday ? (
+          <div
+            className="relative inline-flex items-center rounded-full bg-surface-raised p-1 ring-1 ring-border/50"
+            role="tablist"
+            aria-label="Focus of the day"
+          >
+            {(
+              [
+                ["morning", "Morning"],
+                ["midday", "Midday"],
+                ["evening", "Evening"],
+              ] as [Daypart, string][]
+            ).map(([part, label]) => {
+              const active = daypart === part;
+              return (
+                <button
+                  key={part}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setDaypartOverride(getDaypart() === part ? null : part)}
+                  className={`relative flex min-h-9 items-center justify-center rounded-full px-4 text-[13px] font-medium transition-colors duration-200 ${
+                    active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="daypart-active"
+                      className="absolute inset-0 rounded-full bg-background shadow-sm ring-1 ring-border/60"
+                      transition={{
+                        type: "spring",
+                        duration: 0.35,
+                        bounce: 0,
+                      }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-1.5">
+                    {label}
+                    <span
+                      aria-hidden
+                      className={`size-1.5 rounded-full transition-colors duration-200 ${
+                        active ? "bg-primary" : "bg-transparent"
+                      }`}
+                    />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <Badge
+            variant="secondary"
+            className="gap-1 rounded-full text-[10px] text-muted-foreground"
+          >
+            <Lock className="size-2.5" /> Read-only
+          </Badge>
+        )}
+
+        <div className="flex items-center gap-3 text-sm">
+          {isToday && <WeatherLine weather={weather} />}
+          {!isToday && (
+            <Button variant="outline" size="sm" onClick={goToday} className="h-8">
+              Today
+            </Button>
+          )}
+          <span className="tabular-nums font-medium text-muted-foreground">{dateLabel}</span>
+        </div>
+      </motion.div>
+
       <div className="relative z-10 mx-auto w-full max-w-2xl">
         {/* Decorative quote — pinned toward the bottom-left of the viewport on
             wide screens (fixed, out of flow) so it never shifts the centered
@@ -765,93 +844,6 @@ function ZenStackDashboard() {
         </Reveal>
 
         <div className="min-w-0 w-full">
-          {/* Slim utility row: daypart pills + date context. Deliberately quiet. */}
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring", duration: 0.4, bounce: 0 }}
-            className="mb-10 flex flex-wrap items-center justify-between gap-3 sm:mb-14"
-          >
-            {isToday ? (
-              <div
-                className="relative inline-flex items-center rounded-full bg-surface-raised p-1 ring-1 ring-border/50"
-                role="tablist"
-                aria-label="Focus of the day"
-              >
-                {(
-                  [
-                    ["morning", "Morning"],
-                    ["midday", "Midday"],
-                    ["evening", "Evening"],
-                  ] as [Daypart, string][]
-                ).map(([part, label]) => {
-                  const active = daypart === part;
-                  return (
-                    <button
-                      key={part}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setDaypartOverride(getDaypart() === part ? null : part)}
-                      className={`relative flex min-h-9 items-center justify-center rounded-full px-4 text-[13px] font-medium transition-colors duration-200 ${
-                        active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {active && (
-                        <motion.span
-                          layoutId="daypart-active"
-                          className="absolute inset-0 rounded-full bg-background shadow-sm ring-1 ring-border/60"
-                          transition={{
-                            type: "spring",
-                            duration: 0.35,
-                            bounce: 0,
-                          }}
-                        />
-                      )}
-                      <span className="relative z-10 flex items-center gap-1.5">
-                        {label}
-                        <span
-                          aria-hidden
-                          className={`size-1.5 rounded-full transition-colors duration-200 ${
-                            active ? "bg-primary" : "bg-transparent"
-                          }`}
-                        />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <Badge
-                variant="secondary"
-                className="gap-1 rounded-full text-[10px] text-muted-foreground"
-              >
-                <Lock className="size-2.5" /> Read-only
-              </Badge>
-            )}
-
-            <div className="flex items-center gap-3 text-sm">
-              {isToday && <WeatherLine weather={weather} className="hidden md:inline-flex" />}
-              {!isToday && (
-                <Button variant="outline" size="sm" onClick={goToday} className="h-8">
-                  Today
-                </Button>
-              )}
-              <span className="tabular-nums font-medium text-muted-foreground">{dateLabel}</span>
-            </div>
-          </motion.div>
-
-          {/* Compact ambience for narrow screens (< xl), where the floating
-              decorative rail is hidden: a centered quote + mobile weather. */}
-          {(dailyQuote || (isToday && weather)) && (
-            <Reveal className="mb-8 xl:hidden">
-              <div className="flex flex-col items-center gap-3">
-                <SideRail quote={dailyQuote} compact />
-                {isToday && <WeatherLine weather={weather} className="text-sm md:hidden" />}
-              </div>
-            </Reveal>
-          )}
-
           {/* Greeting — the emotional center of the page. Kept to just the
               greeting so the hero stays short; the day's coach advice moved to
               the ribbon below. */}
@@ -910,7 +902,7 @@ function ZenStackDashboard() {
           <Reveal className="mb-6">
             <Link
               to="/chat"
-              className="zen-surface-nested group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors hover:bg-surface-raised"
+              className="zen-surface-nested coach-advice-ribbon group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors"
             >
               <Sparkles className="size-4 shrink-0 text-primary" />
               <span className="min-w-0 flex-1 text-pretty leading-snug text-foreground/80">
@@ -1378,6 +1370,14 @@ function ZenStackDashboard() {
               </section>
             </StackCard>
           </ActionStack>
+
+          {/* Decorative quote for narrow screens (< xl), where the floating
+              side rail is hidden: a centered quote placed below the content. */}
+          {dailyQuote && (
+            <Reveal className="mt-4 xl:hidden">
+              <SideRail quote={dailyQuote} compact />
+            </Reveal>
+          )}
         </div>
       </div>
 
@@ -1567,6 +1567,7 @@ function ActionStack({
                 <motion.div
                   key={key}
                   layout
+                  className={isFront ? "action-stack-card-front" : undefined}
                   initial={{
                     opacity: 0,
                     y: 48,
@@ -1620,7 +1621,7 @@ function ActionStack({
               edge (left-full + gap) so the rail tracks the deck at any width,
               no hardcoded viewport offset. */}
           {count > 1 && (
-            <div className="pointer-events-auto absolute top-1/2 left-full z-10 ml-6 hidden -translate-y-1/2 flex-col items-center justify-center gap-3 xl:flex">
+            <div className="pointer-events-auto absolute top-20 left-full z-10 ml-6 hidden flex-col items-center justify-center gap-3 xl:flex">
               <Button
                 variant="ghost"
                 size="icon"

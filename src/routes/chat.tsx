@@ -8,10 +8,10 @@
  * untouched (x-tss-raw), so `useChatStream` reads `response.body` directly.
  *
  * Persistence (ADR-018): each conversation is saved to the per-user store after
- * every completed turn, so the transcript survives navigation/reloads and past
- * chats are browsable. A module-level `cache` mirrors the active conversation
- * and the history list so returning to /chat is instant (no refetch flash);
- * the store is the durable backing read on a fresh page load.
+ * every completed turn, so past chats remain browsable. A module-level `cache`
+ * mirrors the active conversation while the app is open, making route changes
+ * instant. A fresh app load or a new local day starts with an empty chat instead
+ * of automatically reopening the latest conversation.
  */
 
 import { createFileRoute } from "@tanstack/react-router";
@@ -104,11 +104,12 @@ interface SSEFrame {
 
 /* ============================================================
    Session cache — survives route unmount so navigation is instant.
-   Reset only on a full page reload (module re-evaluation).
+   Reset on a full page reload or when the member-local day changes.
    ============================================================ */
 
 interface ChatCache {
   loaded: boolean;
+  date: string | null;
   activeId: string | null;
   messages: UIMessage[];
   summaries: ChatConversationSummary[];
@@ -116,10 +117,19 @@ interface ChatCache {
 
 const cache: ChatCache = {
   loaded: false,
+  date: null,
   activeId: null,
   messages: [],
   summaries: [],
 };
+
+function prepareCacheForDate(date: string): boolean {
+  if (cache.date === date) return false;
+  cache.date = date;
+  cache.activeId = null;
+  cache.messages = [];
+  return true;
+}
 
 function toRecords(messages: UIMessage[]): ChatMessageRecord[] {
   return messages
@@ -155,6 +165,7 @@ function fromRecords(records: ChatMessageRecord[]): UIMessage[] {
    ============================================================ */
 
 function useChatStream(date: string) {
+  const startedFreshDay = prepareCacheForDate(date);
   const [messages, setMessages] = useState<UIMessage[]>(() => cache.messages);
   const [summaries, setSummaries] = useState<ChatConversationSummary[]>(() => cache.summaries);
   const [activeId, setActiveIdState] = useState<string | null>(() => cache.activeId);
@@ -182,6 +193,16 @@ function useChatStream(date: string) {
     setActiveIdState(id);
   }, []);
 
+  // `useState` initializers only run on mount. If midnight is observed while
+  // this route remains mounted, clear the live state as well as the cache.
+  useEffect(() => {
+    if (!startedFreshDay) return;
+    activeIdRef.current = null;
+    setActiveIdState(null);
+    setMessages([]);
+    setError(null);
+  }, [startedFreshDay]);
+
   const patch = useCallback((id: string, fn: (m: UIMessage) => UIMessage) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? fn(m) : m)));
   }, []);
@@ -207,29 +228,24 @@ function useChatStream(date: string) {
     if (id) void persist(messagesRef.current, id);
   }, [persistTick, persist]);
 
-  // On first mount of the session, load history and restore the most recent
-  // conversation (unless this session already has an active transcript cached).
+  // Load only history summaries on a fresh app session. The transcript stays
+  // empty until the member sends a message or explicitly opens a past chat.
   useEffect(() => {
     if (cache.loaded) return;
-    cache.loaded = true;
-    (async () => {
-      try {
-        const { conversations } = await loadChatHistory();
-        setSummaries(conversations);
-        if (messagesRef.current.length === 0 && conversations.length > 0) {
-          const full = await loadChatConversation({
-            data: { id: conversations[0].id },
-          });
-          if (full && messagesRef.current.length === 0) {
-            setActiveId(full.id);
-            setMessages(fromRecords(full.messages));
-          }
-        }
-      } catch {
-        // No history yet / not reachable — empty state is fine.
-      }
-    })();
-  }, [setActiveId]);
+    let active = true;
+    void loadChatHistory()
+      .then(({ conversations }) => {
+        cache.loaded = true;
+        cache.summaries = conversations;
+        if (active) setSummaries(conversations);
+      })
+      .catch(() => {
+        // A later mount can retry because loaded is set only after success.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const stop = useCallback(() => {
     stoppedRef.current = true;
@@ -513,7 +529,10 @@ function ChatPage() {
   const { messages, isLoading, error, send } = chat;
   const [input, setInput] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [statusAnnouncement, setStatusAnnouncement] = useState({ id: 0, message: "" });
+  const [statusAnnouncement, setStatusAnnouncement] = useState({
+    id: 0,
+    message: "",
+  });
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
 
@@ -663,7 +682,11 @@ function ChatPage() {
                     >
                       <motion.div
                         animate={{ y: [0, -6, 0] }}
-                        transition={{ duration: 5, ease: "easeInOut", repeat: Infinity }}
+                        transition={{
+                          duration: 5,
+                          ease: "easeInOut",
+                          repeat: Infinity,
+                        }}
                         className="coach-orb mb-6 mt-6 size-14"
                       >
                         <div className="relative z-10 flex size-14 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-[0_8px_30px_-12px_var(--primary)] backdrop-blur-sm">
@@ -856,8 +879,10 @@ function HistoryList({
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{s.title}</span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {formatDistanceToNow(s.updatedAt, { addSuffix: true })} ·{" "}
-                          <span className="tabular-nums">{s.messageCount}</span> msg
+                          {formatDistanceToNow(s.updatedAt, {
+                            addSuffix: true,
+                          })}{" "}
+                          · <span className="tabular-nums">{s.messageCount}</span> msg
                         </span>
                       </span>
                     </button>
