@@ -118,6 +118,41 @@ function fillTone(pct: number, over = false): string {
   return "bg-info";
 }
 
+/**
+ * Enter/exit recipe for transient status lines (voice status, food status,
+ * errors, confirmation banner): a quiet opacity + small y slide on a short
+ * ease so meaningful feedback fades in/out instead of popping. Reduced motion
+ * is honored app-wide by <MotionConfig reducedMotion="user">.
+ */
+const statusFade = {
+  initial: { opacity: 0, y: 4 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 4 },
+  transition: { duration: 0.2, ease: "easeOut" },
+} as const;
+
+/**
+ * Acknowledgement badge (evening check-in "Completed"): a restrained opacity
+ * fade with a gentle scale settle so the confirmation lands calmly.
+ */
+const badgeAck = {
+  initial: { opacity: 0, scale: 0.95 },
+  animate: { opacity: 1, scale: 1 },
+  exit: { opacity: 0, scale: 0.95 },
+  transition: { duration: 0.18, ease: "easeOut" },
+} as const;
+
+/**
+ * Task-completion check glyph: opacity-only, no scale or blur, so frequent
+ * toggles read as a quiet check rather than a pop.
+ */
+const checkAck = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: 0.16, ease: "easeOut" },
+} as const;
+
 /** Lucide icon for each weather condition shown in the side rail. */
 const weatherConditionIcon: Record<WeatherConditionKey, typeof Sun> = {
   clear: Sun,
@@ -130,26 +165,20 @@ const weatherConditionIcon: Record<WeatherConditionKey, typeof Sun> = {
 };
 
 /**
- * Decorative rail that floats to the LEFT of the centered Action Stack on wide
- * screens: a large serif date, a thin divider, and a quiet motivational quote.
- * It is positioned out of flow so it never pushes the centered content — it is
- * pure ambience per the design renderings (no card, sits on the background).
- * On narrow screens the parent renders the `compact` variant instead: just the
- * quote, centered above the stack.
+ * Decorative quote. On wide screens the parent floats it toward the bottom-left
+ * of the viewport (out of flow, so it never pushes the centered content) — pure
+ * ambience with a decorative quotation mark. The `compact` variant is a small
+ * centered quote the parent renders above the stack on narrow screens.
  */
 function SideRail({
-  weekday,
-  date,
   quote,
   compact = false,
 }: {
-  weekday: string;
-  date: string;
   quote: DailyQuoteResult | null;
   compact?: boolean;
 }) {
+  if (!quote) return null;
   if (compact) {
-    if (!quote) return null;
     return (
       <figure className="mx-auto max-w-md text-center">
         <blockquote className="voice text-pretty text-sm leading-relaxed text-muted-foreground">
@@ -164,31 +193,20 @@ function SideRail({
     );
   }
   return (
-    <div className="text-left">
-      <div className="greeting-display text-4xl leading-[1.05] text-foreground/90 sm:text-5xl">
-        <div>{weekday},</div>
-        <div>{date}</div>
-      </div>
-      <div className="mt-5 h-px w-12 bg-border" />
-      {quote && (
-        <figure className="mt-5 max-w-xs">
-          <blockquote className="voice relative text-pretty text-base leading-relaxed text-muted-foreground">
-            <span
-              aria-hidden
-              className="greeting-display absolute -left-1 -top-3 text-3xl leading-none text-foreground/15 select-none"
-            >
-              &ldquo;
-            </span>
-            {quote.text}
-          </blockquote>
-          {quote.author && (
-            <figcaption className="mt-2 text-xs text-muted-foreground/70">
-              — {quote.author}
-            </figcaption>
-          )}
-        </figure>
+    <figure className="max-w-xs text-left">
+      <blockquote className="voice relative text-pretty text-base leading-relaxed text-muted-foreground">
+        <span
+          aria-hidden
+          className="greeting-display absolute -left-1 -top-3 text-3xl leading-none text-foreground/15 select-none"
+        >
+          &ldquo;
+        </span>
+        {quote.text}
+      </blockquote>
+      {quote.author && (
+        <figcaption className="mt-2 text-xs text-muted-foreground/70">— {quote.author}</figcaption>
       )}
-    </div>
+    </figure>
   );
 }
 
@@ -513,7 +531,9 @@ function ZenStackDashboard() {
         createdAt: now,
         updatedAt: now,
       };
-      const saved = await appendMealLog({ data: { date: selectedDate, meal: mealLog } });
+      const saved = await appendMealLog({
+        data: { date: selectedDate, meal: mealLog },
+      });
       setDashboardData((d) => ({ ...d, nutrition: saved }));
       setFoodName("");
       setFoodStatus(
@@ -725,10 +745,6 @@ function ZenStackDashboard() {
   // Weather for the side rail — only fetched when viewing today.
   const { weather } = useWeather(isToday);
 
-  // Large serif date for the rail: weekday on top, month + day below.
-  const railWeekday = formatISODate(selectedDate, { weekday: "long" });
-  const railDate = formatISODate(selectedDate, { month: "long", day: "numeric" });
-
   const visibleTasks = tasks.filter((t) => !t.deletedAt).slice(0, 5);
 
   return (
@@ -738,14 +754,14 @@ function ZenStackDashboard() {
       data-atmosphere="vivid"
     >
       <div className="relative z-10 mx-auto w-full max-w-2xl">
-        {/* Decorative rail — big serif date + a quiet quote. Floats to the left
-            of the centered stack on wide screens (absolute, out of flow) so it
-            never shifts the content off-center. Pure ambience, no card. */}
+        {/* Decorative quote — pinned toward the bottom-left of the viewport on
+            wide screens (fixed, out of flow) so it never shifts the centered
+            content. Pure ambience, no card. */}
         <Reveal
           as="section"
-          className="pointer-events-none absolute right-full top-8 mr-10 hidden w-56 xl:block 2xl:mr-16 2xl:w-64"
+          className="pointer-events-none fixed bottom-10 left-6 z-10 hidden w-56 xl:block 2xl:left-12 2xl:w-64"
         >
-          <SideRail weekday={railWeekday} date={railDate} quote={dailyQuote} />
+          <SideRail quote={dailyQuote} />
         </Reveal>
 
         <div className="min-w-0 w-full">
@@ -785,7 +801,11 @@ function ZenStackDashboard() {
                         <motion.span
                           layoutId="daypart-active"
                           className="absolute inset-0 rounded-full bg-background shadow-sm ring-1 ring-border/60"
-                          transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                          transition={{
+                            type: "spring",
+                            duration: 0.35,
+                            bounce: 0,
+                          }}
                         />
                       )}
                       <span className="relative z-10 flex items-center gap-1.5">
@@ -826,50 +846,79 @@ function ZenStackDashboard() {
           {(dailyQuote || (isToday && weather)) && (
             <Reveal className="mb-8 xl:hidden">
               <div className="flex flex-col items-center gap-3">
-                <SideRail weekday={railWeekday} date={railDate} quote={dailyQuote} compact />
+                <SideRail quote={dailyQuote} compact />
                 {isToday && <WeatherLine weather={weather} className="text-sm md:hidden" />}
               </div>
             </Reveal>
           )}
 
-          {/* Greeting — the emotional center of the page. */}
+          {/* Greeting — the emotional center of the page. Kept to just the
+              greeting so the hero stays short; the day's coach advice moved to
+              the ribbon below. */}
           <Reveal>
-            <div className="mb-10 text-center sm:mb-14">
+            <div className="mb-6 text-center sm:mb-8">
               <h1 className="greeting-display on-scene text-balance text-5xl text-foreground sm:text-6xl">
                 {greetingLead}
               </h1>
-              <p className="voice on-scene mx-auto mt-4 max-w-md text-pretty text-base text-foreground/80 sm:text-lg">
-                {headline}
-              </p>
-              {(voiceStatus || isVoiceProcessing) && (
-                <div className="mt-3 text-sm text-muted-foreground animate-in fade-in">
-                  {voiceStatus}
-                </div>
-              )}
+              <AnimatePresence initial={false}>
+                {(voiceStatus || isVoiceProcessing) && (
+                  <motion.div
+                    {...statusFade}
+                    role="status"
+                    aria-live="polite"
+                    className="mt-3 text-sm text-muted-foreground"
+                  >
+                    {voiceStatus}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </Reveal>
 
           {/* Confirmation banner (voice) */}
-          {pendingConfirm && (
-            <div className="zen-card mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
-              <div>
-                Confirm: <span className="font-medium">{pendingConfirm.intentText}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <VoiceInput
-                  confirmMode
-                  confirmPrompt={`Say yes to ${pendingConfirm.intentText || "this action"} or no.`}
-                  onConfirm={confirmVoiceAction}
-                />
-                <Button variant="ghost" size="sm" onClick={() => confirmVoiceAction(false)}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={() => confirmVoiceAction(true)}>
-                  Yes
-                </Button>
-              </div>
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {pendingConfirm && (
+              <motion.div
+                {...statusFade}
+                role="group"
+                aria-label="Confirm voice action"
+                className="zen-card mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
+              >
+                <div aria-live="polite">
+                  Confirm: <span className="font-medium">{pendingConfirm.intentText}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <VoiceInput
+                    confirmMode
+                    confirmPrompt={`Say yes to ${pendingConfirm.intentText || "this action"} or no.`}
+                    onConfirm={confirmVoiceAction}
+                  />
+                  <Button variant="ghost" size="sm" onClick={() => confirmVoiceAction(false)}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={() => confirmVoiceAction(true)}>
+                    Yes
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Coach ribbon — the day's AI advice, decoupled from the greeting so
+              the hero stays short and the cards rise up. Doubles as a doorway
+              into the Coach chat for a deeper conversation. */}
+          <Reveal className="mb-6">
+            <Link
+              to="/chat"
+              className="zen-surface-nested group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors hover:bg-surface-raised"
+            >
+              <Sparkles className="size-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 text-pretty leading-snug text-foreground/80">
+                {headline}
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          </Reveal>
 
           <ActionStack focusKey={stackFocusKey}>
             {/* WORKOUT — focused in the morning, always available */}
@@ -973,9 +1022,18 @@ function ZenStackDashboard() {
                     </Button>
                   </form>
                 )}
-                {foodStatus && (
-                  <div className="mb-4 -mt-2 text-xs text-muted-foreground">{foodStatus}</div>
-                )}
+                <AnimatePresence initial={false}>
+                  {foodStatus && (
+                    <motion.div
+                      {...statusFade}
+                      role="status"
+                      aria-live="polite"
+                      className="mb-4 -mt-2 text-xs text-muted-foreground"
+                    >
+                      {foodStatus}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   <div>
@@ -1087,14 +1145,19 @@ function ZenStackDashboard() {
                       <MoonStar className="size-3.5" />
                       Evening reflection
                     </div>
-                    {dailyPlan?.eveningCheckIn && (
-                      <Badge
-                        variant="secondary"
-                        className="rounded-full border-0 bg-success/15 text-[9px] uppercase tracking-widest text-success"
-                      >
-                        Completed
-                      </Badge>
-                    )}
+                    <AnimatePresence initial={false}>
+                      {dailyPlan?.eveningCheckIn && (
+                        <motion.span key="checkin-done" {...badgeAck} className="inline-flex">
+                          <Badge
+                            variant="secondary"
+                            className="gap-1 rounded-full border-0 bg-success/15 text-[9px] uppercase tracking-widest text-success"
+                          >
+                            <Check className="size-2.5" />
+                            Completed
+                          </Badge>
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="space-y-1 text-sm">
@@ -1151,13 +1214,29 @@ function ZenStackDashboard() {
                     onClick={submitEveningCheckIn}
                     disabled={checkInSaving}
                     variant={dailyPlan?.eveningCheckIn ? "secondary" : "default"}
-                    className="mt-4"
+                    className="mt-4 overflow-hidden"
                   >
-                    {checkInSaving
-                      ? "Saving…"
-                      : dailyPlan?.eveningCheckIn
-                        ? "Update check-in"
-                        : "Save check-in"}
+                    {(() => {
+                      const label = checkInSaving
+                        ? "Saving…"
+                        : dailyPlan?.eveningCheckIn
+                          ? "Update check-in"
+                          : "Save check-in";
+                      return (
+                        <AnimatePresence initial={false}>
+                          <motion.span
+                            key={label}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.16, ease: "easeOut" }}
+                            className="inline-block"
+                          >
+                            {label}
+                          </motion.span>
+                        </AnimatePresence>
+                      );
+                    })()}
                   </Button>
                 </section>
               </StackCard>
@@ -1249,10 +1328,16 @@ function ZenStackDashboard() {
                           <span
                             className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors ${t.done ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/35 group-hover:border-primary/60"}`}
                           >
-                            {t.done && <Check className="size-3" />}
+                            <AnimatePresence initial={false}>
+                              {t.done && (
+                                <motion.span key="check" {...checkAck} className="flex">
+                                  <Check className="size-3" />
+                                </motion.span>
+                              )}
+                            </AnimatePresence>
                           </span>
                           <span
-                            className={`min-w-0 flex-1 truncate ${t.done ? "text-muted-foreground line-through" : ""}`}
+                            className={`min-w-0 flex-1 truncate transition-colors ${t.done ? "text-muted-foreground line-through" : ""}`}
                           >
                             {t.text}
                           </span>
@@ -1323,9 +1408,24 @@ function ZenStackDashboard() {
           <Button variant="link" size="sm" onClick={stopOverlayListening} className="mx-auto">
             Cancel
           </Button>
-          {listenError && <div className="mt-2 text-xs text-destructive">{listenError}</div>}
         </DialogContent>
       </Dialog>
+
+      {/* Voice error surface — lives OUTSIDE the listening dialog so
+          unsupported/start/recognition errors stay visible and announced even
+          after the overlay closes. */}
+      <AnimatePresence initial={false}>
+        {listenError && (
+          <motion.div
+            {...statusFade}
+            role="alert"
+            aria-live="assertive"
+            className="fixed inset-x-0 bottom-44 z-50 mx-auto w-fit max-w-[90vw] rounded-full bg-destructive px-4 py-2 text-center text-xs font-medium text-destructive-foreground shadow-lg lg:bottom-8 lg:left-auto lg:right-28 lg:mx-0"
+          >
+            {listenError}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Voice mic FAB — centered above mobile nav, lower-right on desktop. */}
       {isToday && (

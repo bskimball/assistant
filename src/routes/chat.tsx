@@ -17,7 +17,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Reveal, revealDelay } from "@/components/motion";
+import { Reveal } from "@/components/motion";
 import { formatDistanceToNow } from "date-fns";
 import {
   Sparkles,
@@ -62,7 +62,7 @@ export const Route = createFileRoute("/chat")({ component: ChatPage });
 
 // "auto" — a memory write (ADR-020) that was applied without an Apply button and
 // renders as a subtle inline chip instead of an action card.
-type ActionStatus = "pending" | "applied" | "dismissed" | "auto";
+type ActionStatus = "pending" | "applying" | "applied" | "dismissed" | "auto";
 
 /** The three memory action names auto-apply client-side (ADR-020). */
 const MEMORY_ACTION_NAMES: ReadonlySet<ChatActionName> = new Set([
@@ -350,15 +350,21 @@ function useChatStream(date: string) {
 
   const applyAction = useCallback(
     async (messageId: string, action: UIAction) => {
-      // Optimistically lock the buttons.
+      // Lock the buttons immediately, but don't report success until confirmed.
       patch(messageId, (m) => ({
         ...m,
-        actions: m.actions.map((a) => (a.id === action.id ? { ...a, status: "applied" } : a)),
+        actions: m.actions.map((a) => (a.id === action.id ? { ...a, status: "applying" } : a)),
       }));
       try {
         const result = await applyChatAction({
           data: { name: action.name, args: action.args },
         });
+        patch(messageId, (m) => ({
+          ...m,
+          actions: m.actions.map((a) =>
+            a.id === action.id ? { ...a, status: result.ok ? "applied" : "pending" } : a,
+          ),
+        }));
         setMessages((prev) => [
           ...prev,
           {
@@ -370,12 +376,6 @@ function useChatStream(date: string) {
             actions: [],
           },
         ]);
-        if (!result.ok) {
-          patch(messageId, (m) => ({
-            ...m,
-            actions: m.actions.map((a) => (a.id === action.id ? { ...a, status: "pending" } : a)),
-          }));
-        }
         setPersistTick((t) => t + 1);
       } catch {
         patch(messageId, (m) => ({
@@ -513,14 +513,34 @@ function ChatPage() {
   const { messages, isLoading, error, send } = chat;
   const [input, setInput] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [statusAnnouncement, setStatusAnnouncement] = useState({ id: 0, message: "" });
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottomRef = useRef(true);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!pinnedToBottomRef.current) return;
+    const viewport = scrollViewportRef.current;
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    pinnedToBottomRef.current = true;
+    const viewport = scrollViewportRef.current;
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+  }, [chat.activeId]);
+
+  function onTranscriptScroll() {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    pinnedToBottomRef.current =
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 48;
+  }
 
   function submit() {
     if (!input.trim() || isLoading) return;
+    // Sending is an explicit request to return to the live edge, even if the
+    // member had scrolled up to read an older message.
+    pinnedToBottomRef.current = true;
     send(input);
     setInput("");
   }
@@ -550,7 +570,7 @@ function ChatPage() {
       <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
         {/* Header — compresses once a conversation begins so the transcript leads. */}
         <div className="flex items-end justify-between gap-3 pb-4">
-          <AnimatePresence initial={false} mode="wait">
+          <AnimatePresence initial={false}>
             {empty && (
               <motion.div
                 key="title"
@@ -625,21 +645,21 @@ function ChatPage() {
               just above the composer instead of leaving a tall empty gap.
               Plain overflow (not Radix ScrollArea, whose inner display:table
               wrapper defeats `min-h-full`). */}
-            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
-              <div
-                className={`flex min-h-full w-full flex-col gap-4 pb-4 ${
-                  empty ? "justify-center" : "justify-end"
-                }`}
-              >
-                <AnimatePresence initial={false} mode="wait">
-                  {empty ? (
+            <div
+              ref={scrollViewportRef}
+              onScroll={onTranscriptScroll}
+              className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+            >
+              <div className="relative flex min-h-full w-full flex-col justify-end gap-4 pb-4">
+                <AnimatePresence initial={false}>
+                  {empty && (
                     <motion.div
                       key="hero"
-                      initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
-                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: 12, filter: "blur(4px)" }}
-                      transition={{ type: "spring", duration: 0.35, bounce: 0 }}
-                      className="flex flex-col items-center px-2 text-center"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
+                      className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center"
                     >
                       <motion.div
                         animate={{ y: [0, -6, 0] }}
@@ -678,18 +698,23 @@ function ChatPage() {
                         ))}
                       </div>
                     </motion.div>
-                  ) : (
-                    <AnimatePresence key="transcript" initial={false}>
-                      {messages.map((m) => (
-                        <MessageBubble
-                          key={m.id}
-                          message={m}
-                          onApply={(a) => chat.applyAction(m.id, a)}
-                          onDismiss={(id) => chat.dismissAction(m.id, id)}
-                        />
-                      ))}
-                    </AnimatePresence>
                   )}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {messages.map((m) => (
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      onApply={(a) => chat.applyAction(m.id, a)}
+                      onDismiss={(action) => {
+                        chat.dismissAction(m.id, action.id);
+                        setStatusAnnouncement((current) => ({
+                          id: current.id + 1,
+                          message: `${ACTION_META[action.name]?.label ?? "Action"} dismissed.`,
+                        }));
+                      }}
+                    />
+                  ))}
                 </AnimatePresence>
                 {error && (
                   <Reveal
@@ -700,7 +725,14 @@ function ChatPage() {
                     {error}
                   </Reveal>
                 )}
-                <div ref={bottomRef} />
+                <span
+                  key={statusAnnouncement.id}
+                  className="sr-only"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {statusAnnouncement.message}
+                </span>
               </div>
             </div>
 
@@ -765,61 +797,84 @@ function HistoryList({
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
-  if (summaries.length === 0) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-          <MessageSquare className="size-5" />
-        </div>
-        <p className="text-sm font-medium">No chats yet</p>
-        <p className="text-xs text-muted-foreground">
-          Your conversations with the coach will show up here.
-        </p>
-      </div>
-    );
-  }
+  const empty = summaries.length === 0;
+  // 180ms opacity/x on insert/delete/reflow; layout carries reordering movement.
+  const ITEM_TRANSITION = { duration: 0.18, ease: "easeOut" } as const;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Plain overflow (not Radix ScrollArea): the viewport sizes to content
           width, which would defeat `truncate` on long conversation titles. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-1 p-2">
-          {summaries.map((s, i) => (
-            <Reveal
-              as="div"
-              key={s.id}
-              delay={revealDelay(i)}
-              className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
-                s.id === activeId
-                  ? "border-primary/40 bg-primary/10"
-                  : "border-transparent hover:bg-muted/50"
-              }`}
+        <AnimatePresence initial={false} mode="wait">
+          {empty ? (
+            <motion.div
+              key="empty"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={ITEM_TRANSITION}
+              className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center"
             >
-              <button
-                type="button"
-                onClick={() => onSelect(s.id)}
-                className="flex min-w-0 flex-1 items-start gap-2 text-left"
-              >
-                <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">{s.title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {formatDistanceToNow(s.updatedAt, { addSuffix: true })} ·{" "}
-                    <span className="tabular-nums">{s.messageCount}</span> msg
-                  </span>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onDelete(s.id)}
-                aria-label="Delete conversation"
-                className="shrink-0 rounded-md p-2 text-muted-foreground opacity-0 transition-[opacity,scale,background-color,color] duration-150 ease-out hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 active:scale-[0.96] group-hover:opacity-100"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </Reveal>
-          ))}
-        </div>
+              <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <MessageSquare className="size-5" />
+              </div>
+              <p className="text-sm font-medium">No chats yet</p>
+              <p className="text-xs text-muted-foreground">
+                Your conversations with the coach will show up here.
+              </p>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="list"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={ITEM_TRANSITION}
+              className="flex flex-col gap-1 p-2"
+            >
+              <AnimatePresence initial={false}>
+                {summaries.map((s) => (
+                  <motion.div
+                    key={s.id}
+                    layout
+                    initial={{ opacity: 0, x: -12 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -12 }}
+                    transition={ITEM_TRANSITION}
+                    className={`group flex items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors ${
+                      s.id === activeId
+                        ? "border-primary/40 bg-primary/10"
+                        : "border-transparent hover:bg-muted/50"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSelect(s.id)}
+                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                    >
+                      <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{s.title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {formatDistanceToNow(s.updatedAt, { addSuffix: true })} ·{" "}
+                          <span className="tabular-nums">{s.messageCount}</span> msg
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(s.id)}
+                      aria-label="Delete conversation"
+                      className="shrink-0 rounded-md p-2 text-muted-foreground opacity-0 transition-[opacity,scale,background-color,color] duration-150 ease-out hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 active:scale-[0.96] group-hover:opacity-100"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -832,7 +887,7 @@ function MessageBubble({
 }: {
   message: UIMessage;
   onApply: (a: UIAction) => void;
-  onDismiss: (id: string) => void;
+  onDismiss: (action: UIAction) => void;
 }) {
   const isUser = message.role === "user";
   const isNotice = message.kind === "notice";
@@ -845,9 +900,9 @@ function MessageBubble({
     return (
       <motion.div
         layout="position"
-        initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
-        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-        transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.16, ease: "easeOut" }}
         className="flex justify-start"
         role="status"
       >
@@ -867,10 +922,10 @@ function MessageBubble({
 
   return (
     <motion.div
-      layout="position"
-      initial={{ opacity: 0, y: 10, x: isUser ? 12 : -12, filter: "blur(4px)" }}
-      animate={{ opacity: 1, y: 0, x: 0, filter: "blur(0px)" }}
-      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+      layout={message.streaming ? false : "position"}
+      initial={isUser ? false : { opacity: 0, y: 10, x: -12 }}
+      animate={{ opacity: 1, y: 0, x: 0 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
       className={`group/msg flex items-end gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
     >
       <div className={`flex max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
@@ -907,14 +962,18 @@ function MessageBubble({
           </span>
         )}
 
-        {message.actions.map((a) => (
-          <ActionCard
-            key={a.id}
-            action={a}
-            onApply={() => onApply(a)}
-            onDismiss={() => onDismiss(a.id)}
-          />
-        ))}
+        <AnimatePresence initial={false}>
+          {message.actions
+            .filter((a) => a.status !== "dismissed")
+            .map((a) => (
+              <ActionCard
+                key={a.id}
+                action={a}
+                onApply={() => onApply(a)}
+                onDismiss={() => onDismiss(a)}
+              />
+            ))}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
@@ -931,16 +990,17 @@ function ActionCard({
 }) {
   const meta = ACTION_META[action.name];
   const Icon = meta?.Icon ?? Sparkles;
-  if (action.status === "dismissed") return null;
 
   // Auto-applied memory writes (ADR-020) render as a subtle inline chip, not a
   // card — the member always sees what was written, without an Apply step.
   if (action.status === "auto") {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
-        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-        transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+        layout
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        transition={{ duration: 0.16, ease: "easeOut" }}
         className="zen-surface-nested flex min-h-10 max-w-full items-center gap-1.5 rounded-full px-3 py-2 text-xs text-muted-foreground"
       >
         <Icon className="size-3.5 shrink-0" />
@@ -951,9 +1011,11 @@ function ActionCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
       className="zen-surface-nested flex w-full items-center gap-3 px-3 py-2.5"
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
@@ -963,31 +1025,49 @@ function ActionCard({
         <div className="text-xs font-medium text-muted-foreground">{meta?.label ?? "Action"}</div>
         <div className="truncate text-sm">{describeAction(action.name, action.args)}</div>
       </div>
-      {action.status === "applied" ? (
-        <motion.span
-          initial={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
-          animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-          transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-          className="flex items-center gap-1 text-xs font-medium text-success"
-        >
-          <Check className="size-4" /> Done
-        </motion.span>
-      ) : (
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Button size="sm" className={`h-8 gap-1 shadow-sm ${PRESS}`} onClick={onApply}>
-            <Check className="size-3.5" /> Apply
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className={`size-8 ${PRESS}`}
-            onClick={onDismiss}
-            aria-label="Dismiss"
+      <AnimatePresence initial={false} mode="popLayout">
+        {action.status === "applied" ? (
+          <motion.span
+            key="done"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="flex items-center gap-1 text-xs font-medium text-success"
           >
-            <X className="size-4" />
-          </Button>
-        </div>
-      )}
+            <Check className="size-4" /> Done
+          </motion.span>
+        ) : (
+          <motion.div
+            key="controls"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="flex shrink-0 items-center gap-1.5"
+          >
+            <Button
+              size="sm"
+              className={`h-8 gap-1 shadow-sm ${PRESS}`}
+              onClick={onApply}
+              disabled={action.status === "applying"}
+            >
+              <Check className="size-3.5" />
+              {action.status === "applying" ? "Applying…" : "Apply"}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`size-8 ${PRESS}`}
+              onClick={onDismiss}
+              disabled={action.status === "applying"}
+              aria-label="Dismiss"
+            >
+              <X className="size-4" />
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

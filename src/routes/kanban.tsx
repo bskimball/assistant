@@ -8,7 +8,7 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { VoiceInput } from "@/components/voice-input";
 import { PageHeader } from "@/components/page-header";
 import { PageShell } from "@/components/page-shell";
-import { Reveal, revealDelay } from "@/components/motion";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import {
   Trash2,
   Inbox,
@@ -151,7 +151,9 @@ function KanbanBoard() {
     setSyncing(true);
     try {
       const current = getTasksForDate(date);
-      const saved = await saveProductivityTasksForDay({ data: { date, tasks: current } });
+      const saved = await saveProductivityTasksForDay({
+        data: { date, tasks: current },
+      });
       // Re-hydrate from server so board + archive stay consistent after save.
       hydrateProductivityTasks(saved.tasks || current);
     } catch (e) {
@@ -199,7 +201,11 @@ function KanbanBoard() {
     if (!isToday) return;
     const existing = productivityTasksCollection.state.get(id) as ProductivityTask | undefined;
     if (!existing) return;
-    let updated: ProductivityTask = { ...existing, column: newColumn, updatedAt: Date.now() };
+    let updated: ProductivityTask = {
+      ...existing,
+      column: newColumn,
+      updatedAt: Date.now(),
+    };
     if (newColumn === "done" && !existing.done) {
       updated = updateTaskStatus(updated, "done");
       updated.column = "done";
@@ -465,183 +471,206 @@ function KanbanBoard() {
         ))}
       </div>
 
-      {/* Full Kanban */}
-      <div className="kanban-board overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex min-w-245 gap-2">
-          {KANBAN_COLUMNS.map((col) => {
-            const colTasks = tasksByColumn[col.id] || [];
-            const isDone = col.id === "done";
-            const isDropTarget = draggingId !== null && dragOverCol === col.id;
-            return (
-              <div
-                key={col.id}
-                className={`flex min-h-35 w-56 shrink-0 flex-col rounded-xl p-3 transition-[background-color,box-shadow,opacity] duration-150 ease-out ${
-                  isDropTarget
-                    ? "bg-primary/10 shadow-md outline outline-1 -outline-offset-1 outline-primary/30"
-                    : "zen-surface-nested"
-                } ${colTasks.length === 0 && !isDropTarget ? "opacity-90" : ""}`}
-                onDragOver={(e) => handleColumnDragOver(e, col.id)}
-                onDragLeave={(e) => handleColumnDragLeave(e, col.id)}
-                onDrop={(e) => handleDrop(e, col.id)}
-              >
-                <div className="mb-2 flex items-center justify-between px-1 text-sm font-semibold">
-                  <span className="flex items-center gap-1.5">
-                    <col.icon
-                      className={`size-4 transition-colors duration-150 ${
-                        isDropTarget ? "text-primary" : "text-muted-foreground"
-                      }`}
-                    />{" "}
-                    {col.label}
-                  </span>
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
-                      colTasks.length === 0
-                        ? "text-muted-foreground/40"
-                        : "bg-card text-muted-foreground outline outline-1 -outline-offset-1 outline-foreground/10"
-                    }`}
-                  >
-                    {colTasks.length}
-                  </span>
-                </div>
-                <div className="flex-1 space-y-2">
-                  {colTasks.map((task, ti) => {
-                    const overdue = task.due && task.due < selectedDate && !isDone;
-                    const isDragging = draggingId === task.id;
-                    const cardRing = isDragging
-                      ? "outline-primary/40"
-                      : overdue
-                        ? "outline-destructive/40"
-                        : "outline-foreground/10";
-                    return (
-                      <Reveal as="div" key={task.id} delay={revealDelay(ti)}>
-                        <div
-                          draggable={isToday}
-                          onDragStart={(e) => handleDragStart(e, task.id)}
-                          onDragEnd={handleDragEnd}
-                          className={`group rounded-lg bg-card p-2.5 text-sm shadow-sm outline outline-1 -outline-offset-1 transition-[translate,scale,opacity,box-shadow] duration-150 ease-out ${cardRing} ${
-                            isDragging
-                              ? "scale-[0.98] opacity-50 shadow-md"
-                              : isToday
-                                ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing"
-                                : ""
-                          } ${isDone ? `line-through ${isDragging ? "" : "opacity-70"}` : ""}`}
-                        >
-                          <div className="font-medium leading-tight pr-8">{task.text}</div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
-                            {task.shared && (
-                              <span className="inline-flex items-center gap-0.5 rounded bg-info/10 px-1 font-medium text-info">
-                                <Users className="size-2.5" /> Shared
-                              </span>
-                            )}
-                            {task.project && (
-                              <span className="rounded bg-muted px-1">{task.project}</span>
-                            )}
-                            {task.due && (
-                              <span
-                                className={`tabular-nums ${overdue ? "font-medium text-destructive" : ""}`}
-                              >
-                                due {task.due}
-                              </span>
-                            )}
-                            {task.estimatedMinutes && (
-                              <span className="tabular-nums">{task.estimatedMinutes}m</span>
-                            )}
-                          </div>
-                          {isToday && (
-                            <div className="mt-1.5 flex items-center gap-0.5 opacity-70 transition-opacity duration-150 group-hover:opacity-100">
-                              <button
-                                onClick={() =>
-                                  moveTaskToColumn(task.id, cycleToColumn(task.column, -1))
-                                }
-                                className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                aria-label="Move left"
-                                title="Move left"
-                              >
-                                <ArrowLeft className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() =>
-                                  moveTaskToColumn(task.id, cycleToColumn(task.column, 1))
-                                }
-                                className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                aria-label="Move right"
-                                title="Move right"
-                              >
-                                <ArrowRight className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() => toggleTaskDone(task.id)}
-                                className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                aria-label={isDone ? "Mark not done" : "Mark done"}
-                                title={isDone ? "Undo" : "Done"}
-                              >
-                                {isDone ? (
-                                  <Undo2 className="size-3.5" />
-                                ) : (
-                                  <Check className="size-3.5" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const nt = prompt("Edit:", task.text);
-                                  if (nt) {
-                                    upsertProductivityTaskClient({ ...task, text: nt });
-                                    persistTasks(selectedDate);
-                                  }
-                                }}
-                                className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                aria-label="Edit"
-                                title="Edit"
-                              >
-                                <Pencil className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() => toggleTaskShared(task.id)}
-                                className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                aria-label={task.shared ? "Make personal" : "Share with household"}
-                                title={task.shared ? "Make personal" : "Share with household"}
-                              >
-                                {task.shared ? (
-                                  <Lock className="size-3.5" />
-                                ) : (
-                                  <Users className="size-3.5" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => deleteTask(task.id)}
-                                className="ml-auto rounded-md p-1.5 text-destructive transition-[background-color,scale] duration-150 ease-out hover:bg-destructive/10 active:scale-[0.96]"
-                                aria-label="Delete"
-                                title="Delete"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </Reveal>
-                    );
-                  })}
-                  {colTasks.length === 0 && (
-                    <div
-                      className={`rounded-lg border border-dashed px-2 py-4 text-center text-xs transition-colors duration-150 ${
-                        isDropTarget
-                          ? "border-primary/40 text-primary"
-                          : "border-foreground/15 text-muted-foreground/60"
+      {/* Full Kanban — a scoped LayoutGroup so add/delete/reorder and cross-column
+          moves animate their layout shift together (initial={false} on the cards
+          prevents a page-load cascade). */}
+      <LayoutGroup id="kanban-board">
+        <div className="kanban-board overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-245 gap-2">
+            {KANBAN_COLUMNS.map((col) => {
+              const colTasks = tasksByColumn[col.id] || [];
+              const isDone = col.id === "done";
+              const isDropTarget = draggingId !== null && dragOverCol === col.id;
+              return (
+                <div
+                  key={col.id}
+                  className={`flex min-h-35 w-56 shrink-0 flex-col rounded-xl p-3 transition-[background-color,box-shadow,opacity] duration-150 ease-out ${
+                    isDropTarget
+                      ? "bg-primary/10 shadow-md outline outline-1 -outline-offset-1 outline-primary/30"
+                      : "zen-surface-nested"
+                  } ${colTasks.length === 0 && !isDropTarget ? "opacity-90" : ""}`}
+                  onDragOver={(e) => handleColumnDragOver(e, col.id)}
+                  onDragLeave={(e) => handleColumnDragLeave(e, col.id)}
+                  onDrop={(e) => handleDrop(e, col.id)}
+                >
+                  <div className="mb-2 flex items-center justify-between px-1 text-sm font-semibold">
+                    <span className="flex items-center gap-1.5">
+                      <col.icon
+                        className={`size-4 transition-colors duration-150 ${
+                          isDropTarget ? "text-primary" : "text-muted-foreground"
+                        }`}
+                      />{" "}
+                      {col.label}
+                    </span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                        colTasks.length === 0
+                          ? "text-muted-foreground/40"
+                          : "bg-card text-muted-foreground outline outline-1 -outline-offset-1 outline-foreground/10"
                       }`}
                     >
-                      Drop tasks here
-                    </div>
-                  )}
+                      {colTasks.length}
+                    </span>
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {colTasks.map((task) => {
+                        const overdue = task.due && task.due < selectedDate && !isDone;
+                        const isDragging = draggingId === task.id;
+                        const cardRing = isDragging
+                          ? "outline-primary/40"
+                          : overdue
+                            ? "outline-destructive/40"
+                            : "outline-foreground/10";
+                        return (
+                          <motion.div
+                            key={task.id}
+                            layoutId={`kanban-task-${task.id}`}
+                            layout="position"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{
+                              layout: { duration: 0.2, ease: "easeOut" },
+                              duration: 0.2,
+                              ease: "easeOut",
+                            }}
+                          >
+                            <div
+                              draggable={isToday}
+                              onDragStart={(e) => handleDragStart(e, task.id)}
+                              onDragEnd={handleDragEnd}
+                              className={`group rounded-lg bg-card p-2.5 text-sm shadow-sm outline outline-1 -outline-offset-1 transition-[translate,scale,opacity,box-shadow] duration-150 ease-out ${cardRing} ${
+                                isDragging
+                                  ? "scale-[0.98] opacity-50 shadow-md"
+                                  : isToday
+                                    ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing"
+                                    : ""
+                              } ${isDone ? `line-through ${isDragging ? "" : "opacity-70"}` : ""}`}
+                            >
+                              <div className="font-medium leading-tight pr-8">{task.text}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
+                                {task.shared && (
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-info/10 px-1 font-medium text-info">
+                                    <Users className="size-2.5" /> Shared
+                                  </span>
+                                )}
+                                {task.project && (
+                                  <span className="rounded bg-muted px-1">{task.project}</span>
+                                )}
+                                {task.due && (
+                                  <span
+                                    className={`tabular-nums ${overdue ? "font-medium text-destructive" : ""}`}
+                                  >
+                                    due {task.due}
+                                  </span>
+                                )}
+                                {task.estimatedMinutes && (
+                                  <span className="tabular-nums">{task.estimatedMinutes}m</span>
+                                )}
+                              </div>
+                              {isToday && (
+                                <div className="mt-1.5 flex items-center gap-0.5 opacity-70 transition-opacity duration-150 group-hover:opacity-100">
+                                  <button
+                                    onClick={() =>
+                                      moveTaskToColumn(task.id, cycleToColumn(task.column, -1))
+                                    }
+                                    className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
+                                    aria-label="Move left"
+                                    title="Move left"
+                                  >
+                                    <ArrowLeft className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      moveTaskToColumn(task.id, cycleToColumn(task.column, 1))
+                                    }
+                                    className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
+                                    aria-label="Move right"
+                                    title="Move right"
+                                  >
+                                    <ArrowRight className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => toggleTaskDone(task.id)}
+                                    className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
+                                    aria-label={isDone ? "Mark not done" : "Mark done"}
+                                    title={isDone ? "Undo" : "Done"}
+                                  >
+                                    {isDone ? (
+                                      <Undo2 className="size-3.5" />
+                                    ) : (
+                                      <Check className="size-3.5" />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const nt = prompt("Edit:", task.text);
+                                      if (nt) {
+                                        upsertProductivityTaskClient({
+                                          ...task,
+                                          text: nt,
+                                        });
+                                        persistTasks(selectedDate);
+                                      }
+                                    }}
+                                    className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
+                                    aria-label="Edit"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => toggleTaskShared(task.id)}
+                                    className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
+                                    aria-label={
+                                      task.shared ? "Make personal" : "Share with household"
+                                    }
+                                    title={task.shared ? "Make personal" : "Share with household"}
+                                  >
+                                    {task.shared ? (
+                                      <Lock className="size-3.5" />
+                                    ) : (
+                                      <Users className="size-3.5" />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteTask(task.id)}
+                                    className="ml-auto rounded-md p-1.5 text-destructive transition-[background-color,scale] duration-150 ease-out hover:bg-destructive/10 active:scale-[0.96]"
+                                    aria-label="Delete"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
+                    {colTasks.length === 0 && (
+                      <div
+                        className={`rounded-lg border border-dashed px-2 py-4 text-center text-xs transition-colors duration-150 ${
+                          isDropTarget
+                            ? "border-primary/40 text-primary"
+                            : "border-foreground/15 text-muted-foreground/60"
+                        }`}
+                      >
+                        Drop tasks here
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      </LayoutGroup>
 
       <div className="mt-3 text-xs text-muted-foreground">
-        Drag cards or use arrows. Tasks are saved per day.{syncing && " • syncing…"} Use voice on
-        dashboard or here for quick adds.
+        Drag cards or use arrows. Tasks are saved per day.
+        {syncing && " • syncing…"} Use voice on dashboard or here for quick adds.
       </div>
     </PageShell>
   );
