@@ -1477,8 +1477,8 @@ function StackCard({
  *
  * Every domain card stays in the deck. Daypart only chooses which card starts
  * in front — never which cards exist. Below xl, horizontal swipes select cards
- * while the scene transitions vertically, with adjacent cards peeking above or
- * below the focused card. At xl+, cards retain the full depth-stack treatment.
+ * while the scene transitions horizontally, with adjacent cards peeking beside
+ * the focused card. At xl+, cards retain the full depth-stack treatment.
  * Compact dot controls keep navigation quiet while accessible labels preserve
  * the card names for assistive technology.
  */
@@ -1573,9 +1573,9 @@ function ActionStack({
   };
 
   return (
-    <div className="action-stack overflow-hidden xl:overflow-visible">
+    <div className="action-stack relative left-1/2 w-dvw -translate-x-1/2 overflow-hidden xl:left-auto xl:w-auto xl:translate-x-0 xl:overflow-visible">
       <div
-        className="relative mb-6 flex min-h-[520px] items-start justify-center overflow-hidden pt-4 sm:pt-6 xl:overflow-visible"
+        className="relative mb-6 flex min-h-[520px] items-start justify-center overflow-hidden px-4 pt-4 sm:px-6 sm:pt-6 xl:overflow-visible xl:px-0"
         style={{ perspective: 1200 }}
       >
         <div className="relative w-full max-w-2xl pb-16 sm:pb-20 xl:max-w-4xl">
@@ -1595,14 +1595,16 @@ function ActionStack({
                 Math.abs(rawDirection) <= count / 2
                   ? rawDirection
                   : rawDirection - Math.sign(rawDirection) * count;
-              // Mobile keeps horizontal swipe input, but presents selection changes
-              // as a vertical scene: the next card peeks below and the previous above.
-              const mobileY =
+              // Mobile keeps horizontal swipe input and presents selection changes
+              // as a horizontal scene: neighbors sit one card-width away (plus a
+              // small gap) so their edges peek into the scene's side gutters at
+              // the viewport edges, matching the drag="x" gesture direction.
+              const mobileX =
                 mobileDirection === 0
                   ? 0
                   : mobileDirection < 0
-                    ? "calc(-100% + 20px)"
-                    : "calc(100% - 20px)";
+                    ? "calc(-100% - 8px)"
+                    : "calc(100% + 8px)";
               return (
                 <motion.div
                   key={key}
@@ -1619,22 +1621,22 @@ function ActionStack({
                   className={isFront ? "action-stack-card-front touch-pan-y" : undefined}
                   initial={{
                     opacity: 0,
-                    x: 0,
-                    y: isDesktopStack ? 48 : mobileY,
+                    x: isDesktopStack ? 0 : mobileX,
+                    y: isDesktopStack ? 48 : 0,
                     scale: isDesktopStack ? 0.94 : 1,
                     filter: isDesktopStack ? "blur(4px)" : "blur(0px)",
                   }}
                   animate={{
                     opacity: isDesktopStack ? peekOpacity : isFront ? 1 : 0.48,
-                    x: 0,
-                    y: isDesktopStack ? peekY : mobileY,
+                    x: isDesktopStack ? 0 : mobileX,
+                    y: isDesktopStack ? peekY : 0,
                     scale: isDesktopStack ? peekScale : 1,
                     filter: isDesktopStack ? `blur(${peekBlur}px)` : "blur(0px)",
                   }}
                   exit={{
                     opacity: 0,
-                    x: 0,
-                    y: isDesktopStack ? 48 : mobileY,
+                    x: isDesktopStack ? 0 : mobileX,
+                    y: isDesktopStack ? 48 : 0,
                     scale: isDesktopStack ? 0.94 : 1,
                     filter: isDesktopStack ? "blur(4px)" : "blur(0px)",
                   }}

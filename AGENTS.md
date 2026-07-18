@@ -92,7 +92,7 @@ See `docs/adr/001-cloudflare-r2-deployment.md` for deployment architecture.
 ## AI Integration Rules
 
 - AI calls are encapsulated behind server functions (`src/server/coach.ts`, `src/server/domain.ts`); migrating the direct Grok transport to TanStack AI abstractions is the target (see ADR-011)
-- Every AI path must have a deterministic fallback so the app works with no `GROK_API_KEY`
+- Every AI path must have a deterministic fallback so the app works with no `GROK_API_KEY`. Fallbacks must be general and structural: preserve explicit user-provided facts, perform safe calculations, or return a clearly low-confidence/unestimated result. Do not hardcode one-off domain knowledge (for example, nutrition values for specific named foods) to patch an AI failure; fix and test the general AI estimation path instead. A curated deterministic knowledge table requires an intentional domain design and ADR, not incremental special cases.
 - Grok API keys stored securely (never committed)
 - Responses must be actionable (plans, suggestions, not just data)
 - Voice transcription → structured intent → action

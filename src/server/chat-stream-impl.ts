@@ -160,6 +160,12 @@ function isLikelyJsonBlob(text: string): boolean {
   return t.startsWith("```") || t.startsWith("{") || t.startsWith("[");
 }
 
+function falselyClaimsAppliedAction(text: string): boolean {
+  return /\b(?:logged|recorded|added|created|marked|completed|applied|done|saved|finished)\b/i.test(
+    text,
+  );
+}
+
 function systemPrompt(contextBlock: string, date: ISODate): string {
   const weekday = new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
     weekday: "long",
@@ -178,7 +184,7 @@ How to respond:
 - Never propose that his wife start a business, sell products, or take on income work; her time as a stay-at-home parent is not spare capacity. Anything involving her must be jointly chosen and put the execution burden on Brian.
 - Be concise and actionable. No medical/financial disclaimers, no filler.
 - When the member shares something durable (a new goal, preference, constraint, upcoming life event, milestone, or win), call save_memory. When a remembered fact changed or is disavowed, call update_memory or forget_memory using the ids shown in the "What you remember about the member" section. Never save transient daily facts that belong in logs.
-- When the member clearly wants to RECORD or CHANGE something (e.g. "log 40g protein", "add a task to call the dentist", "I drank 16 oz of water", "mark the laundry done"), call the matching function. Also answer in a short plain-English sentence (what you queued + any progress toward their targets). Do not only emit a tool call with no prose.
+- When the member clearly wants to RECORD or CHANGE something (e.g. "log 40g protein", "add a task to call the dentist", "I drank 16 oz of water", "mark the laundry done"), call the matching function. Non-memory actions are proposals that are NOT executed until the member presses Apply. Also answer in a short plain-English sentence saying what is ready to Apply or queued for approval, plus any progress toward their targets. Never claim a meal, drink, task, or task completion was already logged/applied. Do not only emit a tool call with no prose.
 - Never print JSON, code fences, function-call syntax, or raw tool arguments to the member. Tools are for the app; prose is for the member. Never invent data you weren't given.`;
 }
 
@@ -238,24 +244,20 @@ export async function createChatStreamResponse(input: {
     async start(controller) {
       try {
         let textBuf = "";
-        let sawProse = false;
         const toolNames: ChatActionName[] = [];
+        const pendingActions: Array<{
+          type: "action";
+          id: string;
+          name: ChatActionName;
+          args: Record<string, unknown>;
+        }> = [];
         for await (const ev of streamChat(apiKey, {
           model,
           messages,
           tools: ACTION_TOOLS,
         })) {
           if (ev.type === "delta") {
-            if (sawProse) {
-              if (ev.text) controller.enqueue(sse({ type: "delta", text: ev.text }));
-              continue;
-            }
             textBuf += ev.text;
-            if (ev.text && !isLikelyJsonBlob(textBuf)) {
-              controller.enqueue(sse({ type: "delta", text: textBuf }));
-              sawProse = true;
-              textBuf = "";
-            }
           } else if (ev.type === "tool_call") {
             let args: Record<string, unknown> = {};
             try {
@@ -263,23 +265,34 @@ export async function createChatStreamResponse(input: {
             } catch {
               args = {};
             }
-            toolNames.push(ev.name as ChatActionName);
-            controller.enqueue(sse({ type: "action", id: ev.id, name: ev.name, args }));
+            const name = ev.name as ChatActionName;
+            toolNames.push(name);
+            const action = { type: "action" as const, id: ev.id, name, args };
+            if (isMemoryActionName(name)) controller.enqueue(sse(action));
+            else pendingActions.push(action);
           }
         }
 
-        if (toolNames.length > 0 && !sawProse) {
+        let prose = isLikelyJsonBlob(textBuf) ? "" : textBuf;
+        const hasPendingActions = pendingActions.length > 0;
+        if (hasPendingActions && falselyClaimsAppliedAction(prose)) prose = "";
+
+        if (toolNames.length > 0 && !prose.trim()) {
           const followUp = toolNames.every(isMemoryActionName)
             ? "You already saved the durable fact(s) the member shared — do not mention tools or print JSON. Answer their last message in a short plain-English sentence."
-            : `You already proposed action card(s) (${toolNames.join(", ")}) for the member to Apply — do not call tools or print JSON/code. Confirm in one short plain-English sentence what you queued and, if relevant, how it moves them toward today's targets.`;
+            : `You proposed action card(s) (${toolNames.join(", ")}) that have NOT been executed. Do not call tools or print JSON/code. In one short plain-English sentence, say they are ready to Apply or queued for approval and, if relevant, how approval would move the member toward today's targets. Never say food, water, or a task was already logged/applied.`;
           for await (const ev of streamChat(apiKey, {
             model,
             messages: [...messages, { role: "system", content: followUp }],
           })) {
-            if (ev.type === "delta" && ev.text)
-              controller.enqueue(sse({ type: "delta", text: ev.text }));
+            if (ev.type === "delta") prose += ev.text;
+          }
+          if (hasPendingActions && falselyClaimsAppliedAction(prose)) {
+            prose = "That action is ready to Apply.";
           }
         }
+        if (prose) controller.enqueue(sse({ type: "delta", text: prose }));
+        for (const action of pendingActions) controller.enqueue(sse(action));
         controller.enqueue(sse({ type: "done" }));
       } catch (e) {
         console.warn("[chat] stream failed", e);

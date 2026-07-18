@@ -1,7 +1,7 @@
 /** Coach Engine food macro estimation and deterministic text-parser fallback (ADR-011). */
 
-import { estimateMacrosFromText } from "@/server/domain-impl";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
+import { estimateMacrosFromText } from "@/server/nutrition-impl";
 
 export interface FoodMacroEstimate {
   /** Cleaned-up food/meal name to store on the log. */
@@ -17,7 +17,7 @@ export interface FoodMacroEstimate {
   generatedBy: "ai" | "fallback";
 }
 
-/** Deterministic fallback — only recovers numbers the user typed. */
+/** Deterministic fallback only recovers nutrition facts the member explicitly supplied. */
 function fallbackFoodMacros(description: string): FoodMacroEstimate {
   const { macros, confidence } = estimateMacrosFromText(description);
   return {
@@ -41,8 +41,12 @@ export async function estimateFoodMacrosImpl(data: {
     return fallbackFoodMacros("");
   }
 
+  const deterministic = fallbackFoodMacros(description);
+  // User-provided nutrition facts and clearly zero-calorie inputs are authoritative.
+  if (deterministic.confidence !== "low") return deterministic;
+
   const apiKey = await getGrokApiKey();
-  if (!apiKey) return fallbackFoodMacros(description);
+  if (!apiKey) return deterministic;
 
   const prompt = `You are a precise nutrition database. Estimate the nutrition facts for the food or meal described below.
 If the description includes a portion/quantity (e.g. "6 oz", "2 eggs", "1 cup"), estimate for that exact portion.

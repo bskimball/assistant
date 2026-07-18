@@ -9,12 +9,12 @@ import {
   todayISO,
 } from "@/lib/domain";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
+import { estimateFoodMacrosImpl } from "@/server/coach-food-impl";
 import {
   addDailyWaterImpl,
   addMacros,
   appendMealLogImpl,
   emptyMacros,
-  estimateMacrosFromText,
 } from "@/server/nutrition-impl";
 import {
   loadProductivityTasksForDayImpl,
@@ -265,33 +265,36 @@ export async function executeVoiceIntentImpl(intent: VoiceIntent): Promise<{
           intent.payload.text ||
           (explicitMacros.protein > 0 ? `${explicitMacros.protein}g protein` : "meal")
         ).toString();
-        const estimated = estimateMacrosFromText(desc);
-        const macros =
-          explicitMacros.calories ||
-          explicitMacros.protein ||
-          explicitMacros.carbs ||
-          explicitMacros.fat
-            ? addMacros(emptyMacros(), {
-                ...explicitMacros,
-                calories:
-                  explicitMacros.calories ||
-                  explicitMacros.protein * 4 + explicitMacros.carbs * 4 + explicitMacros.fat * 9,
-              })
-            : estimated.macros;
+        const hasExplicitMacros =
+          explicitMacros.calories > 0 ||
+          explicitMacros.protein > 0 ||
+          explicitMacros.carbs > 0 ||
+          explicitMacros.fat > 0;
+        const estimated = hasExplicitMacros
+          ? null
+          : await estimateFoodMacrosImpl({ description: desc });
+        const macros = hasExplicitMacros
+          ? addMacros(emptyMacros(), {
+              ...explicitMacros,
+              calories:
+                explicitMacros.calories ||
+                explicitMacros.protein * 4 + explicitMacros.carbs * 4 + explicitMacros.fat * 9,
+            })
+          : addMacros(emptyMacros(), estimated || {});
         const mealLog = {
           id: `meal-${now}`,
           timestamp: now,
           foodItems: [
             {
               id: `food-${now}`,
-              name: desc,
-              quantity: 1,
-              unit: "serving",
+              name: estimated?.name || desc,
+              quantity: estimated?.quantity || 1,
+              unit: estimated?.unit || "serving",
               macros,
               source: "user" as const,
             },
           ],
-          estimateConfidence: estimated.confidence,
+          estimateConfidence: estimated?.confidence || "high",
           createdAt: now,
         };
         await appendMealLogImpl({

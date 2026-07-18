@@ -27,10 +27,15 @@ export function sumMealMacros(meals: DailyNutrition["mealLogs"]): Macros {
 function inferFoodMacrosFromText(
   lower: string,
 ): { macros: Macros; confidence: "low" | "medium" } | null {
-  if (
-    /\b0\s*(?:cal|cals|calorie|calories|kcal)\b/.test(lower) ||
-    /\b(water|black coffee|unsweetened tea|diet soda)\b/.test(lower)
-  ) {
+  if (/\b0\s*(?:cal|cals|calorie|calories|kcal)\b/.test(lower)) {
+    return { macros: emptyMacros(), confidence: "medium" };
+  }
+
+  const simpleZeroCalorieDrink =
+    /^\s*(?:(?:\d+(?:\.\d+)?)\s*(?:fl\s*)?oz\s+(?:of\s+)?)?(?:plain\s+)?(?:water|black coffee|unsweetened tea|diet soda)\s*[.!]?\s*$/.test(
+      lower,
+    );
+  if (simpleZeroCalorieDrink) {
     return { macros: emptyMacros(), confidence: "medium" };
   }
 

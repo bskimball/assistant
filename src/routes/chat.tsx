@@ -580,13 +580,13 @@ function ChatPage() {
 
   return (
     <div
-      className="zen-ambient !min-h-0 flex h-[calc(100dvh-var(--shelf-h)-var(--tabbar-h))] flex-col overflow-hidden px-4 pt-4 sm:px-6"
+      className="zen-ambient !min-h-0 flex h-[calc(100dvh-var(--shelf-h)-var(--tabbar-h))] min-w-0 max-w-full flex-col overflow-x-hidden px-4 pt-4 sm:px-6"
       data-daypart={daypart}
       data-density="medium"
       data-atmosphere="calm"
       data-streaming={isLoading ? "true" : undefined}
     >
-      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
+      <div className="relative z-10 mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col overflow-x-hidden">
         {/* Header — compresses once a conversation begins so the transcript leads. */}
         <div className="flex items-end justify-between gap-3 pb-4">
           <AnimatePresence initial={false}>
@@ -658,7 +658,7 @@ function ChatPage() {
 
         {/* Body: a single centered conversation column — the ambient scene shows
             through the transparent UI. */}
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden">
           <section className="flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Conversation — content anchors to the bottom so a short chat sits
               just above the composer instead of leaving a tall empty gap.
@@ -667,9 +667,9 @@ function ChatPage() {
             <div
               ref={scrollViewportRef}
               onScroll={onTranscriptScroll}
-              className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+              className="min-h-0 min-w-0 max-w-full flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable_both-edges]"
             >
-              <div className="relative flex min-h-full w-full flex-col justify-end gap-4 pb-4">
+              <div className="relative flex min-h-full min-w-0 w-full max-w-full flex-col justify-end gap-4 overflow-x-hidden pb-4">
                 <AnimatePresence initial={false}>
                   {empty && (
                     <motion.div
@@ -768,14 +768,14 @@ function ChatPage() {
                 aria-hidden
                 className="pointer-events-none absolute inset-x-6 bottom-8 top-3 rounded-2xl bg-primary/20 opacity-0 blur-2xl transition-opacity duration-300 group-focus-within/composer:opacity-100 md:bottom-6"
               />
-              <div className="zen-card relative flex items-end gap-2 p-2 transition-[box-shadow] duration-150 ease-out focus-within:shadow-lg focus-within:ring-1 focus-within:ring-ring/60">
+              <div className="zen-card relative flex min-w-0 max-w-full items-end gap-2 overflow-x-hidden p-2 transition-[box-shadow] duration-150 ease-out focus-within:shadow-lg focus-within:ring-1 focus-within:ring-ring/60">
                 <Textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={1}
                   placeholder="Message your coach…"
-                  className="max-h-40 min-h-10 resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
+                  className="max-h-40 min-h-10 min-w-0 max-w-full resize-none border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
                 />
                 {isLoading ? (
                   <Button
@@ -928,18 +928,18 @@ function MessageBubble({
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.16, ease: "easeOut" }}
-        className="flex justify-start"
+        className="flex min-w-0 max-w-full justify-start overflow-x-hidden"
         role="status"
       >
         <div
-          className={`inline-flex max-w-[min(100%,28rem)] items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm ${
+          className={`inline-flex min-w-0 max-w-[min(100%,28rem)] items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm ${
             ok
               ? "border-success/25 bg-success/10 text-success"
               : "border-destructive/25 bg-destructive/10 text-destructive"
           }`}
         >
           {ok ? <Check className="size-3.5 shrink-0" /> : <X className="size-3.5 shrink-0" />}
-          <span className="min-w-0 truncate font-medium">{label}</span>
+          <span className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{label}</span>
         </div>
       </motion.div>
     );
@@ -951,11 +951,13 @@ function MessageBubble({
       initial={isUser ? false : { opacity: 0, y: 10, x: -12 }}
       animate={{ opacity: 1, y: 0, x: 0 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className={`group/msg flex items-end gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
+      className={`group/msg flex min-w-0 max-w-full items-end gap-2.5 overflow-x-hidden ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`flex max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
+      <div
+        className={`flex min-w-0 max-w-[85%] flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}
+      >
         <div
-          className={`chat-bubble whitespace-pre-wrap break-words px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] ${
+          className={`chat-bubble min-w-0 max-w-full whitespace-pre-wrap break-words px-3.5 py-2.5 text-sm leading-relaxed [font-variant-numeric:tabular-nums] [overflow-wrap:anywhere] ${
             isUser
               ? "chat-bubble-user relative rounded-2xl rounded-br-none bg-primary text-primary-foreground shadow-md shadow-primary/20"
               : `chat-bubble-coach zen-card rounded-2xl rounded-bl-none text-card-foreground ${
@@ -1026,10 +1028,12 @@ function ActionCard({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -6 }}
         transition={{ duration: 0.16, ease: "easeOut" }}
-        className="zen-surface-nested flex min-h-10 max-w-full items-center gap-1.5 rounded-full px-3 py-2 text-xs text-muted-foreground"
+        className="zen-surface-nested flex min-h-10 min-w-0 max-w-full items-center gap-1.5 overflow-x-hidden rounded-full px-3 py-2 text-xs text-muted-foreground"
       >
         <Icon className="size-3.5 shrink-0" />
-        <span className="min-w-0 truncate">{describeAction(action.name, action.args)}</span>
+        <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+          {describeAction(action.name, action.args)}
+        </span>
       </motion.div>
     );
   }
@@ -1041,14 +1045,16 @@ function ActionCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6, scale: 0.98 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className="zen-surface-nested flex w-full items-center gap-3 px-3 py-2.5"
+      className="zen-surface-nested flex min-w-0 w-full max-w-full flex-wrap items-center gap-3 overflow-x-hidden px-3 py-2.5 sm:flex-nowrap"
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
         <Icon className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-muted-foreground">{meta?.label ?? "Action"}</div>
-        <div className="truncate text-sm">{describeAction(action.name, action.args)}</div>
+        <div className="break-words text-sm [overflow-wrap:anywhere]">
+          {describeAction(action.name, action.args)}
+        </div>
       </div>
       <AnimatePresence initial={false} mode="popLayout">
         {action.status === "applied" ? (
@@ -1069,7 +1075,7 @@ function ActionCard({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.16, ease: "easeOut" }}
-            className="flex shrink-0 items-center gap-1.5"
+            className="ml-auto flex shrink-0 items-center gap-1.5"
           >
             <Button
               size="sm"
