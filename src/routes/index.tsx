@@ -1608,10 +1608,14 @@ function ActionStack({
                   key={key}
                   layout={isDesktopStack}
                   drag={isFront && !isDesktopStack ? "x" : false}
-                  dragControls={dragControls}
+                  // Only the focused card may subscribe to the shared controls.
+                  // Motion starts a pan session on every subscriber, so subscribing
+                  // the whole deck creates overlapping gestures after selection changes.
+                  dragControls={isFront && !isDesktopStack ? dragControls : undefined}
                   dragListener={false}
                   dragElastic={0.18}
                   dragMomentum={false}
+                  dragSnapToOrigin
                   className={isFront ? "action-stack-card-front touch-pan-y" : undefined}
                   initial={{
                     opacity: 0,
