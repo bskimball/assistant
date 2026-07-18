@@ -182,24 +182,18 @@ function BottomBar({ pathname }: { pathname: string }) {
                 aria-current={on ? "page" : undefined}
                 className="flex flex-1 flex-col items-center gap-1 pb-1.5"
               >
-                <span
-                  data-active={on}
-                  className="nav-coach -mt-6 flex size-14 items-center justify-center rounded-full ring-4 ring-[var(--surface-raised)]"
-                >
-                  <Icon className="size-6" strokeWidth={1.75} />
-                </span>
-                <span className="relative flex flex-col items-center">
+                <span className="nav-coach-halo -mt-6 rounded-full p-1">
                   <span
-                    className={`text-[10px] font-medium ${on ? "text-primary" : "text-muted-foreground"}`}
+                    data-active={on}
+                    className="nav-coach flex size-14 items-center justify-center rounded-full"
                   >
-                    {tab.label}
+                    <Icon className="size-6" strokeWidth={1.75} />
                   </span>
-                  {on && (
-                    <span
-                      aria-hidden
-                      className="nav-needle absolute -bottom-1 left-1/2 h-1 w-4 -translate-x-1/2"
-                    />
-                  )}
+                </span>
+                <span
+                  className={`text-[10px] font-medium ${on ? "text-primary" : "text-muted-foreground"}`}
+                >
+                  {tab.label}
                 </span>
               </Link>
             );
@@ -213,14 +207,10 @@ function BottomBar({ pathname }: { pathname: string }) {
                 on ? "text-primary" : "text-muted-foreground"
               }`}
             >
-              <span className="relative flex size-8 items-center justify-center">
+              <span
+                className={`flex size-8 items-center justify-center rounded-lg transition-colors ${on ? "bg-primary/10" : ""}`}
+              >
                 <Icon className="size-5" strokeWidth={1.75} />
-                {on && (
-                  <span
-                    aria-hidden
-                    className="nav-needle absolute -bottom-1 left-1/2 h-1 w-4 -translate-x-1/2"
-                  />
-                )}
               </span>
               {tab.label}
             </Link>
@@ -245,11 +235,9 @@ function MoreMenu({ pathname }: { pathname: string }) {
   // Accessible name reflects the active overflow state so screen readers hear
   // "More, Review selected" — state is not conveyed by the marker color alone.
   const triggerLabel = moreActive ? "More, Review selected" : "More";
-  const triggerClass =
-    "relative flex min-h-10 min-w-10 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground lg:hidden";
-  const marker = moreActive && (
-    <span aria-hidden className="nav-needle absolute bottom-1 left-1/2 h-1 w-4 -translate-x-1/2" />
-  );
+  const triggerClass = `relative flex min-h-10 min-w-10 items-center justify-center rounded-full transition-colors duration-200 hover:bg-muted hover:text-foreground lg:hidden ${
+    moreActive ? "bg-primary/10 text-primary" : "text-muted-foreground"
+  }`;
 
   return (
     <>
@@ -263,7 +251,6 @@ function MoreMenu({ pathname }: { pathname: string }) {
             className={triggerClass}
           >
             <MoreHorizontal className="size-5" strokeWidth={1.75} />
-            {marker}
           </SheetTrigger>
           <SheetContent
             side="bottom"
@@ -307,7 +294,6 @@ function MoreMenu({ pathname }: { pathname: string }) {
             className={triggerClass}
           >
             <MoreHorizontal className="size-5" strokeWidth={1.75} />
-            {marker}
           </PopoverTrigger>
           <PopoverContent align="end" className="w-52 p-1">
             {MORE_GROUPS.map((group, gi) => (
@@ -358,13 +344,12 @@ function MoreTile({
           : "border-border bg-card text-foreground hover:bg-muted"
       }`}
     >
-      <Icon className="size-5 text-primary" strokeWidth={1.75} /> {label}
-      {on && (
-        <span
-          aria-hidden
-          className="nav-needle absolute right-3 top-1/2 h-1 w-4 -translate-y-1/2 rotate-90"
-        />
-      )}
+      <span
+        className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${on ? "bg-primary/10" : "bg-muted"}`}
+      >
+        <Icon className="size-5 text-primary" strokeWidth={1.75} />
+      </span>
+      {label}
     </Link>
   );
 }

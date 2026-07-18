@@ -765,6 +765,10 @@
   --zen-opacity: 58%;
   --zen-blur: 30px;
   border-top: 0;
+  /* The shared glass outline paints over descendants, which drew its top edge
+     across the elevated Coach button. Keep the hairline as an inset shadow so
+     the opaque Coach halo masks it naturally. */
+  outline: 0;
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.4),
     0 -1px 2px rgba(0, 0, 0, 0.03),
@@ -773,6 +777,7 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 .dark .app-tabbar {
+  outline: 0;
   box-shadow:
     inset 0 1px 0 0 rgb(200 214 255 / 0.14),
     0 -1px 2px oklch(0 0 0 / 0.2),
@@ -780,27 +785,16 @@
     0 -24px 48px -24px oklch(0 0 0 / 0.5);
 }
 
-/* Active-tab "needle" marker — a slim, tapered crimson pointer echoing the
-   compass needle, anchored under (bottom bar) or over (desktop) the active tab.
-   The taper (clip-path) narrows to a point so it reads as a needle, not a bar. */
-.nav-needle {
-  background: var(--primary);
-  border-radius: 9999px;
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
-  transition:
-    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.2s ease;
+/* Elevated center Coach tab uses fully opaque surfaces so content never shows
+   through the button or its separation halo above the glass tab bar. */
+.nav-coach-halo {
+  background: oklch(0.985 0.006 82);
 }
-
-/* Elevated center Coach tab on the bottom bar — a subtly raised MINERAL neutral
-   surface (not a solid crimson FAB) with a fine crimson ring + crimson icon so
-   it reads as "the coach" through restrained detail, not a loud brand blob. */
 .nav-coach {
-  background: var(--surface-raised);
+  background: oklch(0.985 0.006 82);
   color: var(--primary);
   box-shadow:
-    inset 0 0 0 1.5px color-mix(in oklch, var(--primary) 45%, transparent),
+    inset 0 0 0 1.5px oklch(0.58 0.16 25),
     0 4px 12px -6px oklch(0 0 0 / 0.16),
     0 2px 6px -3px oklch(0 0 0 / 0.12);
   transition:
@@ -811,14 +805,21 @@
 .nav-coach:active {
   transform: scale(0.96);
 }
-/* Active Coach: firm up the crimson ring + a faint crimson wash, but keep the
-   mineral surface — the standard needle marker still carries "active". */
 .nav-coach[data-active="true"] {
-  background: color-mix(in oklch, var(--primary) 10%, var(--surface-raised));
+  background: oklch(0.94 0.035 28);
   box-shadow:
-    inset 0 0 0 1.5px color-mix(in oklch, var(--primary) 65%, transparent),
+    inset 0 0 0 1.5px oklch(0.5 0.2 25),
     0 4px 12px -6px oklch(0 0 0 / 0.18),
     0 2px 6px -3px oklch(0 0 0 / 0.14);
+}
+.dark .nav-coach-halo {
+  background: oklch(0.285 0.02 245);
+}
+.dark .nav-coach {
+  background: oklch(0.285 0.02 245);
+}
+.dark .nav-coach[data-active="true"] {
+  background: oklch(0.32 0.045 25);
 }
 
 /* Theme-aware explicit logo crossfade. Both marks are stacked; the pair for the

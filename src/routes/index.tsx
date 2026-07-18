@@ -4,12 +4,13 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useDragControls } from "motion/react";
 import { Reveal, revealDelay } from "@/components/motion";
 import { dashboardQuery, workoutSessionsQuery, financeHubQuery, queryKeys } from "@/lib/queries";
 import {
@@ -1427,13 +1428,13 @@ function ZenStackDashboard() {
         )}
       </AnimatePresence>
 
-      {/* Voice mic FAB — centered above mobile nav, lower-right on desktop. */}
+      {/* Voice mic FAB — lower-right, above the mobile tab bar. */}
       {isToday && (
         <button
           onClick={handleFabClick}
           disabled={isVoiceProcessing}
           aria-label={isListening ? "Stop listening" : "Talk to your coach"}
-          className={`fixed bottom-24 left-1/2 z-40 flex size-16 -translate-x-1/2 items-center justify-center rounded-full transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] lg:bottom-8 lg:left-auto lg:right-8 lg:translate-x-0 ${
+          className={`fixed bottom-[calc(var(--tabbar-h)+1rem)] left-auto right-4 z-40 flex size-16 translate-x-0 items-center justify-center rounded-full transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] lg:bottom-8 lg:right-8 ${
             isListening
               ? "bg-primary text-primary-foreground shadow-lg ring-4 ring-primary/20"
               : "bg-surface-raised text-primary shadow-xl ring-1 ring-primary/35 hover:bg-surface"
@@ -1475,11 +1476,29 @@ function StackCard({
  * Interactive, buttery-smooth carousel/stack of Action cards.
  *
  * Every domain card stays in the deck. Daypart only chooses which card starts
- * in front — never which cards exist. The front card is full-scale; cards
- * behind recede with clearer peeks so the rest of the deck is discoverable.
+ * in front — never which cards exist. Below xl, horizontal swipes select cards
+ * while the scene transitions vertically, with adjacent cards peeking above or
+ * below the focused card. At xl+, cards retain the full depth-stack treatment.
  * Compact dot controls keep navigation quiet while accessible labels preserve
  * the card names for assistive technology.
  */
+const stackInteractiveSelector =
+  "button,a,input,textarea,select,[contenteditable=true],[role=button],[role=link],[role=slider],[role=checkbox],[role=switch]";
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
+}
+
 function ActionStack({
   children,
   focusKey,
@@ -1537,6 +1556,9 @@ function ActionStack({
   const clampedActive = cards.length === 0 ? 0 : Math.min(activeIndex, cards.length - 1);
 
   const count = cards.length;
+  const isDesktopStack = useMediaQuery("(min-width: 1280px)");
+  const dragControls = useDragControls();
+  const suppressDrag = useRef(false);
   if (count === 0) return null;
 
   const selectIndex = (i: number) => setActiveKey(cards[i]?.key ?? null);
@@ -1544,11 +1566,16 @@ function ActionStack({
     const next = (clampedActive + dir + count) % count;
     selectIndex(next);
   };
+  const startFrontDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const target = event.target as Element;
+    suppressDrag.current = Boolean(target.closest(stackInteractiveSelector));
+    if (!suppressDrag.current && !isDesktopStack) dragControls.start(event);
+  };
 
   return (
-    <div className="action-stack">
+    <div className="action-stack overflow-hidden xl:overflow-visible">
       <div
-        className="relative mb-6 flex min-h-[520px] items-start justify-center pt-4 sm:pt-6"
+        className="relative mb-6 flex min-h-[520px] items-start justify-center overflow-hidden pt-4 sm:pt-6 xl:overflow-visible"
         style={{ perspective: 1200 }}
       >
         <div className="relative w-full max-w-2xl pb-16 sm:pb-20 xl:max-w-4xl">
@@ -1563,37 +1590,76 @@ function ActionStack({
               const peekScale = isFront ? 1 : Math.max(0.86, 1 - depth * 0.04);
               const peekOpacity = isFront ? 1 : Math.max(0.22, 0.7 - depth * 0.12);
               const peekBlur = isFront ? 0 : Math.min(2.2, 0.35 + depth * 0.45);
+              const rawDirection = i - clampedActive;
+              const mobileDirection =
+                Math.abs(rawDirection) <= count / 2
+                  ? rawDirection
+                  : rawDirection - Math.sign(rawDirection) * count;
+              // Mobile keeps horizontal swipe input, but presents selection changes
+              // as a vertical scene: the next card peeks below and the previous above.
+              const mobileY =
+                mobileDirection === 0
+                  ? 0
+                  : mobileDirection < 0
+                    ? "calc(-100% + 20px)"
+                    : "calc(100% - 20px)";
               return (
                 <motion.div
                   key={key}
-                  layout
-                  className={isFront ? "action-stack-card-front" : undefined}
+                  layout={isDesktopStack}
+                  drag={isFront && !isDesktopStack ? "x" : false}
+                  dragControls={dragControls}
+                  dragListener={false}
+                  dragElastic={0.18}
+                  dragMomentum={false}
+                  className={isFront ? "action-stack-card-front touch-pan-y" : undefined}
                   initial={{
                     opacity: 0,
-                    y: 48,
-                    scale: 0.94,
-                    filter: "blur(4px)",
+                    x: 0,
+                    y: isDesktopStack ? 48 : mobileY,
+                    scale: isDesktopStack ? 0.94 : 1,
+                    filter: isDesktopStack ? "blur(4px)" : "blur(0px)",
                   }}
                   animate={{
-                    opacity: peekOpacity,
-                    y: peekY,
-                    scale: peekScale,
-                    filter: `blur(${peekBlur}px)`,
+                    opacity: isDesktopStack ? peekOpacity : isFront ? 1 : 0.48,
+                    x: 0,
+                    y: isDesktopStack ? peekY : mobileY,
+                    scale: isDesktopStack ? peekScale : 1,
+                    filter: isDesktopStack ? `blur(${peekBlur}px)` : "blur(0px)",
                   }}
-                  exit={{ opacity: 0, y: 48, scale: 0.94, filter: "blur(4px)" }}
+                  exit={{
+                    opacity: 0,
+                    x: 0,
+                    y: isDesktopStack ? 48 : mobileY,
+                    scale: isDesktopStack ? 0.94 : 1,
+                    filter: isDesktopStack ? "blur(4px)" : "blur(0px)",
+                  }}
                   transition={{
                     type: "spring",
                     stiffness: 320,
                     damping: 34,
                     mass: 0.9,
                   }}
+                  onPointerDownCapture={isFront ? startFrontDrag : undefined}
+                  onDragEnd={(_, info) => {
+                    const wasSuppressed = suppressDrag.current;
+                    suppressDrag.current = false;
+                    if (wasSuppressed || isDesktopStack) return;
+                    if (Math.abs(info.offset.x) >= 70 || Math.abs(info.velocity.x) >= 500) {
+                      go(info.offset.x < 0 ? 1 : -1);
+                    }
+                  }}
                   onClick={() => {
                     if (!isFront) selectIndex(i);
                   }}
                   style={{
-                    zIndex: count - depth,
+                    zIndex: isDesktopStack
+                      ? count - depth
+                      : isFront
+                        ? count
+                        : count - Math.abs(mobileDirection),
                     pointerEvents: "auto",
-                    cursor: isFront ? "default" : "pointer",
+                    cursor: isFront ? (isDesktopStack ? "default" : "grab") : "pointer",
                     // Behind cards stack in the same space; the front card owns flow.
                     position: isFront ? "relative" : "absolute",
                     inset: isFront ? undefined : 0,
@@ -1675,19 +1741,19 @@ function ActionStack({
         </div>
       </div>
 
-      {/* Mobile horizontal controls fallback */}
+      {/* Quiet mobile position status and direct-access dots. */}
       {count > 1 && (
-        <div className="pointer-events-auto relative z-10 mt-2 flex items-center justify-center gap-3 pb-6 xl:hidden">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="zen-input size-10 rounded-full border shadow-sm transition-[scale,background-color] active:scale-[0.96]"
-            onClick={() => go(-1)}
-            aria-label="Previous card"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <div className="zen-input flex items-center rounded-full border px-2 py-1 shadow-sm">
+        <div className="pointer-events-auto relative z-10 mt-2 flex flex-col items-center pb-6 xl:hidden">
+          <div className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{cards[clampedActive]?.label}</span>
+            <span className="mx-1.5" aria-hidden>
+              ·
+            </span>
+            <span className="tabular-nums">
+              {clampedActive + 1} of {count}
+            </span>
+          </div>
+          <div className="mt-1 flex items-center justify-center" aria-label="Choose a card">
             {cards.map(({ key, label }, i) => {
               const isActive = i === clampedActive;
               return (
@@ -1696,7 +1762,7 @@ function ActionStack({
                   type="button"
                   onClick={() => selectIndex(i)}
                   aria-label={`Show ${label}`}
-                  aria-current={isActive}
+                  aria-current={isActive ? "true" : undefined}
                   className="grid size-10 place-items-center rounded-full transition-colors hover:bg-foreground/5"
                 >
                   <motion.span
@@ -1704,7 +1770,7 @@ function ActionStack({
                     animate={{
                       width: isActive ? 22 : 7,
                       height: 6,
-                      opacity: isActive ? 1 : 0.55,
+                      opacity: isActive ? 1 : 0.45,
                     }}
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
                     className="block rounded-full bg-foreground"
@@ -1713,15 +1779,6 @@ function ActionStack({
               );
             })}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="zen-input size-10 rounded-full border shadow-sm transition-[scale,background-color] active:scale-[0.96]"
-            onClick={() => go(1)}
-            aria-label="Next card"
-          >
-            <ChevronRight className="size-4" />
-          </Button>
         </div>
       )}
     </div>
