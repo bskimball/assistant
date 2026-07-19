@@ -1,19 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import {
-  User,
-  Target,
-  Compass,
-  Dumbbell,
-  Utensils,
-  Wallet,
-  Save,
-  Check,
-  Brain,
-  Sparkles,
-  Trash2,
-  Calendar as CalendarIcon,
-} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,6 +37,21 @@ import {
   type UserProfile,
   type WorkoutStyle,
 } from "@/lib/domain";
+import {
+  BarbellIcon,
+  BrainIcon,
+  CalendarIcon,
+  CheckIcon,
+  CompassIcon,
+  FloppyDiskIcon,
+  ForkKnifeIcon,
+  SparkleIcon,
+  TargetIcon,
+  TrashIcon,
+  UserIcon,
+  WalletIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 // User Profile settings (ADR-013): the personalization context the Coach Engine
 // reads. Grouped by the four advisor lenses so it mirrors how the coach reasons.
@@ -226,11 +227,11 @@ function Field({
  * Section header with a soft primary icon chip — gives each settings group a
  * touch of identity without introducing new colors.
  */
-function SectionTitle({ Icon, children }: { Icon: typeof User; children: React.ReactNode }) {
+function SectionTitle({ Icon, children }: { Icon: PhosphorIcon; children: React.ReactNode }) {
   return (
     <CardTitle className="flex items-center gap-2.5 text-base">
       <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-        <Icon className="size-4" />
+        <Icon className="size-4" weight="duotone" />
       </span>
       {children}
     </CardTitle>
@@ -275,7 +276,7 @@ function BirthDatePicker({
             !selected && "text-muted-foreground",
           )}
         >
-          <CalendarIcon className="size-4 text-muted-foreground" />
+          <CalendarIcon className="size-4 text-muted-foreground" weight="duotone" />
           {label}
         </Button>
       </PopoverTrigger>
@@ -411,7 +412,7 @@ function ProfilePage() {
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="flex items-center gap-2.5 font-medium">
               <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <Sparkles className="size-4" />
+                <SparkleIcon className="size-4" weight="duotone" />
               </span>
               Coach profile quality
             </span>
@@ -446,7 +447,7 @@ function ProfilePage() {
             <Item>
               <Card>
                 <CardHeader>
-                  <SectionTitle Icon={User}>Identity</SectionTitle>
+                  <SectionTitle Icon={UserIcon}>Identity</SectionTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Display name">
@@ -513,7 +514,7 @@ function ProfilePage() {
             <Item>
               <Card>
                 <CardHeader>
-                  <SectionTitle Icon={Target}>Coaching &amp; Goals</SectionTitle>
+                  <SectionTitle Icon={TargetIcon}>Coaching &amp; Goals</SectionTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Field
@@ -554,7 +555,7 @@ function ProfilePage() {
             <Item>
               <Card>
                 <CardHeader>
-                  <SectionTitle Icon={Compass}>Coaching style &amp; context</SectionTitle>
+                  <SectionTitle Icon={CompassIcon}>Coaching style &amp; context</SectionTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Field
@@ -628,7 +629,7 @@ function ProfilePage() {
             <Item>
               <Card>
                 <CardHeader>
-                  <SectionTitle Icon={Dumbbell}>Fitness</SectionTitle>
+                  <SectionTitle Icon={BarbellIcon}>Fitness</SectionTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Field
@@ -691,7 +692,7 @@ function ProfilePage() {
             <Item>
               <Card>
                 <CardHeader>
-                  <SectionTitle Icon={Utensils}>Nutrition</SectionTitle>
+                  <SectionTitle Icon={ForkKnifeIcon}>Nutrition</SectionTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Field
@@ -738,7 +739,7 @@ function ProfilePage() {
             <Item>
               <Card>
                 <CardHeader>
-                  <SectionTitle Icon={Wallet}>Finance</SectionTitle>
+                  <SectionTitle Icon={WalletIcon}>Finance</SectionTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -796,7 +797,7 @@ function ProfilePage() {
             <Item>
               <Card className="overflow-hidden border-primary/20 bg-card/70 backdrop-blur-xl backdrop-saturate-150 shadow-sm">
                 <CardHeader>
-                  <SectionTitle Icon={Brain}>What your coach remembers</SectionTitle>
+                  <SectionTitle Icon={BrainIcon}>What your coach remembers</SectionTitle>
                 </CardHeader>
                 <CardContent>
                   {memories.length === 0 ? (
@@ -833,7 +834,7 @@ function ProfilePage() {
                             aria-label="Forget this memory"
                             className="-my-1 -mr-1 flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,background-color,color,scale] duration-150 ease-out hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 active:scale-[0.96] group-hover:opacity-100"
                           >
-                            <Trash2 className="size-4" />
+                            <TrashIcon className="size-4" weight="duotone" />
                           </button>
                         </Reveal>
                       ))}
@@ -849,7 +850,11 @@ function ProfilePage() {
                 disabled={saving}
                 className="gap-1.5 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
               >
-                {savedAt ? <Check className="size-4" /> : <Save className="size-4" />}
+                {savedAt ? (
+                  <CheckIcon className="size-4" weight="duotone" />
+                ) : (
+                  <FloppyDiskIcon className="size-4" weight="duotone" />
+                )}
                 {saving ? "Saving…" : "Save profile"}
               </Button>
               {savedAt && (

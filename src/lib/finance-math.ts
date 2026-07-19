@@ -214,12 +214,43 @@ export type RecurringInsight = {
   /** Most recent matching charge amount, if any. */
   lastChargeAmount?: number;
   lastChargeAt?: number;
-  /** How many matching charges found in lookback. */
+  /** How many matching non-deleted charges found in lookback. */
   matchCount: number;
-  /** Days since last matching charge (null if never). */
+  /** Days since last matching non-deleted charge (null if never). */
   daysSinceLastCharge: number | null;
   /** Confidence 0–1 for UI ordering. */
   confidence: number;
+};
+
+export type RecurringHealthMatch = {
+  transactionId: string;
+  timestamp: number;
+  amount: number;
+  account?: string;
+  source?: Transaction["source"];
+};
+
+export type RecurringHealthNearMissReason =
+  | "matched-but-deleted"
+  | "amount-out-of-tolerance"
+  | "name-token-mismatch"
+  | "deposit"
+  | "linked-to-other-recurring"
+  | "user-unlinked";
+
+export type RecurringHealthNearMiss = RecurringHealthMatch & {
+  reason: RecurringHealthNearMissReason;
+  deletedAt?: number;
+  deletedReason?: string;
+  /** Absolute difference between the charge and tracked amount, in dollars. */
+  amountDelta?: number;
+};
+
+export type RecurringHealthTrace = {
+  subscriptionId: string;
+  window: { start: number; end: number; lookbackDays: number };
+  matchedCharges: RecurringHealthMatch[];
+  nearMissCandidates: RecurringHealthNearMiss[];
 };
 
 export type OneTimeCandidate = {
@@ -521,12 +552,7 @@ export function recurringNamesShareToken(a?: string, b?: string): boolean {
   return [...recurringNameTokens(b)].some((token) => aTokens.has(token));
 }
 
-export function recurringMatchesTransaction(sub: Subscription, t: Transaction): boolean {
-  if (t.amount >= 0) return false;
-  if (t.recurringId) return t.recurringId === sub.id;
-  if (t.recurringMatchSource === "user") return false;
-  if (!amountWithinRecurringTolerance(sub, t.amount)) return false;
-
+function recurringDescriptorMatches(sub: Subscription, t: Transaction): boolean {
   const subName = normalizedFinanceLabel(sub.name);
   const txnName = normalizedFinanceLabel(t.category || t.notes || "");
   const nameMatches =
@@ -545,6 +571,117 @@ export function recurringMatchesTransaction(sub: Subscription, t: Transaction): 
     return !!normalizedHint && rawTxnDescriptor.includes(normalizedHint);
   });
   return nameMatches || accountMatches || hintMatches;
+}
+
+function recurringMatchRejection(
+  sub: Subscription,
+  t: Transaction,
+): Exclude<RecurringHealthNearMissReason, "matched-but-deleted"> | null {
+  if (t.amount >= 0) return "deposit";
+  if (t.recurringId) return t.recurringId === sub.id ? null : "linked-to-other-recurring";
+  if (t.recurringMatchSource === "user") return "user-unlinked";
+  if (!amountWithinRecurringTolerance(sub, t.amount)) return "amount-out-of-tolerance";
+  return recurringDescriptorMatches(sub, t) ? null : "name-token-mismatch";
+}
+
+export function recurringMatchesTransaction(sub: Subscription, t: Transaction): boolean {
+  return recurringMatchRejection(sub, t) === null;
+}
+
+function normalizedAccountFamily(raw?: string): string {
+  return (raw || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Cross-source duplicate heuristic used by both CSV import and SimpleFIN sync. */
+export function crossSourceTransactionMatches(
+  incoming: Pick<Transaction, "timestamp" | "amount" | "account" | "category" | "notes" | "source">,
+  existing: Transaction,
+): boolean {
+  if (
+    existing.deletedAt ||
+    !incoming.source ||
+    !existing.source ||
+    incoming.source === existing.source
+  ) {
+    return false;
+  }
+  if (Math.abs(incoming.amount - existing.amount) > 0.01) return false;
+  if (Math.abs(incoming.timestamp - existing.timestamp) > 3 * DAY) return false;
+
+  const incomingAccount = normalizedAccountFamily(incoming.account);
+  const existingAccount = normalizedAccountFamily(existing.account);
+  if (
+    !incomingAccount ||
+    !existingAccount ||
+    (!incomingAccount.includes(existingAccount) && !existingAccount.includes(incomingAccount))
+  ) {
+    return false;
+  }
+
+  const incomingMerchant = incoming.category || incoming.notes || "";
+  const existingMerchant = existing.category || existing.notes || "";
+  return recurringNamesShareToken(incomingMerchant, existingMerchant);
+}
+
+export function explainRecurringHealth(input: {
+  sub: Subscription;
+  transactions: Transaction[];
+  now?: number;
+  lookbackDays?: number;
+}): RecurringHealthTrace {
+  const now = input.now ?? Date.now();
+  const lookbackDays = input.lookbackDays ?? 180;
+  const start = now - lookbackDays * DAY;
+  const matchedCharges: RecurringHealthMatch[] = [];
+  const nearMissCandidates: RecurringHealthNearMiss[] = [];
+
+  for (const transaction of input.transactions) {
+    if (transaction.timestamp < start || transaction.timestamp > now) continue;
+    const rejection = recurringMatchRejection(input.sub, transaction);
+    // Keep the trace focused on plausible charge candidates rather than every
+    // ledger row in the window. Amount misses need a matching descriptor;
+    // name misses have already passed the amount gate.
+    if (rejection === "deposit") continue;
+    if (
+      rejection === "amount-out-of-tolerance" &&
+      !recurringDescriptorMatches(input.sub, transaction)
+    ) {
+      continue;
+    }
+    const base: RecurringHealthMatch = {
+      transactionId: transaction.id,
+      timestamp: transaction.timestamp,
+      amount: dollars(Math.abs(transaction.amount)),
+      account: transaction.account,
+      source: transaction.source,
+    };
+    if (rejection === null && !transaction.deletedAt) {
+      matchedCharges.push(base);
+      continue;
+    }
+    nearMissCandidates.push({
+      ...base,
+      reason: rejection === null ? "matched-but-deleted" : rejection,
+      deletedAt: transaction.deletedAt,
+      deletedReason: transaction.deletedReason,
+      amountDelta:
+        rejection === "amount-out-of-tolerance"
+          ? dollars(Math.abs(Math.abs(transaction.amount) - input.sub.amount))
+          : undefined,
+    });
+  }
+
+  matchedCharges.sort((a, b) => b.timestamp - a.timestamp);
+  nearMissCandidates.sort((a, b) => b.timestamp - a.timestamp);
+  return {
+    subscriptionId: input.sub.id,
+    window: { start, end: now, lookbackDays },
+    matchedCharges,
+    nearMissCandidates,
+  };
 }
 
 function cadenceGraceDays(sub: Subscription): number {
@@ -593,6 +730,9 @@ export function analyzeRecurringHealth(input: {
   const transactions = input.transactions.filter(
     (t) => !t.deletedAt && t.timestamp >= lookbackStart,
   );
+  const deletedTransactions = input.transactions.filter(
+    (t) => !!t.deletedAt && t.timestamp >= lookbackStart,
+  );
   const insights: RecurringInsight[] = [];
   const subById = new Map(input.subscriptions.map((sub) => [sub.id, sub]));
 
@@ -602,6 +742,12 @@ export function analyzeRecurringHealth(input: {
       .filter((t) => recurringMatchesTransaction(sub, t))
       .sort((a, b) => b.timestamp - a.timestamp);
     const latest = matches[0];
+    const latestDeletedMatch = deletedTransactions
+      .filter((t) => recurringMatchesTransaction(sub, t))
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    const deletedMatchReason = latestDeletedMatch
+      ? `Last matching charge on ${shortDate(latestDeletedMatch.timestamp)} was deleted${latestDeletedMatch.deletedReason ? ` (${latestDeletedMatch.deletedReason})` : ""}.`
+      : undefined;
     const lastChargeAt = latest?.timestamp ?? sub.lastSeen;
     const lastChargeAmount = latest ? dollars(Math.abs(latest.amount)) : undefined;
     const daysSinceLastCharge = lastChargeAt ? Math.floor((now - lastChargeAt) / DAY) : null;
@@ -649,13 +795,18 @@ export function analyzeRecurringHealth(input: {
       const lastSeenBeforePrevMonth = sub.lastSeen != null && monthKey(sub.lastSeen) < prevMonth;
       const hadHistoryBeforePrevMonth = hasChargeBeforePrevMonth || lastSeenBeforePrevMonth;
       const missedPrevMonth = !monthsWithCharges.has(prevMonth);
+      const deletedMatchInPrevMonth =
+        latestDeletedMatch != null && monthKey(latestDeletedMatch.timestamp) === prevMonth;
 
-      if (hadHistoryBeforePrevMonth && missedPrevMonth) {
+      if ((hadHistoryBeforePrevMonth || deletedMatchInPrevMonth) && missedPrevMonth) {
         const kind = recurringKindOf(sub);
         insights.push({
           subscriptionId: sub.id,
           kind: "likely-canceled",
-          reason: `No charge in ${formatMonthKey(prevMonth)} after earlier activity (expected monthly).`,
+          reason:
+            deletedMatchInPrevMonth && deletedMatchReason
+              ? deletedMatchReason
+              : `No charge in ${formatMonthKey(prevMonth)} after earlier activity (expected monthly).`,
           lastChargeAmount,
           lastChargeAt,
           matchCount: matches.length,
@@ -668,7 +819,9 @@ export function analyzeRecurringHealth(input: {
 
     const oldEnough = ageDays > grace || (sub.lastSeen != null && now - sub.lastSeen > grace * DAY);
     const missedExpectedCharge = daysSinceLastCharge === null || daysSinceLastCharge > grace;
-    if (!oldEnough || !missedExpectedCharge) continue;
+    const deletedMatchWouldBeCurrent =
+      latestDeletedMatch != null && now - latestDeletedMatch.timestamp <= grace * DAY;
+    if ((!oldEnough && !deletedMatchWouldBeCurrent) || !missedExpectedCharge) continue;
 
     const staleDays = daysSinceLastCharge ?? ageDays;
     const kind = recurringKindOf(sub);
@@ -679,9 +832,11 @@ export function analyzeRecurringHealth(input: {
       subscriptionId: sub.id,
       kind: "likely-canceled",
       reason:
-        daysSinceLastCharge === null
-          ? `No matching charge found in ${lookbackDays} days (expected ${cadenceLabel(sub.cadence)}).`
-          : `No matching charge in ${staleDays} days (expected ${cadenceLabel(sub.cadence)}).`,
+        deletedMatchWouldBeCurrent && deletedMatchReason
+          ? deletedMatchReason
+          : daysSinceLastCharge === null
+            ? `No matching charge found in ${lookbackDays} days (expected ${cadenceLabel(sub.cadence)}).`
+            : `No matching charge in ${staleDays} days (expected ${cadenceLabel(sub.cadence)}).`,
       lastChargeAmount,
       lastChargeAt,
       matchCount: matches.length,

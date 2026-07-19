@@ -13,31 +13,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence, useDragControls } from "motion/react";
 import { Reveal, revealDelay } from "@/components/motion";
 import { dashboardQuery, workoutSessionsQuery, financeHubQuery, queryKeys } from "@/lib/queries";
-import {
-  Mic,
-  Square,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  Lock,
-  Dumbbell,
-  Wallet,
-  Utensils,
-  Droplet,
-  RefreshCw,
-  Plus,
-  Check,
-  ListTodo,
-  Minus,
-  MoonStar,
-  Sun,
-  CloudSun,
-  Cloud,
-  CloudFog,
-  CloudRain,
-  CloudSnow,
-  CloudLightning,
-} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +51,32 @@ import {
   upsertProductivityTaskClient,
   getTasksForDate,
 } from "@/lib/daily";
+import {
+  ArrowsClockwiseIcon,
+  BarbellIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  CheckIcon,
+  CloudFogIcon,
+  CloudIcon,
+  CloudLightningIcon,
+  CloudRainIcon,
+  CloudSnowIcon,
+  CloudSunIcon,
+  DropIcon,
+  ForkKnifeIcon,
+  ListChecksIcon,
+  LockIcon,
+  MicrophoneIcon,
+  MinusIcon,
+  MoonStarsIcon,
+  PlusIcon,
+  SparkleIcon,
+  SquareIcon,
+  SunIcon,
+  WalletIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 // Contextual Zen Stack (dashboard redesign)
 //
@@ -154,15 +155,15 @@ const checkAck = {
   transition: { duration: 0.16, ease: "easeOut" },
 } as const;
 
-/** Lucide icon for each weather condition shown in the side rail. */
-const weatherConditionIcon: Record<WeatherConditionKey, typeof Sun> = {
-  clear: Sun,
-  "partly-cloudy": CloudSun,
-  cloudy: Cloud,
-  fog: CloudFog,
-  rain: CloudRain,
-  snow: CloudSnow,
-  thunderstorm: CloudLightning,
+/** Phosphor icon for each weather condition shown in the side rail. */
+const weatherConditionIcon: Record<WeatherConditionKey, PhosphorIcon> = {
+  clear: SunIcon,
+  "partly-cloudy": CloudSunIcon,
+  cloudy: CloudIcon,
+  fog: CloudFogIcon,
+  rain: CloudRainIcon,
+  snow: CloudSnowIcon,
+  thunderstorm: CloudLightningIcon,
 };
 
 /**
@@ -223,7 +224,7 @@ function WeatherLine({
   const WeatherIcon = weatherConditionIcon[weather.condition];
   return (
     <span className={`inline-flex items-center gap-1.5 text-muted-foreground ${className}`}>
-      <WeatherIcon className="size-4 shrink-0" />
+      <WeatherIcon className="size-4 shrink-0" weight="duotone" />
       <span className="tabular-nums">
         {weather.currentTempF}°F · {weather.label} · H {weather.highF}° / L {weather.lowF}°
         {weather.precipitationProbability > 20 ? ` · ${weather.precipitationProbability}%` : ""}
@@ -818,7 +819,7 @@ function ZenStackDashboard() {
             variant="secondary"
             className="gap-1 rounded-full text-[10px] text-muted-foreground"
           >
-            <Lock className="size-2.5" /> Read-only
+            <LockIcon className="size-2.5" weight="duotone" /> Read-only
           </Badge>
         )}
 
@@ -903,13 +904,16 @@ function ZenStackDashboard() {
           <Reveal className="mb-6">
             <Link
               to="/chat"
-              className="zen-surface-nested coach-advice-ribbon group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors"
+              className="zen-surface-nested coach-accent group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors"
             >
-              <Sparkles className="size-4 shrink-0 text-primary" />
+              <SparkleIcon className="size-4 shrink-0 text-primary" weight="duotone" />
               <span className="min-w-0 flex-1 text-pretty leading-snug text-foreground/80">
                 {headline}
               </span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              <CaretRightIcon
+                className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                weight="duotone"
+              />
             </Link>
           </Reveal>
 
@@ -919,7 +923,7 @@ function ZenStackDashboard() {
               <section className="zen-card p-5 sm:p-7">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    <Dumbbell className="size-3.5" />
+                    <BarbellIcon className="size-3.5" weight="duotone" />
                     {isToday ? "Morning workout" : "Workout"}
                   </div>
                   <Link
@@ -944,7 +948,7 @@ function ZenStackDashboard() {
                           disabled={syncing || workoutCompletedToday}
                           className="gap-1.5"
                         >
-                          <Check className="size-4" />
+                          <CheckIcon className="size-4" weight="duotone" />
                           {workoutCompletedToday ? "Completed today" : "Mark complete"}
                         </Button>
                         <Button
@@ -954,7 +958,10 @@ function ZenStackDashboard() {
                           disabled={coachLoading}
                           className="gap-1.5 text-muted-foreground"
                         >
-                          <RefreshCw className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`} />
+                          <ArrowsClockwiseIcon
+                            className={`size-3.5 ${coachLoading ? "animate-spin" : ""}`}
+                            weight="duotone"
+                          />
                           New session
                         </Button>
                       </div>
@@ -980,7 +987,7 @@ function ZenStackDashboard() {
               <section className="zen-card p-5 sm:p-7">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    <Utensils className="size-3.5" />
+                    <ForkKnifeIcon className="size-3.5" weight="duotone" />
                     Nutrition
                   </div>
                   <Link
@@ -1007,9 +1014,9 @@ function ZenStackDashboard() {
                       disabled={!foodName.trim() || foodEstimating}
                     >
                       {foodEstimating ? (
-                        <RefreshCw className="size-4 animate-spin" />
+                        <ArrowsClockwiseIcon className="size-4 animate-spin" weight="duotone" />
                       ) : (
-                        <Sparkles className="size-4" />
+                        <SparkleIcon className="size-4" weight="duotone" />
                       )}
                       {foodEstimating ? "…" : "Log"}
                     </Button>
@@ -1071,7 +1078,7 @@ function ZenStackDashboard() {
                 <div className="mt-5">
                   <div className="mb-1.5 flex items-center justify-between text-xs">
                     <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <Droplet className="size-3.5" /> Water
+                      <DropIcon className="size-3.5" weight="duotone" /> Water
                     </span>
                     <span className="font-semibold tabular-nums">
                       {displayWaterOz}
@@ -1092,7 +1099,7 @@ function ZenStackDashboard() {
                         onClick={() => setWaterOzTotal(waterOz - 4)}
                         aria-label="Remove 4 fl oz"
                       >
-                        <Minus className="size-3.5" />
+                        <MinusIcon className="size-3.5" weight="duotone" />
                       </Button>
                       <WaterSlider
                         value={displayWaterOz}
@@ -1111,7 +1118,7 @@ function ZenStackDashboard() {
                         onClick={() => setWaterOzTotal(waterOz + 4)}
                         aria-label="Add 4 fl oz"
                       >
-                        <Plus className="size-3.5" />
+                        <PlusIcon className="size-3.5" weight="duotone" />
                       </Button>
                     </div>
                   ) : (
@@ -1135,7 +1142,7 @@ function ZenStackDashboard() {
                 <section className="zen-card p-5 sm:p-7">
                   <div className="mb-4 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      <MoonStar className="size-3.5" />
+                      <MoonStarsIcon className="size-3.5" weight="duotone" />
                       Evening reflection
                     </div>
                     <AnimatePresence initial={false}>
@@ -1145,7 +1152,7 @@ function ZenStackDashboard() {
                             variant="secondary"
                             className="gap-1 rounded-full border-0 bg-success/15 text-[9px] uppercase tracking-widest text-success"
                           >
-                            <Check className="size-2.5" />
+                            <CheckIcon className="size-2.5" weight="duotone" />
                             Completed
                           </Badge>
                         </motion.span>
@@ -1240,7 +1247,7 @@ function ZenStackDashboard() {
               <section className="zen-card p-5 sm:p-7">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    <Wallet className="size-3.5" />
+                    <WalletIcon className="size-3.5" weight="duotone" />
                     Finance wrap-up
                   </div>
                   <Link
@@ -1297,7 +1304,7 @@ function ZenStackDashboard() {
               <section className="zen-card p-5 sm:p-7">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    <ListTodo className="size-3.5" />
+                    <ListChecksIcon className="size-3.5" weight="duotone" />
                     {daypart === "morning" ? "Morning focus" : "Tasks"}
                   </div>
                   <Link
@@ -1324,7 +1331,7 @@ function ZenStackDashboard() {
                             <AnimatePresence initial={false}>
                               {t.done && (
                                 <motion.span key="check" {...checkAck} className="flex">
-                                  <Check className="size-3" />
+                                  <CheckIcon className="size-3" weight="duotone" />
                                 </motion.span>
                               )}
                             </AnimatePresence>
@@ -1359,7 +1366,7 @@ function ZenStackDashboard() {
                       disabled={!taskInput.trim()}
                       aria-label="Add task"
                     >
-                      <Plus className="size-4" />
+                      <PlusIcon className="size-4" weight="duotone" />
                     </Button>
                   </form>
                 )}
@@ -1391,7 +1398,7 @@ function ZenStackDashboard() {
       >
         <DialogContent className="w-fit text-center sm:max-w-fit">
           <DialogTitle className="flex items-center justify-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
-            <Mic className="size-4 text-primary" /> Listening…
+            <MicrophoneIcon className="size-4 text-primary" weight="duotone" /> Listening…
           </DialogTitle>
           <div className="mt-1 flex h-10 items-end justify-center gap-1.5">
             {[0, 1, 2, 3].map((i) => (
@@ -1441,11 +1448,11 @@ function ZenStackDashboard() {
           }`}
         >
           {isVoiceProcessing ? (
-            <RefreshCw className="size-6 animate-spin" />
+            <ArrowsClockwiseIcon className="size-6 animate-spin" weight="duotone" />
           ) : isListening ? (
-            <Square className="size-6 fill-current" />
+            <SquareIcon className="size-6 fill-current" weight="duotone" />
           ) : (
-            <Mic className="size-7" />
+            <MicrophoneIcon className="size-7" weight="duotone" />
           )}
         </button>
       )}
@@ -1701,7 +1708,7 @@ function ActionStack({
                 onClick={() => go(-1)}
                 aria-label="Previous card"
               >
-                <ChevronLeft className="size-4 rotate-90" />
+                <CaretLeftIcon className="size-4 rotate-90" weight="duotone" />
               </Button>
               <div className="zen-input flex flex-col items-center rounded-full border px-1 py-2 shadow-sm">
                 {cards.map(({ key, label }, i) => {
@@ -1740,7 +1747,7 @@ function ActionStack({
                 onClick={() => go(1)}
                 aria-label="Next card"
               >
-                <ChevronRight className="size-4 rotate-90" />
+                <CaretRightIcon className="size-4 rotate-90" weight="duotone" />
               </Button>
             </div>
           )}

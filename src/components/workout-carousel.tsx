@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dumbbell, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { BarbellIcon, ClockIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import type { ExercisePhase } from "@/lib/domain";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 import { Button } from "@/components/ui/button";
@@ -109,7 +109,8 @@ export function WorkoutCarousel({ title, focus, estimatedMinutes, exercises }: P
         </div>
         {typeof estimatedMinutes === "number" && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
-            <Clock className="size-3.5" /> ~{estimatedMinutes} min · {ordered.length} moves
+            <ClockIcon weight="duotone" className="size-3.5" /> ~{estimatedMinutes} min ·{" "}
+            {ordered.length} moves
           </div>
         )}
       </div>
@@ -220,7 +221,7 @@ function CarouselArrow({
   disabled: boolean;
   onClick: () => void;
 }) {
-  const Icon = dir === "prev" ? ChevronLeft : ChevronRight;
+  const Icon = dir === "prev" ? CaretLeftIcon : CaretRightIcon;
   return (
     <button
       type="button"
@@ -231,7 +232,7 @@ function CarouselArrow({
         dir === "prev" ? "left-1" : "right-1"
       }`}
     >
-      <Icon className="size-4" />
+      <Icon className="size-4" weight="duotone" />
     </button>
   );
 }
@@ -275,7 +276,8 @@ function ExerciseCard({
         )}
         {state !== "loaded" && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Dumbbell
+            <BarbellIcon
+              weight="duotone"
               className={`size-7 ${meta.text} ${state === "loading" ? "animate-pulse opacity-50" : "opacity-40"}`}
             />
           </div>

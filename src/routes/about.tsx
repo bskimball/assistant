@@ -1,19 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  Dumbbell,
-  Utensils,
-  Wallet,
-  Users,
-  ListTodo,
-  Mic,
-  Brain,
-  ShieldCheck,
-  Target,
-  ArrowRight,
-} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/page-shell";
+import {
+  ArrowRightIcon,
+  BarbellIcon,
+  BrainIcon,
+  ForkKnifeIcon,
+  ListChecksIcon,
+  MicrophoneIcon,
+  ShieldCheckIcon,
+  TargetIcon,
+  UsersIcon,
+  WalletIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/about")({
   component: About,
@@ -21,32 +21,32 @@ export const Route = createFileRoute("/about")({
 
 const PILLARS = [
   {
-    Icon: Dumbbell,
+    Icon: BarbellIcon,
     title: "Fitness",
     body: "AI-suggested workouts on a push/pull/legs rotation that respects your training days and injuries, plus session logging.",
   },
   {
-    Icon: Utensils,
+    Icon: ForkKnifeIcon,
     title: "Nutrition",
     body: "Meal and water logging with protein targets, surfaced as daily progress and grounded coaching.",
   },
   {
-    Icon: Wallet,
+    Icon: WalletIcon,
     title: "Finance",
     body: "A first-class net-worth snapshot from your accounts, with advice tuned to your risk tolerance and savings goal.",
   },
   {
-    Icon: Users,
+    Icon: UsersIcon,
     title: "Family & Life",
     body: "Gentle nudges to protect distraction-free time — presence compounds more than productivity.",
   },
   {
-    Icon: ListTodo,
+    Icon: ListChecksIcon,
     title: "Productivity",
     body: "A unified task model behind both the daily dashboard and the full Kanban board.",
   },
   {
-    Icon: Mic,
+    Icon: MicrophoneIcon,
     title: "Voice-first",
     body: "Speak to log a meal, add a task, or check in. Transcript → intent → action, with confirmation for anything destructive.",
   },
@@ -54,17 +54,17 @@ const PILLARS = [
 
 const PRINCIPLES = [
   {
-    Icon: Target,
+    Icon: TargetIcon,
     title: "Person-first",
     body: "Every feature has to demonstrably improve your life — or it doesn't ship.",
   },
   {
-    Icon: Brain,
+    Icon: BrainIcon,
     title: "Actionable",
     body: "The coach doesn't just track. It recommends, plans, and references your real numbers.",
   },
   {
-    Icon: ShieldCheck,
+    Icon: ShieldCheckIcon,
     title: "Resilient",
     body: "Every AI path has a deterministic fallback, so the app stays useful with no API key.",
   },
@@ -92,7 +92,10 @@ function About() {
           >
             <Link to="/">
               Open dashboard{" "}
-              <ArrowRight className="size-4 transition-transform duration-150 ease-out group-hover/button:translate-x-0.5" />
+              <ArrowRightIcon
+                className="size-4 transition-transform duration-150 ease-out group-hover/button:translate-x-0.5"
+                weight="duotone"
+              />
             </Link>
           </Button>
           <Button
@@ -117,7 +120,7 @@ function About() {
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2.5 text-base">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/15">
-                  <Icon className="size-4 text-primary" />
+                  <Icon className="size-4 text-primary" weight="duotone" />
                 </span>
                 {title}
               </CardTitle>
@@ -134,7 +137,7 @@ function About() {
           <div key={title} className="zen-card p-4 transition-shadow duration-150 ease-out">
             <div className="flex items-center gap-2.5 font-medium">
               <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/15">
-                <Icon className="size-4 text-primary" />
+                <Icon className="size-4 text-primary" weight="duotone" />
               </span>
               {title}
             </div>

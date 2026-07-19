@@ -1,15 +1,15 @@
 import { useState, type ReactNode } from "react";
 import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CreditCard,
-  Banknote,
-  LineChart,
-  Wallet2,
-  Info,
-  type LucideIcon,
-} from "lucide-react";
+  CaretDownIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  ChartLineIcon,
+  CreditCardIcon,
+  InfoIcon,
+  MoneyIcon,
+  WalletIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +56,7 @@ export function CollapsibleCard({
 }: {
   id: string;
   title: string;
-  icon?: LucideIcon;
+  icon?: PhosphorIcon;
   summary: ReactNode;
   badge?: number;
   defaultOpen?: boolean;
@@ -88,7 +88,7 @@ export function CollapsibleCard({
           aria-expanded={open}
         >
           <span className="flex min-w-0 items-center gap-2">
-            {Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
+            {Icon && <Icon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />}
             <span className="truncate text-base font-semibold leading-none tracking-tight">
               {title}
             </span>
@@ -100,7 +100,10 @@ export function CollapsibleCard({
           </span>
           <span className="flex min-w-0 shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
             <span className="hidden max-w-[12rem] truncate sm:inline">{summary}</span>
-            <ChevronDown className={`size-4 transition-transform ${open ? "" : "-rotate-90"}`} />
+            <CaretDownIcon
+              className={`size-4 transition-transform ${open ? "" : "-rotate-90"}`}
+              weight="duotone"
+            />
           </span>
         </button>
         <div className="mt-2 text-xs text-muted-foreground sm:hidden">{summary}</div>
@@ -127,7 +130,7 @@ export function InfoHint({
           className="size-7 text-muted-foreground hover:text-foreground"
           aria-label={label}
         >
-          <Info className="size-3.5" />
+          <InfoIcon className="size-3.5" weight="duotone" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="max-w-xs text-sm text-muted-foreground">
@@ -261,7 +264,7 @@ export function GroupPicker({
     <div
       role="group"
       aria-label="Spending category"
-      className="inline-flex shrink-0 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10"
+      className="inline-flex shrink-0 rounded-lg border border-border/60 bg-muted/40 p-1"
     >
       {GROUP_OPTIONS.map((o) => {
         const active = value === o.key;
@@ -306,7 +309,7 @@ export function MonthNav({
         title="Previous month"
         className="size-10 transition-[scale,background-color,color] active:scale-[0.96]"
       >
-        <ChevronLeft className="size-4" />
+        <CaretLeftIcon className="size-4" weight="duotone" />
       </Button>
       <span className="min-w-23 text-center tabular-nums">{formatMonthLabel(month)}</span>
       <Button
@@ -319,7 +322,7 @@ export function MonthNav({
         title={canGoNext ? "Next month" : "Already at the current month"}
         className="size-10 transition-[scale,background-color,color] active:scale-[0.96]"
       >
-        <ChevronRight className="size-4" />
+        <CaretRightIcon className="size-4" weight="duotone" />
       </Button>
     </div>
   );
@@ -348,11 +351,12 @@ export function MiniStat({
       type="button"
       onClick={onClick}
       aria-haspopup="dialog"
-      className="relative cursor-pointer rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40 hover:ring-1 hover:ring-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="relative cursor-pointer rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <ChevronRight
+      <CaretRightIcon
         className="absolute top-1.5 right-1.5 size-3 text-muted-foreground/50"
         aria-hidden
+        weight="duotone"
       />
       {body}
     </button>
@@ -366,12 +370,12 @@ export type AccountType = "cash" | "credit" | "investments" | "other";
 export const ACCOUNT_GROUP_META: {
   type: AccountType;
   label: string;
-  Icon: typeof Wallet2;
+  Icon: typeof WalletIcon;
 }[] = [
-  { type: "cash", label: "Cash", Icon: Wallet2 },
-  { type: "credit", label: "Credit", Icon: CreditCard },
-  { type: "investments", label: "Investments", Icon: LineChart },
-  { type: "other", label: "Other", Icon: Banknote },
+  { type: "cash", label: "Cash", Icon: WalletIcon },
+  { type: "credit", label: "Credit", Icon: CreditCardIcon },
+  { type: "investments", label: "Investments", Icon: ChartLineIcon },
+  { type: "other", label: "Other", Icon: MoneyIcon },
 ];
 
 // Bucket an account by a case-insensitive keyword match on its name/alias.
@@ -576,10 +580,11 @@ export function BudgetBar({
         <div className="mb-1 flex items-center justify-between text-sm">
           <span className="flex items-center gap-1 capitalize">
             {expandable && (
-              <ChevronDown
+              <CaretDownIcon
                 className={`size-3.5 text-muted-foreground transition-transform ${
                   open ? "" : "-rotate-90"
                 }`}
+                weight="duotone"
               />
             )}
             {label} <span className="text-xs text-muted-foreground">({targetPct}%)</span>

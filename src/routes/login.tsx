@@ -1,8 +1,8 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { LogIn, Loader2, Fingerprint } from "lucide-react";
 import { signIn } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
+import { CircleNotchIcon, FingerprintIcon, SignInIcon } from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/login")({
   // Already signed in? Skip the gate. Root has already populated `auth`.
@@ -71,7 +71,11 @@ function LoginPage() {
               disabled={busy}
               className="h-10 w-full gap-2 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
             >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
+              {busy ? (
+                <CircleNotchIcon className="size-4 animate-spin" />
+              ) : (
+                <SignInIcon className="size-4" weight="duotone" />
+              )}
               Sign in with Google
             </Button>
             <Button
@@ -80,7 +84,7 @@ function LoginPage() {
               disabled={busy}
               className="h-10 w-full gap-2 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
             >
-              <Fingerprint className="size-4" />
+              <FingerprintIcon className="size-4" weight="duotone" />
               Sign in with fingerprint
             </Button>
           </div>

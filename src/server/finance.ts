@@ -49,12 +49,15 @@ import {
   recategorizeAllTransactionsImpl,
   recategorizeTransactionImpl,
   rescanRecurringMatchesImpl,
+  restoreTransactionImpl,
+  explainRecurringChargeImpl,
   setTransactionExcludedImpl,
   unlinkRecurringChargeImpl,
   unmarkRecurringPaidImpl,
   type ImportResult,
   type RescanStats,
 } from "@/server/finance-mutations-impl";
+import type { RecurringHealthTrace } from "@/lib/finance-math";
 
 export type {
   ApplyRecurringInsightAction,
@@ -212,6 +215,20 @@ export const setTransactionExcluded = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAuthSession();
     return setTransactionExcludedImpl(data);
+  });
+
+export const restoreTransaction = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    await requireAuthSession();
+    return restoreTransactionImpl(data);
+  });
+
+export const explainRecurringCharge = createServerFn({ method: "GET" })
+  .validator((data: { subscriptionId: string }) => data)
+  .handler(async ({ data }): Promise<RecurringHealthTrace> => {
+    await requireAuthSession();
+    return explainRecurringChargeImpl(data.subscriptionId);
   });
 
 export const dismissOneTimeSuggestion = createServerFn({ method: "POST" })

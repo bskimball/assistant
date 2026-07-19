@@ -356,6 +356,8 @@ export interface Transaction extends BaseEntity {
   dedupeKey?: string;
   /** Where this transaction came from. */
   source?: "manual" | "import" | "sync";
+  /** Why a soft-deleted transaction was removed, when known. */
+  deletedReason?: string;
   /**
    * One-off charges (legal fees, a single big purchase) the user has marked so
    * they don't count against the recurring 50/30/20 monthly plan. This is still

@@ -2,7 +2,14 @@ import { GroupPicker, MonthNav } from "@/components/finance/shared";
 import { fmtMoney } from "@/components/finance/shared";
 import type { FinanceTabProps } from "@/components/finance/shared";
 import { useState, useRef, useEffect } from "react";
-import { Upload, RefreshCw, Check, Pencil, ListChecks, Receipt } from "lucide-react";
+import {
+  ArrowsClockwiseIcon,
+  CheckIcon,
+  ListChecksIcon,
+  PencilSimpleIcon,
+  ReceiptIcon,
+  UploadSimpleIcon,
+} from "@phosphor-icons/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -335,7 +342,8 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button type="button" variant="ghost" size="sm" className="gap-1.5">
-                      <Pencil className="size-3.5" /> Edit budget settings
+                      <PencilSimpleIcon className="size-3.5" weight="duotone" /> Edit budget
+                      settings
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-80">
@@ -354,7 +362,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                   </PopoverContent>
                 </Popover>
               ) : (
-                <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-1 ring-1 ring-foreground/10">
+                <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-1">
                   <Label htmlFor="th" className="sr-only">
                     After-tax pay per month
                   </Label>
@@ -375,7 +383,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                     disabled={busy || !takeHome}
                     className="gap-1 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
                   >
-                    <Check className="size-3.5" /> Save
+                    <CheckIcon className="size-3.5" weight="duotone" /> Save
                   </Button>
                 </div>
               )}
@@ -397,7 +405,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
           {th > 0 ? (
             <>
               {/* Hero: the two numbers that matter, with three secondary tiles. */}
-              <div className="rounded-lg bg-muted/20 p-3 ring-1 ring-foreground/10">
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
                 <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
                   <div>
                     <div className="text-xs font-medium text-muted-foreground">
@@ -523,7 +531,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
       <CollapsibleCard
         id="budget-import"
         title="Import & transactions"
-        icon={Upload}
+        icon={UploadSimpleIcon}
         summary={`${monthTxns.length} txn${monthTxns.length === 1 ? "" : "s"} this month`}
       >
         <div className="space-y-5">
@@ -561,10 +569,10 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                 onClick={() => fileRef.current?.click()}
                 disabled={busy}
               >
-                <Upload className="size-4" /> Upload CSV
+                <UploadSimpleIcon className="size-4" weight="duotone" /> Upload CSV
               </Button>
               <Button variant="ghost" className="gap-1.5" onClick={recategorizeAll} disabled={busy}>
-                <RefreshCw className="size-4" /> Re-categorize all
+                <ArrowsClockwiseIcon className="size-4" weight="duotone" /> Re-categorize all
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
@@ -838,7 +846,7 @@ function BudgetSettingsEditor({
       </div>
 
       {cadence !== "none" && (
-        <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
+        <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
           {(cadence === "weekly" || cadence === "biweekly") && (
             <div className="space-y-1.5">
               <Label htmlFor="anchor-date" className="text-xs font-medium">
@@ -902,7 +910,11 @@ function BudgetSettingsEditor({
         onClick={onSave}
         disabled={busy || !monthlyTakeHome}
       >
-        {busy ? <RefreshCw className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+        {busy ? (
+          <ArrowsClockwiseIcon className="size-3.5 animate-spin" />
+        ) : (
+          <CheckIcon className="size-3.5" weight="duotone" />
+        )}
         Save Settings
       </Button>
     </div>
@@ -967,7 +979,7 @@ function ExpenseSorter({
     <CollapsibleCard
       id="budget-sorter"
       title="Sort expenses"
-      icon={ListChecks}
+      icon={ListChecksIcon}
       summary={`${total} this month · ${fmtMoney(filters[0].sum)}`}
     >
       <div className="space-y-3">
@@ -983,10 +995,7 @@ function ExpenseSorter({
           <>
             <div className="grid gap-2 sm:grid-cols-3">
               {SORTER_BUCKETS.map(({ key, label }) => (
-                <div
-                  key={key}
-                  className="rounded-lg bg-muted/20 px-3 py-2 ring-1 ring-foreground/10"
-                >
+                <div key={key} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
                   <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
                   <div className="text-sm font-semibold tabular-nums">
                     {fmtMoney(bucketSum(bucketTxns[key]))}
@@ -1019,7 +1028,7 @@ function ExpenseSorter({
                 {monthLabel}.
               </div>
             ) : (
-              <ul className="divide-y divide-border rounded-lg border border-border/60 bg-background">
+              <ul className="divide-y divide-border rounded-lg border border-border/60 bg-muted/20">
                 {rows.map(({ t, bucket }) => (
                   <ExpenseCard
                     key={t.id}
@@ -1169,7 +1178,7 @@ function OneTimeCandidatesCard({
     <Card className="border-warning/25 bg-linear-to-br from-warning/8 to-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Receipt className="size-4 text-warning" />
+          <ReceiptIcon className="size-4 text-warning" weight="duotone" />
           Possible one-time charges
         </CardTitle>
       </CardHeader>

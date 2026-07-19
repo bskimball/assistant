@@ -8,6 +8,7 @@
 
 import type { AccountBalance, ISODate, Position, Subscription, Transaction } from "@/lib/domain";
 import { addDaysISO, newId, todayISO } from "@/lib/domain";
+import { crossSourceTransactionMatches } from "@/lib/finance-math";
 import {
   claimSetupToken,
   fetchAccounts,
@@ -525,6 +526,9 @@ async function ingestTransactions(
           dedupeKey,
           source: "sync",
         };
+        if (transactions.some((existing) => crossSourceTransactionMatches(txn, existing))) {
+          continue;
+        }
         next.push(txn);
         newTxns.push(txn);
         added++;
@@ -791,7 +795,7 @@ export async function undoSimplefinBackfillImpl(
     return transactions.map((t) => {
       if (t.deletedAt || !isBackfilledTransaction(t, accountId, state.cutoverDate)) return t;
       removed++;
-      return { ...t, deletedAt: now, updatedAt: now };
+      return { ...t, deletedAt: now, deletedReason: "sync-undo", updatedAt: now };
     });
   });
   await updateSimplefinState((current) => {

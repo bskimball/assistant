@@ -1,21 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Target,
-  Utensils,
-  Droplet,
-  Wallet,
-  Dumbbell,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-} from "lucide-react";
 import { Item, Reveal, revealDelay, Stagger } from "@/components/motion";
 import { todayISO } from "@/lib/domain";
 import type { EffectivenessReport } from "@/lib/effectiveness-report";
 import { analyticsRangeQuery, monthlyEffectivenessQuery } from "@/lib/queries";
 import type { AnalyticsRange, DayPoint } from "@/lib/review-data";
+import {
+  BarbellIcon,
+  DropIcon,
+  ForkKnifeIcon,
+  MinusIcon,
+  TargetIcon,
+  TrendDownIcon,
+  TrendUpIcon,
+  WalletIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/_review/analytics")({
   // Prime the default window so the first paint has data (SSR + revisit cache).
@@ -107,30 +108,30 @@ function Analytics() {
       {/* Summary tiles — 5 metrics, so 5 across on wide screens (no orphan row) */}
       <Stagger className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryTile
-          icon={Target}
+          icon={TargetIcon}
           label="Avg task completion"
           value={`${avg((p) => p.completionPct)}%`}
         />
         <SummaryTile
-          icon={Dumbbell}
+          icon={BarbellIcon}
           label="Workouts"
           value={String(totalWorkouts)}
           sub={`in ${range} days`}
         />
         <SummaryTile
-          icon={Utensils}
+          icon={ForkKnifeIcon}
           label="Avg protein"
           value={`${avg((p) => p.proteinPct, true)}%`}
           sub="of target"
         />
         <SummaryTile
-          icon={Wallet}
+          icon={WalletIcon}
           label="Net worth"
           value={`$${latestNetWorth.toLocaleString()}`}
           trend={netWorthTrend}
         />
         <SummaryTile
-          icon={Wallet}
+          icon={WalletIcon}
           label="Net cashflow"
           value={`${netCashflow < 0 ? "-" : "+"}$${Math.abs(netCashflow).toLocaleString()}`}
           sub={`logged · ${range}d`}
@@ -161,23 +162,23 @@ function Analytics() {
       ) : (
         <div className="space-y-6">
           <Reveal delay={revealDelay(0)}>
-            <ChartCard icon={Target} title="Task completion %">
+            <ChartCard icon={TargetIcon} title="Task completion %">
               <LineChart points={points} sel={(p) => p.completionPct} max={100} unit="%" />
             </ChartCard>
           </Reveal>
           <Reveal delay={revealDelay(1)}>
-            <ChartCard icon={Utensils} title="Protein % of target">
+            <ChartCard icon={ForkKnifeIcon} title="Protein % of target">
               <LineChart points={points} sel={(p) => p.proteinPct} max={100} unit="%" />
             </ChartCard>
           </Reveal>
           <Reveal delay={revealDelay(2)}>
-            <ChartCard icon={Droplet} title="Water (fl oz)">
+            <ChartCard icon={DropIcon} title="Water (fl oz)">
               <BarsChart points={points} sel={(p) => p.waterOz} unit=" fl oz" />
             </ChartCard>
           </Reveal>
           {latestNetWorth > 0 && (
             <Reveal delay={revealDelay(3)}>
-              <ChartCard icon={Wallet} title="Net worth ($)">
+              <ChartCard icon={WalletIcon} title="Net worth ($)">
                 <LineChart
                   points={points.filter((p) => p.netWorth > 0)}
                   sel={(p) => p.netWorth}
@@ -188,7 +189,7 @@ function Analytics() {
             </Reveal>
           )}
           <Reveal delay={revealDelay(4)}>
-            <ChartCard icon={Wallet} title="Daily cashflow ($)">
+            <ChartCard icon={WalletIcon} title="Daily cashflow ($)">
               <BarsChart points={points} sel={(p) => p.cashflow} unit="$" />
             </ChartCard>
           </Reveal>
@@ -220,7 +221,7 @@ function EffectivenessCard({
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-info/10 text-info">
-            <Target className="size-4" />
+            <TargetIcon className="size-4" weight="duotone" />
           </span>
           Effectiveness
         </div>
@@ -326,7 +327,7 @@ function SummaryTile({
   trend,
   tone,
 }: {
-  icon: typeof Target;
+  icon: PhosphorIcon;
   label: string;
   value: string;
   sub?: string;
@@ -338,7 +339,7 @@ function SummaryTile({
     <Item className="zen-card p-3">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-info/10 text-info">
-          <Icon className="size-3" />
+          <Icon className="size-3" weight="duotone" />
         </span>
         {label}
       </div>
@@ -351,14 +352,14 @@ function SummaryTile({
             className={`flex items-center text-xs tabular-nums ${trend > 0 ? "text-success" : "text-destructive"}`}
           >
             {trend > 0 ? (
-              <TrendingUp className="size-3.5" />
+              <TrendUpIcon className="size-3.5" weight="duotone" />
             ) : (
-              <TrendingDown className="size-3.5" />
+              <TrendDownIcon className="size-3.5" weight="duotone" />
             )}
             {Math.abs(trend).toLocaleString()}
           </span>
         )}
-        {trend === 0 && <Minus className="size-3.5 text-muted-foreground" />}
+        {trend === 0 && <MinusIcon className="size-3.5 text-muted-foreground" weight="duotone" />}
       </div>
       {sub && <div className="text-[10px] text-muted-foreground/70">{sub}</div>}
     </Item>
@@ -370,7 +371,7 @@ function ChartCard({
   title,
   children,
 }: {
-  icon: typeof Target;
+  icon: PhosphorIcon;
   title: string;
   children: React.ReactNode;
 }) {
@@ -378,7 +379,7 @@ function ChartCard({
     <div className="zen-card overflow-hidden p-6">
       <div className="mb-4 flex items-center gap-2 text-sm font-medium">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-info/10 text-info">
-          <Icon className="size-4" />
+          <Icon className="size-4" weight="duotone" />
         </span>
         {title}
       </div>

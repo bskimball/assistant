@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Plus } from "lucide-react";
+import { PlusIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -84,7 +84,7 @@ export function HealthQuickLogPanel({
         />
       )}
       <Button type="submit" className="w-full gap-1.5" disabled={!description.trim() || busy}>
-        <Plus className="size-4" /> {busy ? "Saving…" : title}
+        <PlusIcon weight="duotone" className="size-4" /> {busy ? "Saving…" : title}
       </Button>
     </form>
   );

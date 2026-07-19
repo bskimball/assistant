@@ -1,21 +1,21 @@
 import { useState, useRef, useLayoutEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard,
-  HeartPulse,
-  KanbanSquare,
-  CalendarRange,
-  BarChart3,
-  Wallet,
-  Sparkles,
-  UserCog,
-  Info,
-  LogOut,
-  LogIn,
-  Loader2,
-  MoreHorizontal,
-  type LucideIcon,
-} from "lucide-react";
+  SquaresFourIcon,
+  SparkleIcon,
+  HeartbeatIcon,
+  KanbanIcon,
+  WalletIcon,
+  CalendarDotsIcon,
+  ChartBarIcon,
+  UserGearIcon,
+  InfoIcon,
+  SignOutIcon,
+  SignInIcon,
+  CircleNotchIcon,
+  DotsThreeIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -31,16 +31,16 @@ import {
   type IconKey,
 } from "@/lib/navigation";
 
-const ICONS: Record<IconKey, LucideIcon> = {
-  today: LayoutDashboard,
-  coach: Sparkles,
-  health: HeartPulse,
-  tasks: KanbanSquare,
-  money: Wallet,
-  review: CalendarRange,
-  trends: BarChart3,
-  profile: UserCog,
-  about: Info,
+const ICONS: Record<IconKey, PhosphorIcon> = {
+  today: SquaresFourIcon,
+  coach: SparkleIcon,
+  health: HeartbeatIcon,
+  tasks: KanbanIcon,
+  money: WalletIcon,
+  review: CalendarDotsIcon,
+  trends: ChartBarIcon,
+  profile: UserGearIcon,
+  about: InfoIcon,
 };
 
 export function AppNav() {
@@ -137,7 +137,6 @@ function DesktopTabs({ pathname }: { pathname: string }) {
     <nav ref={navRef} aria-label="Primary" className="relative flex items-center gap-1">
       {DESKTOP_DESTINATIONS.map((tab) => {
         const on = active === tab.key;
-        const Icon = ICONS[tab.icon];
         return (
           <Link
             key={tab.key}
@@ -146,7 +145,6 @@ function DesktopTabs({ pathname }: { pathname: string }) {
             aria-current={on ? "page" : undefined}
             className={tabClass(on)}
           >
-            <Icon className={on ? "size-[18px] text-primary" : "size-[18px]"} strokeWidth={1.75} />
             {tab.label}
           </Link>
         );
@@ -187,7 +185,7 @@ function BottomBar({ pathname }: { pathname: string }) {
                     data-active={on}
                     className="nav-coach flex size-14 items-center justify-center rounded-full"
                   >
-                    <Icon className="size-6" strokeWidth={1.75} />
+                    <Icon className="size-6" weight="duotone" />
                   </span>
                 </span>
                 <span
@@ -210,7 +208,7 @@ function BottomBar({ pathname }: { pathname: string }) {
               <span
                 className={`flex size-8 items-center justify-center rounded-lg transition-colors ${on ? "bg-primary/10" : ""}`}
               >
-                <Icon className="size-5" strokeWidth={1.75} />
+                <Icon className="size-5" weight="duotone" />
               </span>
               {tab.label}
             </Link>
@@ -250,7 +248,7 @@ function MoreMenu({ pathname }: { pathname: string }) {
             data-active={moreActive}
             className={triggerClass}
           >
-            <MoreHorizontal className="size-5" strokeWidth={1.75} />
+            <DotsThreeIcon className="size-5" weight="duotone" />
           </SheetTrigger>
           <SheetContent
             side="bottom"
@@ -293,7 +291,7 @@ function MoreMenu({ pathname }: { pathname: string }) {
             data-active={moreActive}
             className={triggerClass}
           >
-            <MoreHorizontal className="size-5" strokeWidth={1.75} />
+            <DotsThreeIcon className="size-5" weight="duotone" />
           </PopoverTrigger>
           <PopoverContent align="end" className="w-52 p-1">
             {MORE_GROUPS.map((group, gi) => (
@@ -327,7 +325,7 @@ function MoreTile({
   onSelect,
 }: {
   to: AppPath;
-  Icon: LucideIcon;
+  Icon: PhosphorIcon;
   label: string;
   pathname: string;
   onSelect: () => void;
@@ -347,7 +345,7 @@ function MoreTile({
       <span
         className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${on ? "bg-primary/10" : "bg-muted"}`}
       >
-        <Icon className="size-5 text-primary" strokeWidth={1.75} />
+        <Icon className="size-5 text-primary" weight="duotone" />
       </span>
       {label}
     </Link>
@@ -364,7 +362,7 @@ function AccountMenu() {
   if (isPending) {
     return (
       <span className="flex size-10 items-center justify-center">
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        <CircleNotchIcon className="size-4 animate-spin text-muted-foreground" weight="regular" />
       </span>
     );
   }
@@ -379,7 +377,7 @@ function AccountMenu() {
           signIn.social({ provider: "google", callbackURL: "/" }).catch(() => {});
         }}
       >
-        <LogIn className="size-3.5" /> Sign in
+        <SignInIcon className="size-3.5" weight="duotone" /> Sign in
       </Button>
     );
   }
@@ -424,8 +422,13 @@ function AccountMenu() {
           {u.email && <div className="truncate text-xs text-muted-foreground">{u.email}</div>}
         </div>
         <div className="py-1">
-          <MenuLink to="/profile" Icon={UserCog} label="Profile" onSelect={() => setOpen(false)} />
-          <MenuLink to="/about" Icon={Info} label="About" onSelect={() => setOpen(false)} />
+          <MenuLink
+            to="/profile"
+            Icon={UserGearIcon}
+            label="Profile"
+            onSelect={() => setOpen(false)}
+          />
+          <MenuLink to="/about" Icon={InfoIcon} label="About" onSelect={() => setOpen(false)} />
         </div>
         <div className="border-t pt-1">
           <button
@@ -434,7 +437,11 @@ function AccountMenu() {
             disabled={busy}
             className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}{" "}
+            {busy ? (
+              <CircleNotchIcon className="size-4 animate-spin" weight="regular" />
+            ) : (
+              <SignOutIcon className="size-4" weight="duotone" />
+            )}{" "}
             Sign out
           </button>
         </div>
@@ -450,7 +457,7 @@ function MenuLink({
   onSelect,
 }: {
   to: AppPath;
-  Icon: LucideIcon;
+  Icon: PhosphorIcon;
   label: string;
   onSelect: () => void;
 }) {
@@ -466,7 +473,7 @@ function MenuLink({
         "aria-current": "page",
       }}
     >
-      <Icon className="size-4 text-primary" /> {label}
+      <Icon className="size-4 text-primary" weight="duotone" /> {label}
     </Link>
   );
 }

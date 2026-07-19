@@ -22,6 +22,7 @@ import { Route as HealthIndexRouteImport } from './routes/health.index'
 import { Route as FinanceIndexRouteImport } from './routes/finance.index'
 import { Route as HealthWorkoutsRouteImport } from './routes/health.workouts'
 import { Route as HealthNutritionRouteImport } from './routes/health.nutrition'
+import { Route as FinanceTransactionsRouteImport } from './routes/finance.transactions'
 import { Route as FinanceRecurringRouteImport } from './routes/finance.recurring'
 import { Route as FinanceInvestmentsRouteImport } from './routes/finance.investments'
 import { Route as FinanceGrowRouteImport } from './routes/finance.grow'
@@ -95,6 +96,11 @@ const HealthNutritionRoute = HealthNutritionRouteImport.update({
   path: '/nutrition',
   getParentRoute: () => HealthRoute,
 } as any)
+const FinanceTransactionsRoute = FinanceTransactionsRouteImport.update({
+  id: '/transactions',
+  path: '/transactions',
+  getParentRoute: () => FinanceRoute,
+} as any)
 const FinanceRecurringRoute = FinanceRecurringRouteImport.update({
   id: '/recurring',
   path: '/recurring',
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/finance/grow': typeof FinanceGrowRoute
   '/finance/investments': typeof FinanceInvestmentsRoute
   '/finance/recurring': typeof FinanceRecurringRoute
+  '/finance/transactions': typeof FinanceTransactionsRoute
   '/health/nutrition': typeof HealthNutritionRoute
   '/health/workouts': typeof HealthWorkoutsRoute
   '/finance/': typeof FinanceIndexRoute
@@ -171,6 +178,7 @@ export interface FileRoutesByTo {
   '/finance/grow': typeof FinanceGrowRoute
   '/finance/investments': typeof FinanceInvestmentsRoute
   '/finance/recurring': typeof FinanceRecurringRoute
+  '/finance/transactions': typeof FinanceTransactionsRoute
   '/health/nutrition': typeof HealthNutritionRoute
   '/health/workouts': typeof HealthWorkoutsRoute
   '/finance': typeof FinanceIndexRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/finance/grow': typeof FinanceGrowRoute
   '/finance/investments': typeof FinanceInvestmentsRoute
   '/finance/recurring': typeof FinanceRecurringRoute
+  '/finance/transactions': typeof FinanceTransactionsRoute
   '/health/nutrition': typeof HealthNutritionRoute
   '/health/workouts': typeof HealthWorkoutsRoute
   '/finance/': typeof FinanceIndexRoute
@@ -219,6 +228,7 @@ export interface FileRouteTypes {
     | '/finance/grow'
     | '/finance/investments'
     | '/finance/recurring'
+    | '/finance/transactions'
     | '/health/nutrition'
     | '/health/workouts'
     | '/finance/'
@@ -239,6 +249,7 @@ export interface FileRouteTypes {
     | '/finance/grow'
     | '/finance/investments'
     | '/finance/recurring'
+    | '/finance/transactions'
     | '/health/nutrition'
     | '/health/workouts'
     | '/finance'
@@ -262,6 +273,7 @@ export interface FileRouteTypes {
     | '/finance/grow'
     | '/finance/investments'
     | '/finance/recurring'
+    | '/finance/transactions'
     | '/health/nutrition'
     | '/health/workouts'
     | '/finance/'
@@ -377,6 +389,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HealthNutritionRouteImport
       parentRoute: typeof HealthRoute
     }
+    '/finance/transactions': {
+      id: '/finance/transactions'
+      path: '/transactions'
+      fullPath: '/finance/transactions'
+      preLoaderRoute: typeof FinanceTransactionsRouteImport
+      parentRoute: typeof FinanceRoute
+    }
     '/finance/recurring': {
       id: '/finance/recurring'
       path: '/recurring'
@@ -454,6 +473,7 @@ interface FinanceRouteChildren {
   FinanceGrowRoute: typeof FinanceGrowRoute
   FinanceInvestmentsRoute: typeof FinanceInvestmentsRoute
   FinanceRecurringRoute: typeof FinanceRecurringRoute
+  FinanceTransactionsRoute: typeof FinanceTransactionsRoute
   FinanceIndexRoute: typeof FinanceIndexRoute
 }
 
@@ -462,6 +482,7 @@ const FinanceRouteChildren: FinanceRouteChildren = {
   FinanceGrowRoute: FinanceGrowRoute,
   FinanceInvestmentsRoute: FinanceInvestmentsRoute,
   FinanceRecurringRoute: FinanceRecurringRoute,
+  FinanceTransactionsRoute: FinanceTransactionsRoute,
   FinanceIndexRoute: FinanceIndexRoute,
 }
 

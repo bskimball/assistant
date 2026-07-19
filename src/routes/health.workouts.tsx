@@ -7,19 +7,6 @@ import {
   userProfileQuery,
   queryKeys,
 } from "@/lib/queries";
-import {
-  Dumbbell,
-  Flame,
-  CalendarRange,
-  CheckCircle2,
-  Circle,
-  ChevronDown,
-  Plus,
-  Trash2,
-  Clock,
-  History as HistoryIcon,
-  Sparkles,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,6 +46,20 @@ import { assessWorkoutReadiness, type WorkoutReadinessAssessment } from "@/lib/w
 import { buildMovementHistory, recommendProgressiveOverload } from "@/lib/progressive-overload";
 import { PHASE_META, PHASE_ORDER, exerciseImageUrl } from "@/lib/workout-phases";
 import { ExerciseDetailDialog, type ExerciseDetail } from "@/components/exercise-detail-dialog";
+import {
+  BarbellIcon,
+  CalendarDotsIcon,
+  CaretDownIcon,
+  CheckCircleIcon,
+  CircleIcon,
+  ClockCounterClockwiseIcon,
+  ClockIcon,
+  FireIcon,
+  PlusIcon,
+  SparkleIcon,
+  TrashIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/health/workouts")({
   validateSearch: validateWorkoutSearch,
@@ -435,7 +436,7 @@ function WorkoutsPage() {
             variant="secondary"
             className="w-fit gap-1.5 rounded-full px-3 py-1 text-muted-foreground"
           >
-            <CalendarRange className="size-3.5" /> Week of {weekRangeLabel}
+            <CalendarDotsIcon className="size-3.5" weight="duotone" /> Week of {weekRangeLabel}
           </Badge>
         </div>
       ) : null}
@@ -443,7 +444,7 @@ function WorkoutsPage() {
       {/* Stat tiles */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
-          icon={Flame}
+          icon={FireIcon}
           label="This week"
           value={`${weekWorkouts}`}
           sub={`of ${targetDays} target`}
@@ -451,19 +452,19 @@ function WorkoutsPage() {
           hero
         />
         <StatTile
-          icon={Dumbbell}
+          icon={BarbellIcon}
           label="Total logged"
           value={`${sessions.length}`}
           sub="sessions"
         />
         <StatTile
-          icon={Clock}
+          icon={ClockIcon}
           label="Avg length"
           value={avgMinutes ? `${avgMinutes}` : "—"}
           sub={avgMinutes ? "min / session" : "no data"}
         />
         <StatTile
-          icon={HistoryIcon}
+          icon={ClockCounterClockwiseIcon}
           label="Last workout"
           value={lastSession ? relativeDay(lastSession.performedAt, today) : "—"}
           sub={lastSession?.notes ? truncate(lastSession.notes, 18) : "none yet"}
@@ -479,7 +480,7 @@ function WorkoutsPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-base font-semibold">
           <span className="flex items-center gap-2">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <CalendarRange className="size-4" />
+              <CalendarDotsIcon className="size-4" weight="duotone" />
             </span>
             This Week
           </span>
@@ -540,9 +541,15 @@ function WorkoutsPage() {
                       >
                         <div className="flex items-center gap-1.5 font-medium">
                           {done ? (
-                            <CheckCircle2 className="size-4 shrink-0 text-success" />
+                            <CheckCircleIcon
+                              className="size-4 shrink-0 text-success"
+                              weight="duotone"
+                            />
                           ) : (
-                            <Circle className="size-4 shrink-0 text-muted-foreground/40" />
+                            <CircleIcon
+                              className="size-4 shrink-0 text-muted-foreground/40"
+                              weight="duotone"
+                            />
                           )}
                           <span className="truncate">{session.title}</span>
                         </div>
@@ -550,8 +557,9 @@ function WorkoutsPage() {
                           <span>{session.focus}</span>
                           <span>·</span>
                           <span className="tabular-nums">~{session.estimatedMinutes} min</span>
-                          <ChevronDown
+                          <CaretDownIcon
                             className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+                            weight="duotone"
                           />
                         </div>
                       </button>
@@ -564,7 +572,7 @@ function WorkoutsPage() {
                           disabled={busy}
                           onClick={() => void startPlannedReview(session)}
                         >
-                          <Plus className="size-3.5" /> Log
+                          <PlusIcon className="size-3.5" weight="duotone" /> Log
                         </Button>
                       )}
                       {done && (
@@ -851,7 +859,7 @@ function WorkoutsPage() {
                   Cancel
                 </Button>
                 <Button type="button" disabled={busy} onClick={() => void completePlannedReview()}>
-                  <CheckCircle2 className="size-4" /> Save workout
+                  <CheckCircleIcon className="size-4" weight="duotone" /> Save workout
                 </Button>
               </div>
             </div>
@@ -863,7 +871,7 @@ function WorkoutsPage() {
       <div className="zen-card p-6 mb-6">
         <div className="mb-4">
           <h2 className="flex items-center gap-2 text-base font-semibold">
-            <Sparkles className="size-4 text-primary" /> Log a workout
+            <SparkleIcon className="size-4 text-primary" weight="duotone" /> Log a workout
           </h2>
         </div>
         <div>
@@ -924,7 +932,7 @@ function WorkoutsPage() {
               className="gap-1 transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
               disabled={!logTitle.trim() || busy}
             >
-              <Plus className="size-4" /> Log
+              <PlusIcon className="size-4" weight="duotone" /> Log
             </Button>
           </form>
           <p className="mt-2 text-[11px] text-muted-foreground">
@@ -939,7 +947,7 @@ function WorkoutsPage() {
         <div className="mb-4">
           <h2 className="flex items-center justify-between text-base font-semibold">
             <span className="flex items-center gap-2">
-              <HistoryIcon className="size-4 text-primary" /> History
+              <ClockCounterClockwiseIcon className="size-4 text-primary" weight="duotone" /> History
             </span>
             <span className="text-sm font-normal tabular-nums text-muted-foreground">
               {sessions.length} {sessions.length === 1 ? "session" : "sessions"}
@@ -975,8 +983,9 @@ function WorkoutsPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{s.notes || "Workout"}</span>
                           {exs.length > 0 && (
-                            <ChevronDown
+                            <CaretDownIcon
                               className={`size-3.5 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                              weight="duotone"
                             />
                           )}
                         </div>
@@ -1011,7 +1020,7 @@ function WorkoutsPage() {
                         onClick={() => handleDelete(s.id)}
                         aria-label="Remove workout"
                       >
-                        <Trash2 className="size-4" />
+                        <TrashIcon className="size-4" weight="duotone" />
                       </Button>
                     </div>
                     {open && exs.length > 0 && (
@@ -1133,8 +1142,9 @@ function ExerciseRow({
           )}
           {state !== "loaded" && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <Dumbbell
+              <BarbellIcon
                 className={`size-5 ${meta.text} ${state === "loading" ? "animate-pulse opacity-50" : "opacity-40"}`}
+                weight="duotone"
               />
             </div>
           )}
@@ -1159,7 +1169,7 @@ function StatTile({
   progress,
   hero,
 }: {
-  icon: typeof Dumbbell;
+  icon: PhosphorIcon;
   label: string;
   value: string;
   sub?: string;
@@ -1176,7 +1186,7 @@ function StatTile({
     >
       <div>
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}
+          <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} weight="duotone" /> {label}
         </div>
         <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
         {progress && (

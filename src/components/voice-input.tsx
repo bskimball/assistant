@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Loader2 } from "lucide-react";
+import { MicrophoneIcon, MicrophoneSlashIcon, CircleNotchIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -220,11 +220,11 @@ export function VoiceInput({
           className="size-9"
         >
           {processing || speaking ? (
-            <Loader2 className="size-4 animate-spin" />
+            <CircleNotchIcon className="size-4 animate-spin" weight="regular" />
           ) : listening ? (
-            <MicOff className="size-4" />
+            <MicrophoneSlashIcon className="size-4" weight="duotone" />
           ) : (
-            <Mic className="size-4" />
+            <MicrophoneIcon className="size-4" weight="duotone" />
           )}
         </Button>
         {(interim || transcript) && (

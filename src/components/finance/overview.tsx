@@ -1,20 +1,23 @@
 import { fmtMoney } from "@/components/finance/shared";
 import { SimplefinConnectionsCard } from "@/components/finance/simplefin-connections";
 import type { FinanceTabProps } from "@/components/finance/shared";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, simplefinStatusQuery } from "@/lib/queries";
 import {
-  PiggyBank,
-  Plus,
-  Check,
-  X,
-  Sparkles,
-  Trash2,
-  Pencil,
-  Activity,
-  Wallet2,
-} from "lucide-react";
+  CaretRightIcon,
+  CheckIcon,
+  GearIcon,
+  PencilSimpleIcon,
+  PiggyBankIcon,
+  PlusIcon,
+  ReceiptIcon,
+  SparkleIcon,
+  TrashIcon,
+  WalletIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +39,7 @@ import {
 import {
   calculateEmergencyFund,
   recurringAdditionsForMonth,
+  recurringItemsForMonth,
   transactionsForMonth,
 } from "@/lib/finance-math";
 import {
@@ -74,6 +78,7 @@ export function OverviewTab({
   const [editAmount, setEditAmount] = useState("");
   const [editCurrency, setEditCurrency] = useState("USD");
   const [showAddAccount, setShowAddAccount] = useState(false);
+  const [manageAccounts, setManageAccounts] = useState(false);
   const accounts = hub.snapshot.accounts || [];
   const importedAccounts = summarizeImportedAccounts(hub.transactions);
   const savedBalanceNames = new Set(accounts.map((a) => a.account.toLowerCase()));
@@ -244,6 +249,30 @@ export function OverviewTab({
   }).filter((g) => g.rows.length > 0);
   const accountsTotal = accounts.reduce((s, a) => s + a.amount, 0);
 
+  // Same paid/unpaid semantics as the Bills tab: active non-annual items expected
+  // this month, matched via recurringMatchesTransaction inside recurringItemsForMonth.
+  const currentMonth = today.slice(0, 7);
+  const monthBillBuckets = recurringItemsForMonth(
+    hub.subscriptions,
+    monthTxns,
+    undefined,
+    currentMonth,
+  );
+  const billMonthItems = (["needs", "wants", "savings"] as const)
+    .flatMap((bucket) => monthBillBuckets[bucket])
+    .filter((item) => item.cadence !== "annual" && item.expectedThisMonth > 0);
+  const billsTotal = billMonthItems.length;
+  const billsPaid = billMonthItems.filter(
+    (item) =>
+      item.seenThisMonth &&
+      (item.expectedThisMonth <= 1 || item.matchedCount >= item.expectedThisMonth),
+  ).length;
+  // Insights that already flag amount-change / likely-canceled for those bills.
+  const billIds = new Set(billMonthItems.map((item) => item.id));
+  const billsNeedingAttention = hub.recurringInsights.filter((insight) =>
+    billIds.has(insight.subscriptionId),
+  ).length;
+
   // One row of the Accounts card. Kept as a closure so grouped sections can reuse
   // the inline edit state without prop-drilling it through a child component.
   const renderAccountRow = (a: AccountBalance) => {
@@ -290,7 +319,7 @@ export function OverviewTab({
                 title="Save account"
                 className="size-10 text-success transition-[scale,background-color,color] active:scale-[0.96]"
               >
-                <Check className="size-4" />
+                <CheckIcon className="size-4" weight="duotone" />
               </Button>
               <Button
                 type="button"
@@ -302,7 +331,7 @@ export function OverviewTab({
                 title="Cancel"
                 className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96]"
               >
-                <X className="size-4" />
+                <XIcon className="size-4" weight="duotone" />
               </Button>
             </div>
           </>
@@ -326,30 +355,34 @@ export function OverviewTab({
               >
                 {fmtMoney(a.amount)}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => startEditAccount(a)}
-                disabled={busy}
-                aria-label={`Edit ${a.account}`}
-                title="Edit account"
-                className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96]"
-              >
-                <Pencil className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => removeAccount(a.account)}
-                disabled={busy}
-                aria-label={`Remove ${a.account}`}
-                title="Remove account"
-                className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96] hover:text-destructive"
-              >
-                <Trash2 className="size-4" />
-              </Button>
+              {manageAccounts && (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => startEditAccount(a)}
+                    disabled={busy}
+                    aria-label={`Edit ${a.account}`}
+                    title="Edit account"
+                    className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96]"
+                  >
+                    <PencilSimpleIcon className="size-4" weight="duotone" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => removeAccount(a.account)}
+                    disabled={busy}
+                    aria-label={`Remove ${a.account}`}
+                    title="Remove account"
+                    className="size-10 text-muted-foreground transition-[scale,background-color,color] active:scale-[0.96] hover:text-destructive"
+                  >
+                    <TrashIcon className="size-4" weight="duotone" />
+                  </Button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -359,7 +392,9 @@ export function OverviewTab({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {/* a. Net worth + this month's cash flow */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Net worth" value={fmtMoney(hub.snapshot.netWorth)} hero />
         <Stat
           label="Cash flow (mo)"
           value={`${cashFlow < 0 ? "-" : "+"}${fmtMoney(Math.abs(cashFlow))}`}
@@ -367,20 +402,28 @@ export function OverviewTab({
           hero
         />
         <Stat
-          label={usePlannedIncome ? "Income (mo)" : "Income (MTD)"}
+          label={usePlannedIncome ? "Money in (mo)" : "Money in (MTD)"}
           value={fmtMoney(income)}
           tone="up"
         />
-        <Stat label="Known outflow (mo)" value={fmtMoney(knownOutflow)} />
+        <Stat label="Money out (mo)" value={fmtMoney(knownOutflow)} />
       </div>
 
       {plannedRecurring > 0 && (
         <p className="-mt-2 text-xs text-muted-foreground">
-          Known outflow includes {fmtMoney(plannedRecurring)} of active recurring commitments not
-          seen in imported statements yet.
+          Money out includes {fmtMoney(plannedRecurring)} of active recurring commitments not seen
+          in imported statements yet.
         </p>
       )}
 
+      {/* b. Bills health strip */}
+      <BillsHealthStrip
+        paid={billsPaid}
+        total={billsTotal}
+        needsAttention={billsNeedingAttention}
+      />
+
+      {/* c. Alerts / insights */}
       <SafeToSpendGuardrail result={hub.safeToSpend} />
 
       <CashFlowCalendarCard result={hub.cashFlowCalendar} />
@@ -389,20 +432,45 @@ export function OverviewTab({
 
       <DataQualityCard hub={hub} today={today} />
 
+      {/* d. Recent transactions */}
+      <TransactionsCard transactions={hub.transactions} />
+
+      {/* e. Accounts (manage toggle) + emergency fund + bank connections at bottom */}
       <CollapsibleCard
         id="overview-accounts"
         title="Accounts"
-        icon={Wallet2}
+        icon={WalletIcon}
         defaultOpen
         summary={fmtMoney(accountsTotal)}
       >
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="text-xs text-muted-foreground">Net-worth balances</span>
-          {balanceSourceDate && (
-            <span className="text-xs font-normal text-muted-foreground">
-              Balances from {fmtISODate(balanceSourceDate)}
-            </span>
-          )}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Net-worth balances</span>
+            {balanceSourceDate && (
+              <span className="text-xs font-normal text-muted-foreground">
+                Balances from {fmtISODate(balanceSourceDate)}
+              </span>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant={manageAccounts ? "secondary" : "ghost"}
+            size="sm"
+            className="gap-1.5 text-muted-foreground"
+            onClick={() => {
+              setManageAccounts((v) => {
+                if (v) {
+                  setShowAddAccount(false);
+                  setEditingAccount(null);
+                }
+                return !v;
+              });
+            }}
+            aria-pressed={manageAccounts}
+          >
+            <GearIcon className="size-3.5" weight="duotone" />
+            {manageAccounts ? "Done" : "Manage"}
+          </Button>
         </div>
         {accounts.length ? (
           <>
@@ -411,7 +479,7 @@ export function OverviewTab({
                 <section key={type}>
                   <div className="mb-0.5 flex items-center justify-between gap-2 border-b border-border/60 pb-1">
                     <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                      <Icon className="size-3.5" />
+                      <Icon className="size-3.5" weight="duotone" />
                       {label}
                     </h3>
                     <span
@@ -479,65 +547,133 @@ export function OverviewTab({
             No accounts yet. Add your BoA, M&T, Capital One, Robinhood, and ADP 401k balances.
           </div>
         )}
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-muted-foreground"
-            onClick={() => setShowAddAccount((v) => !v)}
-            aria-expanded={showAddAccount}
-          >
-            <Plus className="size-3.5" /> Add account
-          </Button>
-        </div>
-        {showAddAccount && (
-          <form onSubmit={addAccount} className="mt-2 flex items-center gap-2">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Account (e.g. BoA Checking)"
-              className="flex-1"
-              disabled={busy}
-            />
-            <Input
-              type="number"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Balance"
-              className="w-32"
-              disabled={busy}
-            />
-            <Button
-              type="submit"
-              size="sm"
-              className="gap-1"
-              disabled={busy || !name.trim() || !amount}
-            >
-              <Plus className="size-4" /> Save
-            </Button>
-          </form>
-        )}
-        {showAddAccount && (
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Add new balances below, or edit a saved row to rename an account, update its balance, or
-            change its currency.
-          </p>
+        {manageAccounts && (
+          <>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground"
+                onClick={() => setShowAddAccount((v) => !v)}
+                aria-expanded={showAddAccount}
+              >
+                <PlusIcon className="size-3.5" weight="duotone" /> Add account
+              </Button>
+            </div>
+            {showAddAccount && (
+              <form onSubmit={addAccount} className="mt-2 flex items-center gap-2">
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Account (e.g. BoA Checking)"
+                  className="flex-1"
+                  disabled={busy}
+                />
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Balance"
+                  className="w-32"
+                  disabled={busy}
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="gap-1"
+                  disabled={busy || !name.trim() || !amount}
+                >
+                  <PlusIcon className="size-4" weight="duotone" /> Save
+                </Button>
+              </form>
+            )}
+            {showAddAccount && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Add new balances below, or edit a saved row to rename an account, update its
+                balance, or change its currency.
+              </p>
+            )}
+          </>
         )}
       </CollapsibleCard>
 
       <EmergencyFundProgressCard fund={emergencyFund} monthlyContribution={emergencyContribution} />
-
-      <TransactionsCard transactions={hub.transactions} />
 
       <SimplefinConnectionsCard
         status={simplefinQuery.data}
         loading={simplefinQuery.isLoading}
         onChange={refreshFinanceData}
         flash={flash}
+        defaultOpen={false}
       />
     </div>
+  );
+}
+
+function BillsHealthStrip({
+  paid,
+  total,
+  needsAttention,
+}: {
+  paid: number;
+  total: number;
+  needsAttention: number;
+}) {
+  if (total === 0) {
+    return (
+      <Link
+        to="/finance/recurring"
+        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5 transition-colors hover:bg-muted/30"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <ReceiptIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+          <div>
+            <div className="text-xs font-medium">Bills this month</div>
+            <div className="text-[11px] text-muted-foreground">
+              No active bills tracked yet — open Bills to add them
+            </div>
+          </div>
+        </div>
+        <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+      </Link>
+    );
+  }
+
+  const warning = needsAttention > 0;
+  const tone = warning
+    ? "border-warning/30 bg-warning/10 hover:bg-warning/15"
+    : "border-success/25 bg-success/5 hover:bg-success/10";
+
+  return (
+    <Link
+      to="/finance/recurring"
+      className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors ${tone}`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <ReceiptIcon
+          className={`size-4 shrink-0 ${warning ? "text-warning" : "text-success"}`}
+          weight="duotone"
+        />
+        <div className="min-w-0">
+          <div className="text-xs font-medium">Bills this month</div>
+          <div className="text-sm text-pretty">
+            <span className="font-medium tabular-nums">
+              {paid} of {total}
+            </span>{" "}
+            bill{total === 1 ? "" : "s"} paid
+            {needsAttention > 0 && (
+              <span className="text-warning-foreground">
+                {" · "}
+                {needsAttention} need{needsAttention === 1 ? "s" : ""} attention
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+      <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+    </Link>
   );
 }
 
@@ -703,13 +839,15 @@ function CashFlowCalendarCard({ result }: { result: FinanceHubPayload["cashFlowC
 // Coach's "next moves" — always visible when suggestions exist (never
 // collapsed), compact and scannable. This is the single home for finance coach
 // suggestions; the Budget tab intentionally has none. Shows the top 3.
-const ADVICE_META: Record<FinanceAdviceItem["category"], { label: string; Icon: typeof Sparkles }> =
-  {
-    budget: { label: "Budget", Icon: PiggyBank },
-    subscriptions: { label: "Subscriptions", Icon: Sparkles },
-    investing: { label: "Investing", Icon: Sparkles },
-    earn: { label: "Earn more", Icon: Sparkles },
-  };
+const ADVICE_META: Record<
+  FinanceAdviceItem["category"],
+  { label: string; Icon: typeof SparkleIcon }
+> = {
+  budget: { label: "Budget", Icon: PiggyBankIcon },
+  subscriptions: { label: "Subscriptions", Icon: SparkleIcon },
+  investing: { label: "Investing", Icon: SparkleIcon },
+  earn: { label: "Earn more", Icon: SparkleIcon },
+};
 
 const FINANCE_HIGHLIGHT_RE = /(\$[\d,]+(?:\.\d+)?|\d+(?:\.\d+)?%?)/;
 
@@ -751,7 +889,7 @@ function CoachSuggestions({
     <CardHeader className="pb-2">
       <CardTitle className="flex items-center justify-between gap-2 text-sm">
         <span className="flex items-center gap-2 font-semibold tracking-tight">
-          <Sparkles className="size-4 text-primary" />
+          <SparkleIcon className="size-4 text-primary" weight="duotone" />
           Next moves
         </span>
         <span className="text-[11px] font-normal text-muted-foreground">Coach</span>
@@ -764,11 +902,7 @@ function CoachSuggestions({
   if (!topItems.length) {
     if (!loading) return null;
     return (
-      <Card
-        role="status"
-        aria-busy="true"
-        className="overflow-hidden border-primary/25 bg-card/70 backdrop-blur-xl backdrop-saturate-150 shadow-sm"
-      >
+      <Card role="status" aria-busy="true" className="overflow-hidden border-primary/25 shadow-sm">
         <span className="sr-only">Loading coach suggestions…</span>
         {header}
         <CardContent className="pt-0">
@@ -805,7 +939,7 @@ function CoachSuggestions({
   }
 
   return (
-    <Card className="overflow-hidden border-primary/25 bg-card/70 backdrop-blur-xl backdrop-saturate-150 shadow-sm">
+    <Card className="overflow-hidden border-primary/25 shadow-sm">
       {header}
       <CardContent className="pt-0">
         <ul className="divide-y divide-border/50">
@@ -818,7 +952,7 @@ function CoachSuggestions({
                 className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
               >
                 <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                  <meta.Icon className="size-4" />
+                  <meta.Icon className="size-4" weight="duotone" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-[10px] font-medium text-muted-foreground">{meta.label}</div>
@@ -834,7 +968,7 @@ function CoachSuggestions({
                   disabled={busyIndex !== null || accepted}
                   className="mt-0.5 h-8 shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
                 >
-                  <Check className="size-3.5" />
+                  <CheckIcon className="size-3.5" weight="duotone" />
                   <span className="hidden sm:inline">{accepted ? "Added" : "Add to tasks"}</span>
                   <span className="sm:hidden">{accepted ? "Added" : "Add"}</span>
                 </Button>
@@ -875,7 +1009,7 @@ function EmergencyFundProgressCard({
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
-            <PiggyBank className="size-4 text-success" />
+            <PiggyBankIcon className="size-4 text-success" weight="duotone" />
             Emergency fund
           </span>
           <span
@@ -940,167 +1074,51 @@ function EmergencyFundProgressCard({
   );
 }
 
-// One transaction row shared by the Overview transactions list. When an account
-// filter is active the row's account text is redundant, so it can be dropped.
-function TxnRow({ t, hideAccount }: { t: Transaction; hideAccount?: boolean }) {
-  return (
-    <li className="flex items-center justify-between gap-3 py-2 text-sm">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate">{t.category ? cleanMerchantName(t.category) : "—"}</span>
-          {t.categoryGroup && <GroupChip group={t.categoryGroup} />}
-        </div>
-        <TxnSubline t={t} className="text-xs" hideAccount={hideAccount} />
-      </div>
-      <span className={`shrink-0 tabular-nums ${t.amount < 0 ? "text-foreground" : "text-info"}`}>
-        {t.amount < 0 ? "-" : "+"}
-        {fmtMoney(Math.abs(t.amount))}
-      </span>
-    </li>
-  );
-}
-
-const TXN_PAGE_INITIAL = 15;
-const TXN_PAGE_STEP = 25;
-
-// Full transactions view: account filter chips, per-account verification summary,
-// and a paginated newest-first list — so the owner can confirm exactly what was
-// pulled per account.
 function TransactionsCard({ transactions }: { transactions: Transaction[] }) {
-  const [account, setAccount] = useState<string | null>(null);
-  const [visible, setVisible] = useState(TXN_PAGE_INITIAL);
-
-  // Distinct accounts (case-insensitive) with counts, most-recent activity first.
-  // hub.transactions can be 600+ rows, so memoize the sweep.
-  const accountChips = useMemo(() => summarizeImportedAccounts(transactions), [transactions]);
-
-  // Newest first, filtered to the selected account (case-insensitive) when set.
-  const filtered = useMemo(() => {
-    const key = account?.toLowerCase();
-    return [...transactions]
-      .filter((t) => (key ? t.account?.trim().toLowerCase() === key : true))
-      .sort((a, b) => b.timestamp - a.timestamp);
-  }, [transactions, account]);
-
-  // Verification summary for a selected account: how many pulled and the span.
-  const selectedSummary = useMemo(() => {
-    if (!account || filtered.length === 0) return null;
-    const last = filtered[0].timestamp;
-    const first = filtered[filtered.length - 1].timestamp;
-    return { count: filtered.length, first, last };
-  }, [account, filtered]);
-
-  function selectAccount(next: string | null) {
-    setAccount(next);
-    setVisible(TXN_PAGE_INITIAL);
-  }
-
-  const shown = filtered.slice(0, visible);
+  const recent = [...transactions].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10);
 
   return (
-    <CollapsibleCard
-      id="overview-transactions"
-      title="Transactions"
-      icon={Activity}
-      summary={`${transactions.length.toLocaleString()} transactions`}
-    >
-      {transactions.length ? (
-        <>
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            <FilterChip
-              label="All"
-              count={transactions.length}
-              active={account === null}
-              onClick={() => selectAccount(null)}
-            />
-            {accountChips.map((a) => (
-              <FilterChip
-                key={a.account}
-                label={a.account}
-                count={a.count}
-                active={account?.toLowerCase() === a.account.toLowerCase()}
-                onClick={() => selectAccount(a.account)}
-              />
-            ))}
-          </div>
-
-          {selectedSummary && (
-            <p className="mb-2 text-xs text-muted-foreground">
-              <span className="tabular-nums">{selectedSummary.count}</span> transaction
-              {selectedSummary.count === 1 ? "" : "s"} · first{" "}
-              <span className="tabular-nums">{fmtDate(selectedSummary.first)}</span> · last{" "}
-              <span className="tabular-nums">{fmtDate(selectedSummary.last)}</span>
-            </p>
-          )}
-
+    <Card>
+      <CardHeader className="flex-row items-center justify-between gap-3 pb-2">
+        <CardTitle className="text-base">Recent transactions</CardTitle>
+        <Button asChild variant="ghost" size="sm" className="shrink-0 text-muted-foreground">
+          <Link to="/finance/transactions">View all →</Link>
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {recent.length ? (
           <ul className="divide-y divide-border">
-            {shown.map((t) => (
-              <TxnRow key={t.id} t={t} hideAccount={account !== null} />
+            {recent.map((transaction) => (
+              <li
+                key={transaction.id}
+                className="flex items-center justify-between gap-3 py-2 text-sm"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate">
+                      {transaction.category ? cleanMerchantName(transaction.category) : "—"}
+                    </span>
+                    {transaction.categoryGroup && <GroupChip group={transaction.categoryGroup} />}
+                  </div>
+                  <TxnSubline t={transaction} className="text-xs" />
+                </div>
+                <span
+                  className={`shrink-0 tabular-nums ${transaction.amount < 0 ? "text-destructive" : "text-success"}`}
+                >
+                  {transaction.amount < 0 ? "−" : "+"}
+                  {fmtMoney(Math.abs(transaction.amount))}
+                </span>
+              </li>
             ))}
           </ul>
-
-          {visible < filtered.length && (
-            <div className="mt-3 flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setVisible((v) => v + TXN_PAGE_STEP)}
-              >
-                Show more
-                <span className="ml-1 text-muted-foreground tabular-nums">
-                  ({filtered.length - visible} left)
-                </span>
-              </Button>
-            </div>
-          )}
-
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Pulled automatically from your bank sync and statement imports. Categorize and manage
-            every transaction on the Budget tab.
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No transactions yet. Connect your bank below or import a CSV statement on the Budget
+            tab.
           </p>
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          No transactions yet. Connect your bank below or import a CSV statement on the Budget tab.
-        </p>
-      )}
-    </CollapsibleCard>
-  );
-}
-
-// Rounded filter pill with a trailing count, used for the account filter row.
-function FilterChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-        active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-      }`}
-    >
-      <span className="truncate">{label}</span>
-      <span aria-hidden className={active ? "text-primary-foreground/60" : "text-border"}>
-        ·
-      </span>
-      <span
-        className={`tabular-nums ${active ? "text-primary-foreground/80" : "text-muted-foreground/70"}`}
-      >
-        {count.toLocaleString()}
-      </span>
-    </button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

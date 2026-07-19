@@ -20,6 +20,7 @@ export type AppPath =
   | "/health/nutrition"
   | "/kanban"
   | "/finance"
+  | "/finance/transactions"
   | "/finance/budget"
   | "/finance/recurring"
   | "/finance/investments"
@@ -74,6 +75,7 @@ export const DESKTOP_DESTINATIONS: Destination[] = [
     icon: "money",
     match: [
       "/finance",
+      "/finance/transactions",
       "/finance/budget",
       "/finance/recurring",
       "/finance/investments",
@@ -108,6 +110,7 @@ export const BOTTOM_DESTINATIONS: Destination[] = [
     icon: "money",
     match: [
       "/finance",
+      "/finance/transactions",
       "/finance/budget",
       "/finance/recurring",
       "/finance/investments",
@@ -160,7 +163,8 @@ export const WORKSPACES: Record<Workspace, WorkspaceConfig> = {
     links: [
       { label: "Overview", to: "/finance" },
       { label: "Budget", to: "/finance/budget" },
-      { label: "Recurring", to: "/finance/recurring" },
+      { label: "Bills", to: "/finance/recurring" },
+      { label: "Transactions", to: "/finance/transactions" },
       { label: "Investments", to: "/finance/investments" },
       { label: "Grow", to: "/finance/grow" },
     ],

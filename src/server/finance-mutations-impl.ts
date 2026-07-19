@@ -11,7 +11,13 @@ import {
   parseMoney,
   ruleGroupFor,
 } from "@/server/finance-parse";
-import { detectRecurringCandidates, monthKey } from "@/lib/finance-math";
+import {
+  crossSourceTransactionMatches,
+  detectRecurringCandidates,
+  explainRecurringHealth,
+  monthKey,
+  type RecurringHealthTrace,
+} from "@/lib/finance-math";
 import {
   cachedGroupFor,
   enrichNewTransactions,
@@ -98,7 +104,6 @@ export async function importTransactionsImpl(data: {
         skipped++;
         continue;
       }
-      seen.add(dedupeKey);
       const group = categorize(description, amount, rules);
       const transaction: Transaction = {
         id: newId("txn"),
@@ -114,6 +119,11 @@ export async function importTransactionsImpl(data: {
         dedupeKey,
         source: "import",
       };
+      if (transactions.some((existing) => crossSourceTransactionMatches(transaction, existing))) {
+        skipped++;
+        continue;
+      }
+      seen.add(dedupeKey);
       parsed.push(transaction);
       if (sample.length < 6) sample.push({ description: description.slice(0, 40), amount, group });
     }
@@ -165,6 +175,49 @@ export async function recategorizeTransactionImpl(data: {
     await updateCategoryRulesImpl((rules) => ({ ...rules, [key]: data.group }));
   }
   return { ok: true };
+}
+
+export function restoreTransactionInLedger(
+  transactions: Transaction[],
+  id: string,
+  now: number,
+): { transactions: Transaction[]; restored: boolean } {
+  let restored = false;
+  const next = transactions.map((transaction) => {
+    if (transaction.id !== id || !transaction.deletedAt) return transaction;
+    restored = true;
+    const { deletedAt: _deletedAt, deletedReason: _deletedReason, ...rest } = transaction;
+    return { ...rest, updatedAt: now };
+  });
+  return { transactions: next, restored };
+}
+
+export async function restoreTransactionImpl(data: { id: string }): Promise<{ ok: true }> {
+  const id = data.id?.trim();
+  if (!id) throw new Error("id is required");
+  const now = Date.now();
+  let restored = false;
+  await updateTransactionsImpl((transactions) => {
+    const result = restoreTransactionInLedger(transactions, id, now);
+    restored = result.restored;
+    return result.transactions;
+  });
+  if (!restored) throw new Error("Deleted transaction not found.");
+  return { ok: true };
+}
+
+export async function explainRecurringChargeImpl(
+  subscriptionId: string,
+): Promise<RecurringHealthTrace> {
+  const id = subscriptionId?.trim();
+  if (!id) throw new Error("subscriptionId is required");
+  const [{ subscriptions }, { transactions }] = await Promise.all([
+    loadSubscriptionsImpl(),
+    loadTransactionsImpl(),
+  ]);
+  const subscription = subscriptions.find((item) => item.id === id && !item.deletedAt);
+  if (!subscription) throw new Error("Recurring item not found.");
+  return explainRecurringHealth({ sub: subscription, transactions });
 }
 
 export async function setTransactionExcludedImpl(data: {

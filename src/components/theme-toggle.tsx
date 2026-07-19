@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Moon, Sun, SunMoon } from "lucide-react";
+import { MoonIcon, SunIcon, SunHorizonIcon } from "@phosphor-icons/react";
 
 type ThemeMode = "light" | "dark" | "auto";
 
@@ -64,7 +64,7 @@ export default function ThemeToggle() {
 
   const next = mode === "light" ? "dark" : mode === "dark" ? "auto" : "light";
   const label = `Theme: ${mode}${mode === "auto" ? " (system)" : ""}. Click for ${next}.`;
-  const Icon = mode === "auto" ? SunMoon : mode === "dark" ? Moon : Sun;
+  const Icon = mode === "auto" ? SunHorizonIcon : mode === "dark" ? MoonIcon : SunIcon;
 
   return (
     <button
@@ -74,7 +74,7 @@ export default function ThemeToggle() {
       title={label}
       className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.96]"
     >
-      <Icon className="size-[18px]" strokeWidth={1.75} />
+      <Icon className="size-[18px]" weight="duotone" />
     </button>
   );
 }

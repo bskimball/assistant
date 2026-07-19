@@ -15,6 +15,7 @@ import {
 } from "./finance-sync";
 import type { SimplefinPayload } from "@/server/adapters/simplefin";
 import type { Position, Subscription, Transaction } from "@/lib/domain";
+import { crossSourceTransactionMatches } from "@/lib/finance-math";
 
 const { updateTransactionsMock } = vi.hoisted(() => ({
   updateTransactionsMock: vi.fn(),
@@ -160,6 +161,45 @@ describe("finance-sync helpers", () => {
       "M&T Bank (checking)",
       "M&T Bank (checking)",
     ]);
+  });
+
+  it("fuzzy-dedupes matching transactions from CSV and sync sources", () => {
+    const existing = {
+      id: "sync-adt",
+      createdAt: 0,
+      timestamp: Date.parse("2026-07-01T12:00:00Z"),
+      type: "withdrawal",
+      amount: -64.38,
+      currency: "USD",
+      account: "Bank of America (checking)",
+      category: "CHECKCARD 0630 ADT SECURITY*XXXXX6313",
+      source: "sync",
+    } satisfies Transaction;
+
+    expect(
+      crossSourceTransactionMatches(
+        {
+          timestamp: Date.parse("2026-06-30T12:00:00Z"),
+          amount: -64.38,
+          account: "Bank of America",
+          category: "ADT SECURITY*320556313 WWW.ADT.COM FL",
+          source: "import",
+        },
+        existing,
+      ),
+    ).toBe(true);
+    expect(
+      crossSourceTransactionMatches(
+        {
+          timestamp: Date.parse("2026-06-30T12:00:00Z"),
+          amount: -64.38,
+          account: "Different Bank",
+          category: "ADT SECURITY",
+          source: "import",
+        },
+        existing,
+      ),
+    ).toBe(false);
   });
 
   it("parses decimal money strings to cents precision", () => {

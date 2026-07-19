@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { isChatActionName } from "@/server/chat-action-impl";
+import { applyChatActionImpl, isChatActionName } from "@/server/chat-action-impl";
 import { sanitizeChatMessages } from "@/server/chat-conversation-impl";
 
 describe("chat action validation", () => {
   it("allows only the model action names exposed to the apply endpoint", () => {
     expect(isChatActionName("log_meal")).toBe(true);
     expect(isChatActionName("forget_memory")).toBe(true);
+    expect(isChatActionName("restore_transaction")).toBe(true);
+    expect(isChatActionName("mark_bill_paid")).toBe(true);
+    expect(isChatActionName("find_transactions")).toBe(false);
     expect(isChatActionName("delete_everything")).toBe(false);
     expect(isChatActionName(undefined)).toBe(false);
+  });
+
+  it("rejects restore_transaction without an approved transaction id", async () => {
+    await expect(applyChatActionImpl("restore_transaction", {})).resolves.toEqual({
+      ok: false,
+      message: "I need the transaction id to restore.",
+    });
   });
 });
 

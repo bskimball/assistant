@@ -38,13 +38,15 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
   ]);
   const subscriptions = subs.subscriptions.filter((s) => !s.deletedAt);
   const transactions = txns.transactions.filter((t) => !t.deletedAt);
+  const deletedTransactions = txns.transactions.filter((t) => !!t.deletedAt);
   return {
     snapshot: snapshotInfo.snapshot,
     snapshotSourceDate: snapshotInfo.sourceDate,
     budget,
     subscriptions,
     transactions,
-    recurringInsights: analyzeRecurringHealth({ subscriptions, transactions }),
+    deletedTransactions,
+    recurringInsights: analyzeRecurringHealth({ subscriptions, transactions: txns.transactions }),
     safeToSpend: calculateSafeToSpend({
       budget,
       subscriptions,
@@ -87,7 +89,7 @@ export async function applyRecurringInsightImpl(data: {
   const subscriptions = subsStore.subscriptions.filter((s) => !s.deletedAt);
   const insight = analyzeRecurringHealth({
     subscriptions,
-    transactions: txnStore.transactions.filter((t) => !t.deletedAt),
+    transactions: txnStore.transactions,
   }).find((item) => item.subscriptionId === subscriptionId);
 
   const next = subsStore.subscriptions.map((sub) => {

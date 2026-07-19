@@ -1,7 +1,7 @@
 import { fmtMoney } from "@/components/finance/shared";
 import type { FinanceTabProps } from "@/components/finance/shared";
 import { useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { ArrowsClockwiseIcon, PlusIcon } from "@phosphor-icons/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,7 +151,8 @@ export function InvestmentsTab({
               className="shrink-0 gap-1 whitespace-nowrap transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
               onClick={() => setShowAddPosition((open) => !open)}
             >
-              <Plus className="size-4" /> {showAddPosition ? "Hide form" : "Add position"}
+              <PlusIcon className="size-4" weight="duotone" />{" "}
+              {showAddPosition ? "Hide form" : "Add position"}
             </Button>
             <Button
               type="button"
@@ -161,7 +162,7 @@ export function InvestmentsTab({
               disabled={refreshing || !positions.length}
               onClick={refreshPrices}
             >
-              <RefreshCw className={`size-4${refreshing ? " animate-spin" : ""}`} />
+              <ArrowsClockwiseIcon className={`size-4${refreshing ? " animate-spin" : ""}`} />
               {refreshing ? "Refreshing…" : "Refresh prices"}
             </Button>
           </div>
@@ -211,7 +212,7 @@ export function InvestmentsTab({
                           {fmtMoney(p.value || 0)}
                         </td>
                         <td className="py-2 pl-2">
-                          <div className="relative ml-auto h-8 w-full min-w-36 overflow-hidden rounded-lg bg-muted/60">
+                          <div className="relative ml-auto h-8 w-full min-w-36 overflow-hidden rounded-lg bg-muted">
                             <span
                               className="absolute inset-y-0 left-0 rounded-lg bg-info/25 transition-[width] duration-300 ease-out"
                               style={{ width: `${pct}%` }}
@@ -286,7 +287,7 @@ export function InvestmentsTab({
                   Number(price) <= 0
                 }
               >
-                <Plus className="size-4" /> Save
+                <PlusIcon className="size-4" weight="duotone" /> Save
               </Button>
             </form>
           )}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dumbbell } from "lucide-react";
+import { BarbellIcon } from "@phosphor-icons/react";
 import type { ExercisePhase } from "@/lib/domain";
 import { PHASE_META, exerciseImageUrl } from "@/lib/workout-phases";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,7 +50,8 @@ function ExerciseDetailBody({ exercise }: { exercise: ExerciseDetail }) {
         )}
         {imgState !== "loaded" && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Dumbbell
+            <BarbellIcon
+              weight="duotone"
               className={`size-12 ${meta.text} ${
                 imgState === "loading" ? "animate-pulse opacity-50" : "opacity-40"
               }`}

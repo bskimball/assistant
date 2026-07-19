@@ -1,11 +1,14 @@
 import type { CoachMemory, CoachMemoryCategory, VoiceIntent } from "@/lib/domain";
-import { flOzToMl, newId } from "@/lib/domain";
+import { flOzToMl, newId, todayISO } from "@/lib/domain";
 import { updateCoachMemoriesImpl } from "@/server/domain-impl";
+import { markRecurringPaidImpl, restoreTransactionImpl } from "@/server/finance-mutations-impl";
+import { loadChatFinanceToolData, resolveRecurringByName } from "@/server/chat-finance-tools-impl";
 import { executeVoiceIntentImpl } from "@/server/voice-impl";
 
 export type MemoryActionName = "save_memory" | "update_memory" | "forget_memory";
 export type VoiceChatActionName = "log_meal" | "log_water" | "add_task" | "mark_task_done";
-export type ChatActionName = VoiceChatActionName | MemoryActionName;
+export type FinanceChatActionName = "restore_transaction" | "mark_bill_paid";
+export type ChatActionName = VoiceChatActionName | MemoryActionName | FinanceChatActionName;
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<ChatActionName>([
   "log_meal",
@@ -15,6 +18,8 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<ChatActionName>([
   "save_memory",
   "update_memory",
   "forget_memory",
+  "restore_transaction",
+  "mark_bill_paid",
 ]);
 const COACH_MEMORY_CATEGORIES: readonly CoachMemoryCategory[] = [
   "goal",
@@ -88,6 +93,39 @@ function relDate(value: unknown): string | undefined {
 
 function isMemoryAction(name: ChatActionName): name is MemoryActionName {
   return name === "save_memory" || name === "update_memory" || name === "forget_memory";
+}
+
+function isFinanceAction(name: ChatActionName): name is FinanceChatActionName {
+  return name === "restore_transaction" || name === "mark_bill_paid";
+}
+
+async function applyFinanceAction(
+  name: FinanceChatActionName,
+  args: Record<string, unknown>,
+): Promise<{ ok: boolean; message: string }> {
+  if (name === "restore_transaction") {
+    const transactionId = String(args.transactionId ?? "").trim();
+    if (!transactionId) return { ok: false, message: "I need the transaction id to restore." };
+    try {
+      await restoreTransactionImpl({ id: transactionId });
+      return { ok: true, message: "Restored the deleted transaction." };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "Restore failed." };
+    }
+  }
+
+  const billName = String(args.name ?? "").trim();
+  if (!billName) return { ok: false, message: "I need the bill name to mark paid." };
+  const month = String(args.month ?? todayISO().slice(0, 7)).trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return { ok: false, message: "The payment month must be YYYY-MM." };
+  }
+  const finance = await loadChatFinanceToolData();
+  const subscription = resolveRecurringByName(finance.subscriptions, billName);
+  if (!subscription)
+    return { ok: false, message: `I couldn't find a recurring item matching ${billName}.` };
+  await markRecurringPaidImpl({ subId: subscription.id, month });
+  return { ok: true, message: `Marked ${subscription.name} paid for ${month}.` };
 }
 
 function normalizeMemoryCategory(value: unknown): CoachMemoryCategory {
@@ -198,6 +236,7 @@ export async function applyChatActionImpl(
   args: Record<string, unknown>,
 ): Promise<{ ok: boolean; message: string }> {
   if (isMemoryAction(name)) return applyMemoryAction(name, args);
+  if (isFinanceAction(name)) return applyFinanceAction(name, args);
   const result = await executeVoiceIntentImpl(actionToIntent(name, args));
   return { ok: result.success, message: result.spokenText };
 }

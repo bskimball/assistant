@@ -1,16 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import {
-  Activity,
-  Apple,
-  ChevronRight,
-  Droplets,
-  Dumbbell,
-  Ellipsis,
-  Plus,
-  Utensils,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Item, Stagger } from "@/components/motion";
@@ -41,6 +31,17 @@ import {
   type RecommendationOutcome,
 } from "@/lib/domain";
 import { completeHealthRecommendation, transitionHealthRecommendation } from "@/server/domain";
+import {
+  AppleLogoIcon,
+  BarbellIcon,
+  CaretRightIcon,
+  DotsThreeIcon,
+  DropIcon,
+  ForkKnifeIcon,
+  PlusIcon,
+  PulseIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 const SOURCE = "health-next-action" as const;
 
@@ -362,7 +363,11 @@ function HealthPage() {
   return (
     <>
       <Stagger>
-        <Item as="section" className="zen-card mb-6 p-6" aria-labelledby="health-next-action">
+        <Item
+          as="section"
+          className="zen-card coach-accent mb-6 p-6"
+          aria-labelledby="health-next-action"
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -379,7 +384,7 @@ function HealthPage() {
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="icon" aria-label="Recommendation options">
-                    <Ellipsis className="size-4" />
+                    <DotsThreeIcon className="size-4" weight="duotone" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-40">
@@ -412,7 +417,7 @@ function HealthPage() {
           ) : action.type === "view-progress" ? (
             <Button asChild className="mt-5 gap-1.5">
               <Link to="/analytics">
-                View trends <ChevronRight className="size-4" />
+                View trends <CaretRightIcon className="size-4" weight="duotone" />
               </Link>
             </Button>
           ) : (
@@ -424,7 +429,7 @@ function HealthPage() {
                   : action.type === "start-workout"
                     ? "Start workout"
                     : "Choose workout"}
-              <ChevronRight className="size-4" />
+              <CaretRightIcon className="size-4" weight="duotone" />
             </Button>
           )}
           {status && (
@@ -440,7 +445,7 @@ function HealthPage() {
           aria-label="Today’s health status"
         >
           <StatusTile
-            icon={Activity}
+            icon={PulseIcon}
             label="Movement"
             value={
               todaySessions.length
@@ -452,13 +457,13 @@ function HealthPage() {
             detail={todayWorkout?.title ?? "No session selected"}
           />
           <StatusTile
-            icon={Apple}
+            icon={AppleLogoIcon}
             label="Fuel"
             value={`${nutrition?.totals.protein ?? 0} g protein`}
             detail={`${nutrition?.mealLogs.filter((meal) => !meal.deletedAt).length ?? 0} meals · ${nutrition?.totals.calories ?? 0} cal`}
           />
           <StatusTile
-            icon={Droplets}
+            icon={DropIcon}
             label="Hydration"
             value={`${waterOz} fl oz`}
             detail={`${waterTargetOz} fl oz target`}
@@ -471,10 +476,10 @@ function HealthPage() {
           </h2>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <QuickLogButton onClick={() => setQuickLog("meal")}>
-              <Utensils className="size-4 text-primary" /> Meal
+              <ForkKnifeIcon className="size-4 text-primary" weight="duotone" /> Meal
             </QuickLogButton>
             <QuickLogButton onClick={() => setQuickLog("workout")}>
-              <Dumbbell className="size-4 text-primary" /> Simple workout
+              <BarbellIcon className="size-4 text-primary" weight="duotone" /> Simple workout
             </QuickLogButton>
             <Button
               variant="outline"
@@ -482,7 +487,7 @@ function HealthPage() {
               disabled={busy}
               onClick={() => void addQuickWater(8)}
             >
-              <Plus className="size-4 text-primary" /> 8 fl oz water
+              <PlusIcon className="size-4 text-primary" weight="duotone" /> 8 fl oz water
             </Button>
             <Button
               variant="outline"
@@ -490,7 +495,7 @@ function HealthPage() {
               disabled={busy}
               onClick={() => void addQuickWater(12)}
             >
-              <Plus className="size-4 text-primary" /> 12 fl oz water
+              <PlusIcon className="size-4 text-primary" weight="duotone" /> 12 fl oz water
             </Button>
           </div>
         </Item>
@@ -524,13 +529,13 @@ function HealthPage() {
         <Item className="grid gap-3 sm:grid-cols-2">
           <DomainLink
             to="/health/workouts"
-            icon={Dumbbell}
+            icon={BarbellIcon}
             title="Workouts"
             detail="Plan, complete, and review sessions"
           />
           <DomainLink
             to="/health/nutrition"
-            icon={Utensils}
+            icon={ForkKnifeIcon}
             title="Nutrition"
             detail="Meals, macros, and hydration"
           />
@@ -553,7 +558,7 @@ function StatusTile({
   value,
   detail,
 }: {
-  icon: typeof Activity;
+  icon: PhosphorIcon;
   label: string;
   value: string;
   detail: string;
@@ -561,7 +566,7 @@ function StatusTile({
   return (
     <div className="zen-card p-4">
       <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-        <Icon className="size-3.5 text-primary" />
+        <Icon className="size-3.5 text-primary" weight="duotone" />
         {label}
       </div>
       <div className="mt-2 font-semibold tabular-nums">{value}</div>
@@ -577,7 +582,7 @@ function DomainLink({
   detail,
 }: {
   to: "/health/workouts" | "/health/nutrition";
-  icon: typeof Dumbbell;
+  icon: PhosphorIcon;
   title: string;
   detail: string;
 }) {
@@ -587,13 +592,13 @@ function DomainLink({
       className="zen-card flex items-center gap-3 p-4 outline-none transition-[background-color,box-shadow] hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/60"
     >
       <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="size-4" />
+        <Icon className="size-4" weight="duotone" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block font-medium">{title}</span>
         <span className="block truncate text-xs text-muted-foreground">{detail}</span>
       </span>
-      <ChevronRight className="size-4 text-muted-foreground" />
+      <CaretRightIcon className="size-4 text-muted-foreground" weight="duotone" />
     </Link>
   );
 }

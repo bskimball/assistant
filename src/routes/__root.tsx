@@ -11,7 +11,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { MotionConfig } from "motion/react";
-import { LayoutDashboard, Compass } from "lucide-react";
 import { AppNav } from "@/components/app-nav";
 import { RouteError } from "@/components/route-error";
 import { Button } from "@/components/ui/button";
@@ -19,6 +18,7 @@ import { shellShowsNav } from "@/lib/navigation";
 import { getSessionState } from "@/server/session";
 
 import appCss from "../styles.css?url";
+import { CompassIcon, SquaresFourIcon } from "@phosphor-icons/react";
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
@@ -85,7 +85,7 @@ function NotFound() {
     <div className="flex min-h-[70dvh] items-center justify-center px-4 py-12 sm:px-6">
       <div className="mx-auto w-full max-w-md text-center">
         <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border bg-card">
-          <Compass className="size-7 text-primary" />
+          <CompassIcon className="size-7 text-primary" weight="duotone" />
         </div>
         <div className="text-xs tracking-tight text-muted-foreground">404</div>
         <h1 className="mt-1 text-2xl font-semibold tracking-tighter sm:text-3xl">
@@ -97,7 +97,7 @@ function NotFound() {
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
           <Button asChild size="sm" className="gap-1.5">
             <Link to="/">
-              <LayoutDashboard className="size-4" /> Back to dashboard
+              <SquaresFourIcon className="size-4" weight="duotone" /> Back to dashboard
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">

@@ -24,6 +24,8 @@ export interface FinanceHubPayload {
   budget: BudgetPayload | null;
   subscriptions: Subscription[];
   transactions: Transaction[];
+  /** Soft-deleted ledger rows, kept separate so totals remain unaffected. */
+  deletedTransactions: Transaction[];
   recurringInsights: RecurringInsight[];
   safeToSpend: SafeToSpendResult;
   cashFlowCalendar: CashFlowCalendar;

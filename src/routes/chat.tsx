@@ -19,22 +19,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Reveal } from "@/components/motion";
 import { formatDistanceToNow } from "date-fns";
-import {
-  Sparkles,
-  Send,
-  Square,
-  Check,
-  X,
-  Utensils,
-  Droplet,
-  ListTodo,
-  CircleCheck,
-  Plus,
-  History,
-  Trash2,
-  Brain,
-  MessageSquare,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -53,6 +37,24 @@ import {
   type ChatActionName,
   type ProposedAction,
 } from "@/server/chat";
+import {
+  BrainIcon,
+  ChatIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  ClockCounterClockwiseIcon,
+  DropIcon,
+  ForkKnifeIcon,
+  ListChecksIcon,
+  PaperPlaneRightIcon,
+  PlusIcon,
+  ReceiptIcon,
+  SparkleIcon,
+  SquareIcon,
+  TrashIcon,
+  XIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/chat")({ component: ChatPage });
 
@@ -486,15 +488,17 @@ const SUGGESTIONS = [
 const PRESS =
   "transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]";
 
-const ACTION_META: Record<ChatActionName, { Icon: typeof Utensils; label: string }> = {
-  log_meal: { Icon: Utensils, label: "Log meal" },
-  log_water: { Icon: Droplet, label: "Log water" },
-  add_task: { Icon: ListTodo, label: "Add task" },
-  mark_task_done: { Icon: CircleCheck, label: "Complete task" },
+const ACTION_META: Record<ChatActionName, { Icon: PhosphorIcon; label: string }> = {
+  log_meal: { Icon: ForkKnifeIcon, label: "Log meal" },
+  log_water: { Icon: DropIcon, label: "Log water" },
+  add_task: { Icon: ListChecksIcon, label: "Add task" },
+  mark_task_done: { Icon: CheckCircleIcon, label: "Complete task" },
   // Memory actions (ADR-020) — auto-applied, shown as inline chips not cards.
-  save_memory: { Icon: Brain, label: "Remembered" },
-  update_memory: { Icon: Brain, label: "Updated" },
-  forget_memory: { Icon: Brain, label: "Forgot" },
+  save_memory: { Icon: BrainIcon, label: "Remembered" },
+  update_memory: { Icon: BrainIcon, label: "Updated" },
+  forget_memory: { Icon: BrainIcon, label: "Forgot" },
+  restore_transaction: { Icon: ReceiptIcon, label: "Restore transaction" },
+  mark_bill_paid: { Icon: ReceiptIcon, label: "Mark bill paid" },
 };
 
 function describeAction(name: ChatActionName, args: Record<string, unknown>): string {
@@ -520,6 +524,10 @@ function describeAction(name: ChatActionName, args: Record<string, unknown>): st
       return `Updated: ${args.content ?? ""}`;
     case "forget_memory":
       return "Forgot a memory";
+    case "restore_transaction":
+      return `Restore transaction ${args.transactionId ?? ""}`;
+    case "mark_bill_paid":
+      return `Mark ${args.name ?? "bill"} paid${args.month ? ` for ${args.month}` : ""}`;
   }
 }
 
@@ -611,13 +619,15 @@ function ChatPage() {
               onClick={chat.newChat}
               disabled={empty && chat.activeId === null}
             >
-              <Plus className="size-4" /> <span className="hidden sm:inline">New chat</span>
+              <PlusIcon className="size-4" weight="duotone" />{" "}
+              <span className="hidden sm:inline">New chat</span>
             </Button>
             {/* History is always a drawer to keep the layout single-column and immersive. */}
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
                 <Button variant="outline" size="sm" className={`gap-1.5 ${PRESS}`}>
-                  <History className="size-4" /> <span className="hidden sm:inline">History</span>
+                  <ClockCounterClockwiseIcon className="size-4" weight="duotone" />{" "}
+                  <span className="hidden sm:inline">History</span>
                 </Button>
               </SheetTrigger>
               <SheetContent
@@ -626,7 +636,7 @@ function ChatPage() {
               >
                 <SheetHeader className="border-b border-border/40">
                   <SheetTitle className="flex items-center gap-2">
-                    <History className="size-4" /> Chat history
+                    <ClockCounterClockwiseIcon className="size-4" weight="duotone" /> Chat history
                   </SheetTitle>
                 </SheetHeader>
                 <div className="border-b border-border/25 p-3">
@@ -639,7 +649,7 @@ function ChatPage() {
                       setHistoryOpen(false);
                     }}
                   >
-                    <Plus className="size-4" /> New chat
+                    <PlusIcon className="size-4" weight="duotone" /> New chat
                   </Button>
                 </div>
                 <HistoryList
@@ -690,7 +700,7 @@ function ChatPage() {
                         className="coach-orb mb-6 mt-6 size-14"
                       >
                         <div className="relative z-10 flex size-14 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-[0_8px_30px_-12px_var(--primary)] backdrop-blur-sm">
-                          <Sparkles className="size-6" />
+                          <SparkleIcon className="size-6" weight="duotone" />
                         </div>
                       </motion.div>
                       <h2 className="greeting-display on-scene text-balance text-4xl text-foreground sm:text-5xl">
@@ -786,7 +796,7 @@ function ChatPage() {
                     onClick={chat.stop}
                     aria-label="Stop"
                   >
-                    <Square className="size-4" />
+                    <SquareIcon className="size-4" weight="duotone" />
                   </Button>
                 ) : (
                   <Button
@@ -797,7 +807,7 @@ function ChatPage() {
                     disabled={!input.trim()}
                     aria-label="Send"
                   >
-                    <Send className="size-4" />
+                    <PaperPlaneRightIcon className="size-4" weight="duotone" />
                   </Button>
                 )}
               </div>
@@ -839,7 +849,7 @@ function HistoryList({
               className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center"
             >
               <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <MessageSquare className="size-5" />
+                <ChatIcon className="size-5" weight="duotone" />
               </div>
               <p className="text-sm font-medium">No chats yet</p>
               <p className="text-xs text-muted-foreground">
@@ -875,7 +885,10 @@ function HistoryList({
                       onClick={() => onSelect(s.id)}
                       className="flex min-w-0 flex-1 items-start gap-2 text-left"
                     >
-                      <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <ChatIcon
+                        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                        weight="duotone"
+                      />
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{s.title}</span>
                         <span className="block truncate text-xs text-muted-foreground">
@@ -892,7 +905,7 @@ function HistoryList({
                       aria-label="Delete conversation"
                       className="shrink-0 rounded-md p-2 text-muted-foreground opacity-0 transition-[opacity,scale,background-color,color] duration-150 ease-out hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 active:scale-[0.96] group-hover:opacity-100"
                     >
-                      <Trash2 className="size-4" />
+                      <TrashIcon className="size-4" weight="duotone" />
                     </button>
                   </motion.div>
                 ))}
@@ -938,7 +951,11 @@ function MessageBubble({
               : "border-destructive/25 bg-destructive/10 text-destructive"
           }`}
         >
-          {ok ? <Check className="size-3.5 shrink-0" /> : <X className="size-3.5 shrink-0" />}
+          {ok ? (
+            <CheckIcon className="size-3.5 shrink-0" weight="duotone" />
+          ) : (
+            <XIcon className="size-3.5 shrink-0" weight="duotone" />
+          )}
           <span className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{label}</span>
         </div>
       </motion.div>
@@ -1016,7 +1033,7 @@ function ActionCard({
   onDismiss: () => void;
 }) {
   const meta = ACTION_META[action.name];
-  const Icon = meta?.Icon ?? Sparkles;
+  const Icon = meta?.Icon ?? SparkleIcon;
 
   // Auto-applied memory writes (ADR-020) render as a subtle inline chip, not a
   // card — the member always sees what was written, without an Apply step.
@@ -1030,7 +1047,7 @@ function ActionCard({
         transition={{ duration: 0.16, ease: "easeOut" }}
         className="zen-surface-nested flex min-h-10 min-w-0 max-w-full items-center gap-1.5 overflow-x-hidden rounded-full px-3 py-2 text-xs text-muted-foreground"
       >
-        <Icon className="size-3.5 shrink-0" />
+        <Icon className="size-3.5 shrink-0" weight="duotone" />
         <span className="min-w-0 break-words [overflow-wrap:anywhere]">
           {describeAction(action.name, action.args)}
         </span>
@@ -1048,7 +1065,7 @@ function ActionCard({
       className="zen-surface-nested flex min-w-0 w-full max-w-full flex-wrap items-center gap-3 overflow-x-hidden px-3 py-2.5 sm:flex-nowrap"
     >
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
-        <Icon className="size-4" />
+        <Icon className="size-4" weight="duotone" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-muted-foreground">{meta?.label ?? "Action"}</div>
@@ -1066,7 +1083,7 @@ function ActionCard({
             transition={{ duration: 0.16, ease: "easeOut" }}
             className="flex items-center gap-1 text-xs font-medium text-success"
           >
-            <Check className="size-4" /> Done
+            <CheckIcon className="size-4" weight="duotone" /> Done
           </motion.span>
         ) : (
           <motion.div
@@ -1083,7 +1100,7 @@ function ActionCard({
               onClick={onApply}
               disabled={action.status === "applying"}
             >
-              <Check className="size-3.5" />
+              <CheckIcon className="size-3.5" weight="duotone" />
               {action.status === "applying" ? "Applying…" : "Apply"}
             </Button>
             <Button
@@ -1094,7 +1111,7 @@ function ActionCard({
               disabled={action.status === "applying"}
               aria-label="Dismiss"
             >
-              <X className="size-4" />
+              <XIcon className="size-4" weight="duotone" />
             </Button>
           </motion.div>
         )}

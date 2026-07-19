@@ -25,6 +25,7 @@ import {
   type ChatActionName,
 } from "@/server/chat-action-impl";
 import { sanitizeChatMessages, saveChatConversationImpl } from "@/server/chat-conversation-impl";
+import { loadChatFinanceToolData } from "@/server/chat-finance-tools-impl";
 import { createChatStreamResponse, type ChatTurn } from "@/server/chat-stream-impl";
 import { buildUserContextBlock } from "@/server/context";
 import {
@@ -56,9 +57,13 @@ export const chatStream = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Response> => {
     await requireAuthSession();
     const date: ISODate = data?.date || todayISO();
-    const contextBlock = await buildUserContextBlock(date);
+    const [contextBlock, financeToolData] = await Promise.all([
+      buildUserContextBlock(date),
+      loadChatFinanceToolData(),
+    ]);
     return createChatStreamResponse({
       contextBlock,
+      financeToolData,
       date,
       turns: data?.messages || [],
     });

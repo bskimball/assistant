@@ -285,8 +285,9 @@
 .zen-ambient {
   position: relative;
   /* The sticky shelf is now opaque with real height — content flows BELOW it,
-     never behind it. No negative margin / header pull. */
-  min-height: 100dvh;
+     never behind it. No negative margin / header pull. Fill the remaining
+     viewport under the shelf (not full 100dvh, or short pages always scroll). */
+  min-height: calc(100dvh - var(--shelf-h));
   /* Fallback base color while the image loads / if it fails. Defaults are
      light-morning; the image + base are overridden per (theme x daypart). */
   --wash-base: #fdeed6;
@@ -516,24 +517,31 @@
     inset 0 -8px 20px -16px oklch(0 0 0 / 0.4);
 }
 
-/* A restrained crimson wash gives the homepage coach advice its own identity
-   without turning the whole ribbon into a primary call-to-action. */
-.coach-advice-ribbon {
+/* Coach accent — the reusable crimson wash that marks AI-coach guidance
+   (homepage advice ribbon, health "Next action", etc.). A restrained tint plus
+   an inset left bar gives these surfaces a shared identity without turning
+   them into primary calls-to-action. Works on .zen-surface-nested and
+   .zen-card alike; hover lift only applies to interactive elements. */
+.coach-accent {
   background-color: color-mix(in oklch, var(--primary) 11%, var(--card) 35%);
   outline-color: color-mix(in oklch, var(--primary) 32%, transparent);
   box-shadow:
-    inset 3px 0 0 color-mix(in oklch, var(--primary) 70%, transparent),
     inset 0 1px 0 rgb(255 255 255 / 0.18),
     0 10px 28px -22px color-mix(in oklch, var(--primary) 50%, transparent);
 }
-.coach-advice-ribbon:hover {
+.coach-accent:is(a, button):hover {
   background-color: color-mix(in oklch, var(--primary) 15%, var(--card) 40%);
 }
-.dark .coach-advice-ribbon {
+.dark .coach-accent {
   background-color: color-mix(in oklch, var(--primary) 13%, var(--card) 38%);
   outline-color: color-mix(in oklch, var(--primary) 38%, transparent);
+  /* Re-assert the accent shadow: .dark surface rules otherwise win specificity
+     and drop the crimson glow. */
+  box-shadow:
+    inset 0 1px 0 rgb(200 214 255 / 0.1),
+    0 10px 28px -22px color-mix(in oklch, var(--primary) 50%, transparent);
 }
-.dark .coach-advice-ribbon:hover {
+.dark .coach-accent:is(a, button):hover {
   background-color: color-mix(in oklch, var(--primary) 18%, var(--card) 42%);
 }
 

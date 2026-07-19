@@ -4,20 +4,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Reveal, revealDelay } from "@/components/motion";
 import { financeAdviceQuery, queryKeys } from "@/lib/queries";
 import {
-  PiggyBank,
-  Repeat,
-  TrendingUp,
-  Lightbulb,
-  RefreshCw,
-  Check,
-  CircleDollarSign,
-  Sparkles,
-  Target,
-  BriefcaseBusiness,
-  CalendarCheck,
-  LineChart,
-  CheckCircle2,
-} from "lucide-react";
+  ArrowsClockwiseIcon,
+  BriefcaseIcon,
+  CalendarCheckIcon,
+  ChartLineIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  CurrencyCircleDollarIcon,
+  LightbulbIcon,
+  PiggyBankIcon,
+  RepeatIcon,
+  SparkleIcon,
+  TargetIcon,
+  TrendUpIcon,
+} from "@phosphor-icons/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { acceptFinanceActions } from "@/server/finance";
@@ -45,12 +45,12 @@ import {
 
 const ADVICE_META: Record<
   FinanceAdviceItem["category"],
-  { label: string; Icon: typeof Lightbulb }
+  { label: string; Icon: typeof LightbulbIcon }
 > = {
-  budget: { label: "Budget", Icon: PiggyBank },
-  subscriptions: { label: "Subscriptions", Icon: Repeat },
-  investing: { label: "Investing", Icon: TrendingUp },
-  earn: { label: "Earn more", Icon: CircleDollarSign },
+  budget: { label: "Budget", Icon: PiggyBankIcon },
+  subscriptions: { label: "Subscriptions", Icon: RepeatIcon },
+  investing: { label: "Investing", Icon: TrendUpIcon },
+  earn: { label: "Earn more", Icon: CurrencyCircleDollarIcon },
 };
 
 const FINANCE_HIGHLIGHT_RE = /(\$[\d,]+(?:\.\d+)?|\d+(?:\.\d+)?%?)/;
@@ -162,7 +162,11 @@ export function GrowTab({
           disabled={busy}
           className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
         >
-          {busy ? <RefreshCw className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+          {busy ? (
+            <ArrowsClockwiseIcon className="size-4 animate-spin" />
+          ) : (
+            <SparkleIcon className="size-4" weight="duotone" />
+          )}
           {items ? "Regenerate advice" : "Generate advice"}
         </Button>
       </div>
@@ -170,7 +174,7 @@ export function GrowTab({
       <CollapsibleCard
         id="grow-advice"
         title="Recommended moves"
-        icon={Sparkles}
+        icon={SparkleIcon}
         summary={adviceSummary}
         badge={items?.length ?? 0}
         defaultOpen={false}
@@ -187,7 +191,7 @@ export function GrowTab({
                     <div className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex min-w-0 gap-3">
                         <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <meta.Icon className="size-4" />
+                          <meta.Icon className="size-4" weight="duotone" />
                         </div>
                         <div className="min-w-0">
                           <div className="text-[11px] font-medium text-muted-foreground">
@@ -206,7 +210,7 @@ export function GrowTab({
                         disabled={busy || accepted}
                         className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
                       >
-                        <Check className="size-3.5" />
+                        <CheckIcon className="size-3.5" weight="duotone" />
                         {accepted ? "Added" : "Add to tasks"}
                       </Button>
                     </div>
@@ -221,7 +225,8 @@ export function GrowTab({
                 variant="outline"
                 className="gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
               >
-                <Check className="size-4" /> {allAccepted ? "Added to tasks" : "Add all to tasks"}
+                <CheckIcon className="size-4" weight="duotone" />{" "}
+                {allAccepted ? "Added to tasks" : "Add all to tasks"}
               </Button>
               {generatedBy === "fallback" && (
                 <span className="text-xs text-muted-foreground">
@@ -243,9 +248,9 @@ export function GrowTab({
               className="shrink-0 gap-1.5 transition-[scale,background-color,color,box-shadow] active:scale-[0.96]"
             >
               {busy ? (
-                <RefreshCw className="size-4 animate-spin" />
+                <ArrowsClockwiseIcon className="size-4 animate-spin" />
               ) : (
-                <Sparkles className="size-4" />
+                <SparkleIcon className="size-4" weight="duotone" />
               )}
               Generate advice
             </Button>
@@ -323,12 +328,12 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
     <Card className="border-info/20 bg-linear-to-br from-info/6 to-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <LineChart className="size-4 text-info" />
+          <ChartLineIcon className="size-4 text-info" weight="duotone" />
           12-month cash-flow projection
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-lg bg-background/55 px-3 py-3 ring-1 ring-foreground/10 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-xs font-medium text-muted-foreground">Projected ending cash</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
@@ -344,7 +349,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
           <MiniStat label="Starting cash" value={fmtMoney(cashOnHand)} />
           <MiniStat label="Lowest projected cash" value={fmtMoney(lowPoint)} />
         </div>
-        <div className="rounded-lg bg-muted/25 px-3 py-2 ring-1 ring-foreground/10">
+        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               Average monthly net{" "}
@@ -415,17 +420,17 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
     {
       label: "Primary income",
       text: "Pick one raise, bonus, promotion, or client-rate conversation and prepare the dollar case.",
-      Icon: BriefcaseBusiness,
+      Icon: BriefcaseIcon,
     },
     {
       label: "Consulting offer",
       text: "Package one specific skill into a paid audit, automation, or advisory session.",
-      Icon: CircleDollarSign,
+      Icon: CurrencyCircleDollarIcon,
     },
     {
       label: "Weekly pipeline",
       text: "Send five warm outreach messages and log every reply as a tracked opportunity.",
-      Icon: CalendarCheck,
+      Icon: CalendarCheckIcon,
     },
   ];
 
@@ -442,7 +447,7 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
     <CollapsibleCard
       id="grow-revenue-growth"
       title="Revenue growth target"
-      icon={Target}
+      icon={TargetIcon}
       summary={`Side income ${fmtMoney(sideIncome)} · target ${fmtMoney(experimentTarget)}`}
       defaultOpen={false}
     >
@@ -459,15 +464,17 @@ function RevenueGrowthCard({ hub, today }: { hub: FinanceHubPayload; today: stri
               type="button"
               onClick={() => toggleLever(label)}
               aria-pressed={completedLevers.has(label)}
-              className={`flex min-h-10 gap-3 rounded-lg px-3 py-2 text-left ring-1 ring-foreground/10 transition-[scale,background-color,color,box-shadow] active:scale-[0.96] ${
-                completedLevers.has(label) ? "bg-success/10" : "bg-muted/20 hover:bg-muted/40"
+              className={`flex min-h-10 gap-3 rounded-lg border px-3 py-2 text-left transition-[scale,background-color,color,box-shadow] active:scale-[0.96] ${
+                completedLevers.has(label)
+                  ? "border-success/30 bg-success/10"
+                  : "border-border/60 bg-muted/20 hover:bg-muted/40"
               }`}
             >
               <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center">
                 {completedLevers.has(label) ? (
-                  <CheckCircle2 className="size-4 text-success" />
+                  <CheckCircleIcon className="size-4 text-success" weight="duotone" />
                 ) : (
-                  <Icon className="size-4 text-info" />
+                  <Icon className="size-4 text-info" weight="duotone" />
                 )}
               </span>
               <span>

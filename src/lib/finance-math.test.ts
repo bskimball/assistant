@@ -15,6 +15,7 @@ import {
   calculateSafeToSpend,
   detectOneTimeCandidates,
   detectRecurringCandidates,
+  explainRecurringHealth,
   fallbackFinanceAdvice,
   inferCadence,
   normalizeMerchant,
@@ -49,6 +50,7 @@ function txn(partial: Partial<Transaction>): Transaction {
     oneTimeSuggestionDismissed: partial.oneTimeSuggestionDismissed,
     source: partial.source,
     deletedAt: partial.deletedAt,
+    deletedReason: partial.deletedReason,
   };
 }
 
@@ -92,6 +94,99 @@ describe("finance math", () => {
         txn({ amount: -25, category: "NETFLIX.COM" }),
       ),
     ).toBe(false);
+  });
+
+  it("explains ADT matches, deleted matches, amount misses, and name misses", () => {
+    const now = Date.UTC(2026, 7, 18, 12);
+    const adt = sub({ id: "adt", name: "ADT Security", amount: 64.38, kind: "bill" });
+    const trace = explainRecurringHealth({
+      sub: adt,
+      now,
+      lookbackDays: 90,
+      transactions: [
+        txn({
+          id: "june-import",
+          timestamp: Date.UTC(2026, 5, 30, 12),
+          amount: -64.38,
+          category: "ADT SECURITY*320556313 WWW.ADT.COM FL",
+          source: "import",
+        }),
+        txn({
+          id: "july-sync",
+          timestamp: Date.UTC(2026, 6, 1, 12),
+          amount: -64.38,
+          category: "CHECKCARD 0630 ADT SECURITY*XXXXX6313",
+          source: "sync",
+          deletedAt: Date.UTC(2026, 7, 1),
+          deletedReason: "sync-undo",
+        }),
+        txn({
+          id: "wrong-amount",
+          timestamp: Date.UTC(2026, 7, 1, 12),
+          amount: -94.38,
+          category: "ADT SECURITY",
+        }),
+        txn({
+          id: "wrong-name",
+          timestamp: Date.UTC(2026, 7, 2, 12),
+          amount: -64.38,
+          category: "COMCAST CABLE",
+        }),
+      ],
+    });
+
+    expect(trace.window).toEqual({
+      start: now - 90 * 24 * 60 * 60 * 1000,
+      end: now,
+      lookbackDays: 90,
+    });
+    expect(trace.matchedCharges.map((match) => match.transactionId)).toEqual(["june-import"]);
+    expect(trace.nearMissCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          transactionId: "july-sync",
+          reason: "matched-but-deleted",
+          deletedReason: "sync-undo",
+        }),
+        expect.objectContaining({
+          transactionId: "wrong-amount",
+          reason: "amount-out-of-tolerance",
+          amountDelta: 30,
+        }),
+        expect.objectContaining({ transactionId: "wrong-name", reason: "name-token-mismatch" }),
+      ]),
+    );
+  });
+
+  it("explains likely-canceled status when the expected match was deleted", () => {
+    const now = Date.UTC(2026, 7, 18, 12);
+    const insights = analyzeRecurringHealth({
+      now,
+      subscriptions: [
+        sub({
+          id: "adt",
+          createdAt: Date.UTC(2026, 3, 1),
+          name: "ADT Security",
+          amount: 64.38,
+          kind: "bill",
+          lastSeen: Date.UTC(2026, 5, 1),
+        }),
+      ],
+      transactions: [
+        txn({
+          id: "july-sync",
+          timestamp: Date.UTC(2026, 6, 1, 12),
+          amount: -64.38,
+          category: "CHECKCARD 0630 ADT SECURITY*XXXXX6313",
+          source: "sync",
+          deletedAt: Date.UTC(2026, 7, 1),
+          deletedReason: "sync-undo",
+        }),
+      ],
+    });
+
+    expect(insights[0]).toMatchObject({ subscriptionId: "adt", kind: "likely-canceled" });
+    expect(insights[0].reason).toContain("was deleted (sync-undo)");
   });
 
   it("matches recurring subscriptions by raw descriptor match hints plus amount", () => {

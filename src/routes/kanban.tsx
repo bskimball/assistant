@@ -5,30 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { VoiceInput } from "@/components/voice-input";
 import { PageHeader } from "@/components/page-header";
 import { PageShell } from "@/components/page-shell";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import {
-  Trash2,
-  Inbox,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Lock,
-  Users,
-  Dumbbell,
-  Salad,
-  Wallet,
-  Loader,
-  CheckCircle2,
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Undo2,
-  Pencil,
-  type LucideIcon,
-} from "lucide-react";
 import { loadProductivityTasksForDay, saveProductivityTasksForDay } from "@/server/domain";
 import type { ProductivityTask, ISODate } from "@/lib/domain";
 import {
@@ -45,23 +26,76 @@ import {
   deleteProductivityTaskClient,
   getTasksForDate,
 } from "@/lib/daily";
+import {
+  ArrowCounterClockwiseIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  BarbellIcon,
+  BowlFoodIcon,
+  CalendarDotsIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  CircleNotchIcon,
+  LockIcon,
+  PencilSimpleIcon,
+  TagIcon,
+  TrashIcon,
+  TrayIcon,
+  UsersIcon,
+  WalletIcon,
+  XIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/kanban")({
   component: KanbanBoard,
 });
 
-type ColumnId = "inbox" | "today" | "family" | "workout" | "eat" | "money" | "doing" | "done";
+// Flow Board: four workflow columns only. Categories are tags (task.project),
+// never columns — legacy category-valued columns map into Inbox at render time.
+type ColumnId = "inbox" | "today" | "doing" | "done";
 
-const KANBAN_COLUMNS: { id: ColumnId; label: string; icon: LucideIcon }[] = [
-  { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "today", label: "Today", icon: CalendarDays },
-  { id: "family", label: "Family", icon: Users },
-  { id: "workout", label: "Workout", icon: Dumbbell },
-  { id: "eat", label: "Eat Healthy", icon: Salad },
-  { id: "money", label: "Money", icon: Wallet },
-  { id: "doing", label: "Doing", icon: Loader },
-  { id: "done", label: "Done", icon: CheckCircle2 },
+const WORKFLOW_COLUMNS: {
+  id: ColumnId;
+  label: string;
+  icon: PhosphorIcon;
+  empty: string;
+}[] = [
+  { id: "inbox", label: "Inbox", icon: TrayIcon, empty: "Inbox is clear." },
+  { id: "today", label: "Today", icon: CalendarDotsIcon, empty: "Nothing planned yet." },
+  { id: "doing", label: "Doing", icon: CircleNotchIcon, empty: "Nothing in motion." },
+  { id: "done", label: "Done", icon: CheckCircleIcon, empty: "Nothing finished yet." },
 ];
+
+type CategoryId = "family" | "workout" | "eat" | "money";
+
+const CATEGORIES: { id: CategoryId; label: string; icon: PhosphorIcon }[] = [
+  { id: "family", label: "Family", icon: UsersIcon },
+  { id: "workout", label: "Workout", icon: BarbellIcon },
+  { id: "eat", label: "Eat Healthy", icon: BowlFoodIcon },
+  { id: "money", label: "Money", icon: WalletIcon },
+];
+
+const CATEGORY_IDS = CATEGORIES.map((c) => c.id) as string[];
+// Legacy column values that were really categories, not workflow states.
+const LEGACY_CATEGORY_COLUMNS = ["family", "workout", "eat", "money", "personal"];
+
+/** The workflow column a task renders in — legacy category columns fall to Inbox. */
+function displayColumnOf(task: ProductivityTask): ColumnId {
+  if (task.done || task.status === "done") return "done";
+  const c = task.column;
+  if (c === "today" || c === "doing" || c === "inbox") return c;
+  return "inbox";
+}
+
+/** The category tag for a task, preferring an explicit project over a legacy column. */
+function categoryOf(task: ProductivityTask): CategoryId | undefined {
+  if (task.project && CATEGORY_IDS.includes(task.project)) return task.project as CategoryId;
+  if (task.column && CATEGORY_IDS.includes(task.column)) return task.column as CategoryId;
+  return undefined;
+}
 
 function KanbanBoard() {
   const today = todayISO();
@@ -79,9 +113,12 @@ function KanbanBoard() {
   }
 
   const [taskInput, setTaskInput] = useState("");
-  const [quickCategory, setQuickCategory] = useState<ColumnId | "">("");
+  const [quickProject, setQuickProject] = useState<CategoryId | "">("");
+  const [quickToday, setQuickToday] = useState(false);
   const [quickShared, setQuickShared] = useState(false);
   const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "shared">("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryId | "all">("all");
+  const [doneExpanded, setDoneExpanded] = useState(false);
   const [tasksVersion, setTasksVersion] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -118,34 +155,25 @@ function KanbanBoard() {
   const tasks = useMemo(() => getTasksForDate(selectedDate), [selectedDate, tasksVersion]);
 
   const visibleTasks = useMemo(() => {
-    if (scopeFilter === "mine") return tasks.filter((t) => !t.shared);
-    if (scopeFilter === "shared") return tasks.filter((t) => t.shared);
-    return tasks;
-  }, [tasks, scopeFilter]);
+    let list = tasks.filter((t) => !t.deletedAt);
+    if (scopeFilter === "mine") list = list.filter((t) => !t.shared);
+    else if (scopeFilter === "shared") list = list.filter((t) => t.shared);
+    if (categoryFilter !== "all") list = list.filter((t) => categoryOf(t) === categoryFilter);
+    return list;
+  }, [tasks, scopeFilter, categoryFilter]);
 
   const tasksByColumn = useMemo(() => {
     const map: Record<ColumnId, ProductivityTask[]> = {
       inbox: [],
       today: [],
-      family: [],
-      workout: [],
-      eat: [],
-      money: [],
       doing: [],
       done: [],
     };
     for (const t of visibleTasks) {
-      if (t.deletedAt) continue;
-      // Open tasks without a column stay on the board (inbox), not buried by
-      // an old planned date. "today" column is an explicit placement.
-      let col =
-        (t.column as ColumnId) ||
-        (t.done || t.status === "done" ? "done" : t.column === "today" ? "today" : "inbox");
-      if (!map[col as ColumnId]) col = "inbox";
-      map[col as ColumnId].push(t);
+      map[displayColumnOf(t)].push(t);
     }
     return map;
-  }, [visibleTasks, selectedDate]);
+  }, [visibleTasks]);
 
   async function persistTasks(date: ISODate) {
     setSyncing(true);
@@ -166,22 +194,18 @@ function KanbanBoard() {
   async function handleQuickAdd(e?: React.SyntheticEvent) {
     if (e) e.preventDefault();
     if (!isToday || !taskInput.trim()) return;
-    const col = quickCategory || "inbox";
-    const proj =
-      quickCategory && ["family", "workout", "eat", "money"].includes(quickCategory)
-        ? quickCategory
-        : undefined;
     const newTask = createProductivityTask({
       text: taskInput.trim(),
       date: selectedDate,
-      column: col,
-      project: proj,
+      column: quickToday ? "today" : "inbox",
+      project: quickProject || undefined,
       source: "daily",
       shared: quickShared,
     });
     upsertProductivityTaskClient(newTask);
     setTaskInput("");
-    setQuickCategory("");
+    setQuickProject("");
+    setQuickToday(false);
     await persistTasks(selectedDate);
   }
 
@@ -197,20 +221,47 @@ function KanbanBoard() {
     await persistTasks(selectedDate);
   }
 
+  async function setTaskCategory(id: string, category: CategoryId | undefined) {
+    if (!isToday) return;
+    const existing = productivityTasksCollection.state.get(id) as ProductivityTask | undefined;
+    if (!existing) return;
+    // Normalize a legacy category-valued column into Inbox so the workflow
+    // column and the (now explicit) project tag stop overlapping.
+    const column =
+      existing.column && LEGACY_CATEGORY_COLUMNS.includes(existing.column)
+        ? "inbox"
+        : existing.column;
+    upsertProductivityTaskClient({
+      ...existing,
+      project: category || undefined,
+      column,
+      updatedAt: Date.now(),
+    });
+    await persistTasks(selectedDate);
+  }
+
   async function moveTaskToColumn(id: string, newColumn: ColumnId) {
     if (!isToday) return;
     const existing = productivityTasksCollection.state.get(id) as ProductivityTask | undefined;
     if (!existing) return;
+    // Preserve a legacy category (held only in `column`) into the project tag
+    // before the column is reassigned to a workflow state, so the tag survives.
+    const preservedProject =
+      existing.project ??
+      (existing.column && CATEGORY_IDS.includes(existing.column) ? existing.column : undefined);
     let updated: ProductivityTask = {
       ...existing,
+      project: preservedProject,
       column: newColumn,
       updatedAt: Date.now(),
     };
     if (newColumn === "done" && !existing.done) {
       updated = updateTaskStatus(updated, "done");
+      updated.project = preservedProject;
       updated.column = "done";
     } else if (newColumn !== "done" && existing.done) {
       updated = updateTaskStatus(updated, "pending");
+      updated.project = preservedProject;
       updated.column = newColumn;
     } else if (newColumn === "doing") {
       updated.status = "in_progress";
@@ -224,13 +275,12 @@ function KanbanBoard() {
     const existing = productivityTasksCollection.state.get(id) as ProductivityTask | undefined;
     if (!existing) return;
     const nextStatus = existing.done ? "pending" : "done";
-    let updated = updateTaskStatus(existing, nextStatus);
+    const updated = updateTaskStatus(existing, nextStatus);
     updated.column =
       nextStatus === "done"
         ? "done"
-        : existing.column === "done"
-          ? "today"
-          : existing.column || "today";
+        : displayColumnOf({ ...existing, done: false, status: "pending" });
+    if (updated.column === "done" && nextStatus !== "done") updated.column = "today";
     upsertProductivityTaskClient(updated);
     await persistTasks(selectedDate);
   }
@@ -241,10 +291,11 @@ function KanbanBoard() {
     await persistTasks(selectedDate);
   }
 
-  function cycleToColumn(current: string | undefined, direction: 1 | -1): ColumnId {
-    const idx = KANBAN_COLUMNS.findIndex((c) => c.id === (current || "today"));
-    const nextIdx = (idx + direction + KANBAN_COLUMNS.length) % KANBAN_COLUMNS.length;
-    return KANBAN_COLUMNS[nextIdx].id;
+  function cycleToColumn(task: ProductivityTask, direction: 1 | -1): ColumnId {
+    const current = displayColumnOf(task);
+    const idx = WORKFLOW_COLUMNS.findIndex((c) => c.id === current);
+    const nextIdx = (idx + direction + WORKFLOW_COLUMNS.length) % WORKFLOW_COLUMNS.length;
+    return WORKFLOW_COLUMNS[nextIdx].id;
   }
 
   function handleDragStart(e: React.DragEvent, id: string) {
@@ -283,14 +334,9 @@ function KanbanBoard() {
     <PageShell atmosphere="focus" density="dense" width="wide">
       <PageHeader
         eyebrow="Tasks & Reminders"
-        title="Kanban Board"
+        title="Tasks"
         voice="Open tasks stay until done — no midnight vanishing act."
-        description={
-          <>
-            Open tasks stay on the board until you finish them — they no longer reset each day.
-            {isLoading ? " Loading…" : syncing ? " Saving…" : ""}
-          </>
-        }
+        description={isLoading ? "Loading…" : syncing ? "Saving…" : undefined}
       >
         <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
           <div className="flex items-center gap-2 text-sm">
@@ -317,7 +363,7 @@ function KanbanBoard() {
                 onClick={() => changeDate(-1)}
                 aria-label="Previous day"
               >
-                <ChevronLeft className="size-4" />
+                <CaretLeftIcon className="size-4" weight="duotone" />
               </Button>
               {/* Date label doubles as the picker trigger */}
               <div className="relative flex-1 sm:flex-none">
@@ -328,7 +374,7 @@ function KanbanBoard() {
                   className="h-8 w-full justify-center gap-1.5 tabular-nums font-medium sm:w-auto sm:min-w-33"
                   aria-label="Pick a date"
                 >
-                  <CalendarDays className="size-3.5 text-muted-foreground" />
+                  <CalendarDotsIcon className="size-3.5 text-muted-foreground" weight="duotone" />
                   {dateLabel}
                 </Button>
                 <input
@@ -351,7 +397,7 @@ function KanbanBoard() {
                 onClick={() => changeDate(1)}
                 aria-label="Next day"
               >
-                <ChevronRight className="size-4" />
+                <CaretRightIcon className="size-4" weight="duotone" />
               </Button>
             </div>
           </div>
@@ -363,81 +409,16 @@ function KanbanBoard() {
                 variant="secondary"
                 className="gap-1 rounded-full text-[10px] text-muted-foreground"
               >
-                <Lock className="size-2.5" /> Read-only
+                <LockIcon className="size-2.5" weight="duotone" /> Read-only
               </Badge>
             )}
           </div>
         </div>
       </PageHeader>
 
-      {/* Quick add */}
-      {isToday && (
-        <div className="zen-card mb-6 p-4">
-          <form onSubmit={handleQuickAdd} className="space-y-2">
-            <div className="flex gap-2">
-              <Input
-                value={taskInput}
-                onChange={(e) => setTaskInput(e.target.value)}
-                placeholder="Add a task (stays open until done)…"
-                className="flex-1"
-              />
-              <Button type="submit" disabled={!taskInput.trim()}>
-                Add
-              </Button>
-              <VoiceInput
-                onTranscript={async (text) => {
-                  // Simple voice add
-                  if (text.toLowerCase().includes("add")) {
-                    const newT = createProductivityTask({
-                      text: text.replace(/add/i, "").trim(),
-                      date: selectedDate,
-                    });
-                    upsertProductivityTaskClient(newT);
-                    await persistTasks(selectedDate);
-                  }
-                }}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-1 text-[10px]">
-              {["", "family", "workout", "eat", "money", "today", "doing"].map((cat) => {
-                const label = !cat
-                  ? "Inbox"
-                  : cat === "eat"
-                    ? "Eat Healthy"
-                    : cat[0].toUpperCase() + cat.slice(1);
-                return (
-                  <Button
-                    type="button"
-                    key={cat}
-                    variant={quickCategory === cat ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setQuickCategory(cat as any)}
-                    className="h-auto px-2 py-0.5 text-xs transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
-                  >
-                    {label}
-                  </Button>
-                );
-              })}
-              {/* Personal vs. shared (household) destination for the new task */}
-              <Toggle
-                variant="outline"
-                size="sm"
-                pressed={quickShared}
-                onPressedChange={(p) => setQuickShared(p)}
-                className="ml-1 h-auto gap-1 px-2 py-0.5 text-xs transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
-                title={quickShared ? "New task is shared with household" : "New task is personal"}
-              >
-                {quickShared ? <Users className="size-3" /> : <Lock className="size-3" />}
-                {quickShared ? "Shared" : "Personal"}
-              </Toggle>
-            </div>
-          </form>
-        </div>
-      )}
-
       {/* Reminders */}
       {reminders.length > 0 && (
-        <Alert className="mb-3 border-warning/30 bg-warning/10 text-xs">
+        <Alert className="mb-4 border-warning/30 bg-warning/10 text-xs">
           <AlertTitle className="text-warning-foreground">
             Reminders ({reminders.length})
           </AlertTitle>
@@ -453,42 +434,144 @@ function KanbanBoard() {
         </Alert>
       )}
 
-      {/* Scope filter: combine mine + shared, or focus one */}
-      <div className="mb-3 flex items-center gap-1 text-xs">
-        {(["all", "mine", "shared"] as const).map((f) => (
-          <Button
-            type="button"
-            key={f}
-            variant={scopeFilter === f ? "default" : "outline"}
-            size="sm"
-            onClick={() => setScopeFilter(f)}
-            className="h-auto gap-1 rounded-full px-2.5 py-1 capitalize transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96]"
+      {/* The whole board lives inside ONE glass zen-card. */}
+      <div className="zen-card p-4 sm:p-5">
+        {/* Quick-add header strip — one row: input + category chips + Today + shared + mic */}
+        {isToday && (
+          <form
+            onSubmit={handleQuickAdd}
+            className="flex flex-wrap items-center gap-2 border-b border-border/60 pb-4"
           >
-            {f === "shared" && <Users className="size-3" />}
-            {f === "mine" && <Lock className="size-3" />}
-            {f}
-          </Button>
-        ))}
-      </div>
+            <Input
+              value={taskInput}
+              onChange={(e) => setTaskInput(e.target.value)}
+              placeholder="Add a task…"
+              className="zen-input h-9 min-w-45 flex-1"
+            />
+            <div className="flex flex-wrap items-center gap-1">
+              {CATEGORIES.map((cat) => (
+                <Toggle
+                  key={cat.id}
+                  variant="outline"
+                  size="sm"
+                  pressed={quickProject === cat.id}
+                  onPressedChange={(p) => setQuickProject(p ? cat.id : "")}
+                  aria-label={cat.label}
+                  title={cat.label}
+                  className="h-8 gap-1 px-2 text-xs transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96]"
+                >
+                  <cat.icon className="size-3.5" weight="duotone" />
+                  <span className="hidden sm:inline">{cat.label}</span>
+                </Toggle>
+              ))}
+              <Toggle
+                variant="outline"
+                size="sm"
+                pressed={quickToday}
+                onPressedChange={setQuickToday}
+                title="Plan this for Today (otherwise it lands in Inbox)"
+                className="h-8 gap-1 px-2 text-xs transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96]"
+              >
+                <CalendarDotsIcon className="size-3.5" weight="duotone" />
+                Today
+              </Toggle>
+              <Toggle
+                variant="outline"
+                size="sm"
+                pressed={quickShared}
+                onPressedChange={setQuickShared}
+                title={quickShared ? "New task is shared with household" : "New task is personal"}
+                className="h-8 gap-1 px-2 text-xs transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96]"
+              >
+                {quickShared ? (
+                  <UsersIcon className="size-3.5" weight="duotone" />
+                ) : (
+                  <LockIcon className="size-3.5" weight="duotone" />
+                )}
+                <span className="hidden sm:inline">{quickShared ? "Shared" : "Personal"}</span>
+              </Toggle>
+            </div>
+            <VoiceInput
+              onTranscript={async (text) => {
+                if (text.toLowerCase().includes("add")) {
+                  const newT = createProductivityTask({
+                    text: text.replace(/add/i, "").trim(),
+                    date: selectedDate,
+                    column: "inbox",
+                  });
+                  upsertProductivityTaskClient(newT);
+                  await persistTasks(selectedDate);
+                }
+              }}
+            />
+            <Button type="submit" size="sm" className="h-9" disabled={!taskInput.trim()}>
+              Add
+            </Button>
+          </form>
+        )}
 
-      {/* Full Kanban — a scoped LayoutGroup so add/delete/reorder and cross-column
-          moves animate their layout shift together (initial={false} on the cards
-          prevents a page-load cascade). */}
-      <LayoutGroup id="kanban-board">
-        <div className="kanban-board overflow-x-auto pb-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex min-w-245 gap-2">
-            {KANBAN_COLUMNS.map((col) => {
+        {/* Controls: scope filter + category filter, one row */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4 text-xs">
+          <div className="flex items-center gap-1">
+            {(["all", "mine", "shared"] as const).map((f) => (
+              <Button
+                type="button"
+                key={f}
+                variant={scopeFilter === f ? "default" : "outline"}
+                size="sm"
+                onClick={() => setScopeFilter(f)}
+                className="h-8 gap-1 rounded-full px-2.5 capitalize transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96]"
+              >
+                {f === "shared" && <UsersIcon className="size-3" weight="duotone" />}
+                {f === "mine" && <LockIcon className="size-3" weight="duotone" />}
+                {f}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <Button
+              type="button"
+              variant={categoryFilter === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setCategoryFilter("all")}
+              className="h-8 gap-1 rounded-full px-2.5 transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96]"
+            >
+              <TagIcon className="size-3" weight="duotone" /> All
+            </Button>
+            {CATEGORIES.map((cat) => (
+              <Button
+                type="button"
+                key={cat.id}
+                variant={categoryFilter === cat.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCategoryFilter(cat.id)}
+                className="h-8 gap-1 rounded-full px-2.5 transition-[scale,background-color,color] duration-150 ease-out active:scale-[0.96]"
+              >
+                <cat.icon className="size-3" weight="duotone" /> {cat.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Four responsive workflow columns — fill the shell, no horizontal scroll. */}
+        <LayoutGroup id="flow-board">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {WORKFLOW_COLUMNS.map((col) => {
               const colTasks = tasksByColumn[col.id] || [];
               const isDone = col.id === "done";
               const isDropTarget = draggingId !== null && dragOverCol === col.id;
+              // Done stays dimmed and collapsed: only the most recent few show
+              // until expanded.
+              const collapsed = isDone && !doneExpanded && colTasks.length > 3;
+              const shownTasks = collapsed ? colTasks.slice(-3) : colTasks;
               return (
                 <div
                   key={col.id}
-                  className={`flex min-h-35 w-56 shrink-0 flex-col rounded-xl p-3 transition-[background-color,box-shadow,opacity] duration-150 ease-out ${
+                  className={`flex min-h-40 flex-col rounded-xl border p-3 transition-[background-color,box-shadow,border-color] duration-150 ease-out ${
                     isDropTarget
-                      ? "bg-primary/10 shadow-md outline outline-1 -outline-offset-1 outline-primary/30"
-                      : "zen-surface-nested"
-                  } ${colTasks.length === 0 && !isDropTarget ? "opacity-90" : ""}`}
+                      ? "border-primary/40 bg-primary/10 shadow-md"
+                      : "border-border/60 bg-muted/20"
+                  } ${isDone ? "opacity-90" : ""}`}
                   onDragOver={(e) => handleColumnDragOver(e, col.id)}
                   onDragLeave={(e) => handleColumnDragLeave(e, col.id)}
                   onDrop={(e) => handleDrop(e, col.id)}
@@ -499,7 +582,8 @@ function KanbanBoard() {
                         className={`size-4 transition-colors duration-150 ${
                           isDropTarget ? "text-primary" : "text-muted-foreground"
                         }`}
-                      />{" "}
+                        weight="duotone"
+                      />
                       {col.label}
                     </span>
                     <span
@@ -513,10 +597,21 @@ function KanbanBoard() {
                     </span>
                   </div>
                   <div className="flex-1 space-y-2">
+                    {collapsed && (
+                      <button
+                        type="button"
+                        onClick={() => setDoneExpanded(true)}
+                        className="w-full rounded-lg border border-dashed border-foreground/15 px-2 py-1.5 text-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        Show {colTasks.length - 3} more finished
+                      </button>
+                    )}
                     <AnimatePresence initial={false} mode="popLayout">
-                      {colTasks.map((task) => {
+                      {shownTasks.map((task) => {
                         const overdue = task.due && task.due < selectedDate && !isDone;
                         const isDragging = draggingId === task.id;
+                        const category = categoryOf(task);
+                        const categoryMeta = CATEGORIES.find((c) => c.id === category);
                         const cardRing = isDragging
                           ? "outline-primary/40"
                           : overdue
@@ -525,7 +620,7 @@ function KanbanBoard() {
                         return (
                           <motion.div
                             key={task.id}
-                            layoutId={`kanban-task-${task.id}`}
+                            layoutId={`flow-task-${task.id}`}
                             layout="position"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -546,17 +641,76 @@ function KanbanBoard() {
                                   : isToday
                                     ? "cursor-grab hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing"
                                     : ""
-                              } ${isDone ? `line-through ${isDragging ? "" : "opacity-70"}` : ""}`}
+                              } ${isDone ? `${isDragging ? "" : "opacity-70"}` : ""}`}
                             >
-                              <div className="font-medium leading-tight pr-8">{task.text}</div>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
+                              <div
+                                className={`font-medium leading-tight ${isDone ? "line-through" : ""}`}
+                              >
+                                {task.text}
+                              </div>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                                {isToday ? (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
+                                        title="Set category"
+                                      >
+                                        {categoryMeta ? (
+                                          <>
+                                            <categoryMeta.icon
+                                              className="size-2.5"
+                                              weight="duotone"
+                                            />
+                                            {categoryMeta.label}
+                                          </>
+                                        ) : (
+                                          <>
+                                            <TagIcon className="size-2.5" weight="duotone" />
+                                            Tag
+                                          </>
+                                        )}
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="start" className="w-44 gap-1 p-1.5">
+                                      {CATEGORIES.map((c) => (
+                                        <button
+                                          key={c.id}
+                                          type="button"
+                                          onClick={() => setTaskCategory(task.id, c.id)}
+                                          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted ${
+                                            category === c.id ? "text-primary" : "text-foreground"
+                                          }`}
+                                        >
+                                          <c.icon className="size-3.5" weight="duotone" />
+                                          {c.label}
+                                        </button>
+                                      ))}
+                                      {category && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setTaskCategory(task.id, undefined)}
+                                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted"
+                                        >
+                                          <XIcon className="size-3.5" weight="duotone" />
+                                          Clear tag
+                                        </button>
+                                      )}
+                                    </PopoverContent>
+                                  </Popover>
+                                ) : (
+                                  categoryMeta && (
+                                    <span className="inline-flex items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 font-medium">
+                                      <categoryMeta.icon className="size-2.5" weight="duotone" />
+                                      {categoryMeta.label}
+                                    </span>
+                                  )
+                                )}
                                 {task.shared && (
                                   <span className="inline-flex items-center gap-0.5 rounded bg-info/10 px-1 font-medium text-info">
-                                    <Users className="size-2.5" /> Shared
+                                    <UsersIcon className="size-2.5" weight="duotone" /> Shared
                                   </span>
-                                )}
-                                {task.project && (
-                                  <span className="rounded bg-muted px-1">{task.project}</span>
                                 )}
                                 {task.due && (
                                   <span
@@ -573,23 +727,23 @@ function KanbanBoard() {
                                 <div className="mt-1.5 flex items-center gap-0.5 opacity-70 transition-opacity duration-150 group-hover:opacity-100">
                                   <button
                                     onClick={() =>
-                                      moveTaskToColumn(task.id, cycleToColumn(task.column, -1))
+                                      moveTaskToColumn(task.id, cycleToColumn(task, -1))
                                     }
                                     className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                    aria-label="Move left"
-                                    title="Move left"
+                                    aria-label="Move to previous stage"
+                                    title="Move back"
                                   >
-                                    <ArrowLeft className="size-3.5" />
+                                    <ArrowLeftIcon className="size-3.5" weight="duotone" />
                                   </button>
                                   <button
                                     onClick={() =>
-                                      moveTaskToColumn(task.id, cycleToColumn(task.column, 1))
+                                      moveTaskToColumn(task.id, cycleToColumn(task, 1))
                                     }
                                     className="rounded-md p-1.5 text-muted-foreground transition-[background-color,color,scale] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
-                                    aria-label="Move right"
-                                    title="Move right"
+                                    aria-label="Move to next stage"
+                                    title="Move forward"
                                   >
-                                    <ArrowRight className="size-3.5" />
+                                    <ArrowRightIcon className="size-3.5" weight="duotone" />
                                   </button>
                                   <button
                                     onClick={() => toggleTaskDone(task.id)}
@@ -598,9 +752,12 @@ function KanbanBoard() {
                                     title={isDone ? "Undo" : "Done"}
                                   >
                                     {isDone ? (
-                                      <Undo2 className="size-3.5" />
+                                      <ArrowCounterClockwiseIcon
+                                        className="size-3.5"
+                                        weight="duotone"
+                                      />
                                     ) : (
-                                      <Check className="size-3.5" />
+                                      <CheckIcon className="size-3.5" weight="duotone" />
                                     )}
                                   </button>
                                   <button
@@ -618,7 +775,7 @@ function KanbanBoard() {
                                     aria-label="Edit"
                                     title="Edit"
                                   >
-                                    <Pencil className="size-3.5" />
+                                    <PencilSimpleIcon className="size-3.5" weight="duotone" />
                                   </button>
                                   <button
                                     onClick={() => toggleTaskShared(task.id)}
@@ -629,9 +786,9 @@ function KanbanBoard() {
                                     title={task.shared ? "Make personal" : "Share with household"}
                                   >
                                     {task.shared ? (
-                                      <Lock className="size-3.5" />
+                                      <LockIcon className="size-3.5" weight="duotone" />
                                     ) : (
-                                      <Users className="size-3.5" />
+                                      <UsersIcon className="size-3.5" weight="duotone" />
                                     )}
                                   </button>
                                   <button
@@ -640,7 +797,7 @@ function KanbanBoard() {
                                     aria-label="Delete"
                                     title="Delete"
                                   >
-                                    <Trash2 className="size-3.5" />
+                                    <TrashIcon className="size-3.5" weight="duotone" />
                                   </button>
                                 </div>
                               )}
@@ -650,14 +807,14 @@ function KanbanBoard() {
                       })}
                     </AnimatePresence>
                     {colTasks.length === 0 && (
-                      <div
-                        className={`rounded-lg border border-dashed px-2 py-4 text-center text-xs transition-colors duration-150 ${
-                          isDropTarget
-                            ? "border-primary/40 text-primary"
-                            : "border-foreground/15 text-muted-foreground/60"
-                        }`}
-                      >
-                        Drop tasks here
+                      <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+                        <col.icon
+                          className={`size-7 transition-colors duration-150 ${
+                            isDropTarget ? "text-primary/60" : "text-muted-foreground/25"
+                          }`}
+                          weight="duotone"
+                        />
+                        <p className="voice text-xs text-muted-foreground/60">{col.empty}</p>
                       </div>
                     )}
                   </div>
@@ -665,12 +822,7 @@ function KanbanBoard() {
               );
             })}
           </div>
-        </div>
-      </LayoutGroup>
-
-      <div className="mt-3 text-xs text-muted-foreground">
-        Drag cards or use arrows. Tasks are saved per day.
-        {syncing && " • syncing…"} Use voice on dashboard or here for quick adds.
+        </LayoutGroup>
       </div>
     </PageShell>
   );

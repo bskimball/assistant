@@ -1,21 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Dumbbell,
-  Target,
-  Utensils,
-  Wallet,
-  Sparkles,
-  RefreshCw,
-  Save,
-  Trophy,
-  TriangleAlert,
-  ArrowRight,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Reveal, revealDelay } from "@/components/motion";
@@ -39,6 +24,22 @@ import {
 } from "@/lib/domain";
 import { stableRecommendationId } from "@/lib/recommendation-id";
 import { queryKeys, weeklyDataQuery } from "@/lib/queries";
+import {
+  ArrowRightIcon,
+  ArrowsClockwiseIcon,
+  BarbellIcon,
+  CalendarDotsIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  FloppyDiskIcon,
+  ForkKnifeIcon,
+  SparkleIcon,
+  TargetIcon,
+  TrophyIcon,
+  WalletIcon,
+  WarningIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/_review/weekly")({
   loader: ({ context: { queryClient } }) =>
@@ -234,7 +235,7 @@ function Weekly() {
             onClick={() => shiftWeek(-1)}
             aria-label="Previous week"
           >
-            <ChevronLeft className="size-4" />
+            <CaretLeftIcon className="size-4" weight="duotone" />
           </Button>
           {/* Range label doubles as the week picker trigger */}
           <div className="relative flex-1 sm:flex-none">
@@ -245,7 +246,7 @@ function Weekly() {
               className="h-8 w-full justify-center gap-1.5 font-medium tabular-nums transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] sm:w-auto sm:min-w-[140px]"
               aria-label="Pick a week"
             >
-              <CalendarDays className="size-3.5 text-muted-foreground" />
+              <CalendarDotsIcon className="size-3.5 text-muted-foreground" weight="duotone" />
               {rangeLabel}
             </Button>
             <input
@@ -268,7 +269,7 @@ function Weekly() {
             onClick={() => shiftWeek(1)}
             aria-label="Next week"
           >
-            <ChevronRight className="size-4" />
+            <CaretRightIcon className="size-4" weight="duotone" />
           </Button>
         </div>
       </div>
@@ -284,26 +285,26 @@ function Weekly() {
         {/* Stat tiles */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile
-            icon={Target}
+            icon={TargetIcon}
             label="Task completion"
             value={`${completion}%`}
             sub={stats ? `${stats.tasksCompleted}/${stats.tasksTotal}` : "—"}
             hero
           />
           <StatTile
-            icon={Dumbbell}
+            icon={BarbellIcon}
             label="Workouts"
             value={stats ? String(stats.workouts) : "—"}
             sub="sessions"
           />
           <StatTile
-            icon={Utensils}
+            icon={ForkKnifeIcon}
             label="Avg protein"
             value={stats ? `${stats.avgProteinPct}%` : "—"}
             sub="of target"
           />
           <StatTile
-            icon={Wallet}
+            icon={WalletIcon}
             label="Net worth"
             value={stats ? `$${stats.netWorth.toLocaleString()}` : "—"}
             sub={stats ? `${stats.activeDays}/7 active` : ""}
@@ -313,7 +314,8 @@ function Weekly() {
         {/* Per-day completion bars */}
         <div className="zen-card mb-6 p-6">
           <div className="mb-4 flex items-center gap-2 text-base font-semibold">
-            <CalendarDays className="size-4 text-muted-foreground" /> Daily task completion
+            <CalendarDotsIcon className="size-4 text-muted-foreground" weight="duotone" /> Daily
+            task completion
           </div>
           <div>
             {loading ? (
@@ -376,7 +378,7 @@ function Weekly() {
           <div className="mb-4 flex items-center justify-between text-base font-semibold">
             <span className="flex items-center gap-2">
               <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Sparkles className="size-4" />
+                <SparkleIcon className="size-4" weight="duotone" />
               </span>
               Coach’s Weekly Review
             </span>
@@ -387,7 +389,10 @@ function Weekly() {
               onClick={generate}
               disabled={narrativeLoading || !stats}
             >
-              <RefreshCw className={`size-3.5 ${narrativeLoading ? "animate-spin" : ""}`} />
+              <ArrowsClockwiseIcon
+                className={`size-3.5 ${narrativeLoading ? "animate-spin" : ""}`}
+                weight="duotone"
+              />
               {narrativeLoading ? "Reflecting…" : "Generate"}
             </Button>
           </div>
@@ -403,21 +408,21 @@ function Weekly() {
             )}
 
             <ReviewField
-              icon={Trophy}
+              icon={TrophyIcon}
               label="Wins"
               value={wins}
               onChange={setWins}
               placeholder="One win per line…"
             />
             <ReviewField
-              icon={TriangleAlert}
+              icon={WarningIcon}
               label="Blockers"
               value={blockers}
               onChange={setBlockers}
               placeholder="What got in the way…"
             />
             <ReviewField
-              icon={ArrowRight}
+              icon={ArrowRightIcon}
               label="Next week focus"
               value={nextWeekFocus}
               onChange={setNextWeekFocus}
@@ -441,7 +446,8 @@ function Weekly() {
                 onClick={save}
                 disabled={saving}
               >
-                <Save className="size-4" /> {saving ? "Saving…" : "Save review"}
+                <FloppyDiskIcon className="size-4" weight="duotone" />{" "}
+                {saving ? "Saving…" : "Save review"}
               </Button>
               <Button
                 size="sm"
@@ -450,7 +456,7 @@ function Weekly() {
                 onClick={scheduleNextWeek}
                 disabled={saving || !nextWeekFocus.trim()}
               >
-                <ArrowRight className="size-4" /> Schedule next week
+                <ArrowRightIcon className="size-4" weight="duotone" /> Schedule next week
               </Button>
               {savedAt && (
                 <Reveal as="span" className="text-xs text-muted-foreground">
@@ -482,7 +488,7 @@ function StatTile({
   sub,
   hero,
 }: {
-  icon: typeof Target;
+  icon: PhosphorIcon;
   label: string;
   value: string;
   sub?: string;
@@ -491,7 +497,7 @@ function StatTile({
   return (
     <div className={`zen-card p-3 ${hero ? "ring-1 ring-primary/20" : ""}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}
+        <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} weight="duotone" /> {label}
       </div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
       {sub && <div className="text-[10px] text-muted-foreground/70 tabular-nums">{sub}</div>}
@@ -506,7 +512,7 @@ function ReviewField({
   onChange,
   placeholder,
 }: {
-  icon: typeof Target;
+  icon: PhosphorIcon;
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -515,7 +521,7 @@ function ReviewField({
   return (
     <div>
       <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Icon className="size-3.5" /> {label}
+        <Icon className="size-3.5" weight="duotone" /> {label}
       </div>
       <Textarea
         value={value}

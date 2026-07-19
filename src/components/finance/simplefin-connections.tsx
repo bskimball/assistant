@@ -1,6 +1,6 @@
 import { fmtMoney } from "@/components/finance/shared";
 import { useState } from "react";
-import { RefreshCw, ChevronDown, Link2 } from "lucide-react";
+import { ArrowsClockwiseIcon, CaretDownIcon, LinkIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,11 +28,14 @@ export function SimplefinConnectionsCard({
   loading,
   onChange,
   flash,
+  defaultOpen = true,
 }: {
   status?: SimplefinStatusPayload;
   loading: boolean;
   onChange: () => Promise<void>;
   flash: (msg: string) => void;
+  /** Overview collapses this by default; other callers can keep it open. */
+  defaultOpen?: boolean;
 }) {
   const [setupToken, setSetupToken] = useState("");
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
@@ -154,7 +157,8 @@ export function SimplefinConnectionsCard({
     <CollapsibleCard
       id="simplefin-connections"
       title="Bank connections"
-      icon={Link2}
+      icon={LinkIcon}
+      defaultOpen={defaultOpen}
       summary={
         connected
           ? status?.lastSync
@@ -218,7 +222,7 @@ export function SimplefinConnectionsCard({
                     : "Sync balances and transactions"
                 }
               >
-                <RefreshCw className="size-4" />
+                <ArrowsClockwiseIcon className="size-4" weight="duotone" />
                 Sync now
               </Button>
             </div>
@@ -233,8 +237,9 @@ export function SimplefinConnectionsCard({
               aria-expanded={expanded}
             >
               <span>Manage accounts &amp; connection</span>
-              <ChevronDown
+              <CaretDownIcon
                 className={`size-4 transition-transform ${expanded ? "" : "-rotate-90"}`}
+                weight="duotone"
               />
             </button>
 

@@ -2,21 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { nutritionQuery, userProfileQuery } from "@/lib/queries";
-import {
-  Utensils,
-  Droplet,
-  Flame,
-  Beef,
-  Wheat,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  RefreshCw,
-  Trash2,
-  Minus,
-  Plus,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -32,6 +17,22 @@ import {
   todayISO,
   type ISODate,
 } from "@/lib/domain";
+import {
+  ArrowsClockwiseIcon,
+  CalendarDotsIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  CookingPotIcon,
+  DropIcon,
+  FireIcon,
+  ForkKnifeIcon,
+  GrainsIcon,
+  MinusIcon,
+  PlusIcon,
+  SparkleIcon,
+  TrashIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 
 export const Route = createFileRoute("/health/nutrition")({
   validateSearch: validateNutritionSearch,
@@ -231,7 +232,7 @@ function NutritionPage() {
             onClick={() => shiftDay(-1)}
             aria-label="Previous day"
           >
-            <ChevronLeft className="size-4" />
+            <CaretLeftIcon className="size-4" weight="duotone" />
           </Button>
           <div className="relative flex-1 sm:flex-none">
             <Button
@@ -241,7 +242,7 @@ function NutritionPage() {
               className="h-8 w-full justify-center gap-1.5 font-medium tabular-nums transition-[scale,background-color,color,box-shadow] duration-150 ease-out active:scale-[0.96] sm:w-auto sm:min-w-[150px]"
               aria-label="Pick a day"
             >
-              <CalendarDays className="size-3.5 text-muted-foreground" />
+              <CalendarDotsIcon className="size-3.5 text-muted-foreground" weight="duotone" />
               {dateLabel}
             </Button>
             <input
@@ -269,7 +270,7 @@ function NutritionPage() {
             disabled={isToday}
             aria-label="Next day"
           >
-            <ChevronRight className="size-4" />
+            <CaretRightIcon className="size-4" weight="duotone" />
           </Button>
         </div>
       </div>
@@ -277,7 +278,7 @@ function NutritionPage() {
       {/* Macro summary tiles */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MacroTile
-          icon={Flame}
+          icon={FireIcon}
           label="Calories"
           value={totals.calories}
           target={targets.calories}
@@ -286,21 +287,21 @@ function NutritionPage() {
           hero
         />
         <MacroTile
-          icon={Beef}
+          icon={CookingPotIcon}
           label="Protein"
           value={totals.protein}
           target={targets.protein}
           unit="g"
         />
-        <MacroTile icon={Wheat} label="Carbs" value={totals.carbs} unit="g" />
-        <MacroTile icon={Utensils} label="Fat" value={totals.fat} unit="g" />
+        <MacroTile icon={GrainsIcon} label="Carbs" value={totals.carbs} unit="g" />
+        <MacroTile icon={ForkKnifeIcon} label="Fat" value={totals.fat} unit="g" />
       </div>
 
       {/* Water */}
       <div className="zen-card mb-4 p-6">
         <div className="mb-4 flex items-center justify-between text-base font-semibold">
           <span className="flex items-center gap-2">
-            <Droplet className="size-4 text-primary" /> Water
+            <DropIcon className="size-4 text-primary" weight="duotone" /> Water
           </span>
           <span className="text-sm font-normal tabular-nums text-muted-foreground">
             <span className="font-semibold text-foreground">{displayWaterOz}</span> /{" "}
@@ -318,7 +319,7 @@ function NutritionPage() {
               onClick={() => setWaterOz(waterOz - 4)}
               aria-label="Remove 4 fl oz"
             >
-              <Minus className="size-4" />
+              <MinusIcon className="size-4" weight="duotone" />
             </Button>
             <WaterSlider
               value={displayWaterOz}
@@ -337,7 +338,7 @@ function NutritionPage() {
               onClick={() => setWaterOz(waterOz + 4)}
               aria-label="Add 4 fl oz"
             >
-              <Plus className="size-4" />
+              <PlusIcon className="size-4" weight="duotone" />
             </Button>
           </div>
           <div className="mt-2 text-center text-[11px] text-muted-foreground">
@@ -350,7 +351,7 @@ function NutritionPage() {
       <div className="zen-card mb-6 p-6">
         <div className="mb-4 flex items-center gap-2 text-base font-semibold">
           <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Sparkles className="size-4" />
+            <SparkleIcon className="size-4" weight="duotone" />
           </span>
           Log food
         </div>
@@ -369,9 +370,9 @@ function NutritionPage() {
               disabled={!foodName.trim() || foodEstimating}
             >
               {foodEstimating ? (
-                <RefreshCw className="size-4 animate-spin" />
+                <ArrowsClockwiseIcon className="size-4 animate-spin" weight="duotone" />
               ) : (
-                <Sparkles className="size-4" />
+                <SparkleIcon className="size-4" weight="duotone" />
               )}
               {foodEstimating ? "Estimating…" : "Add"}
             </Button>
@@ -395,7 +396,11 @@ function NutritionPage() {
             <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>
           ) : meals.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              <Utensils className="mx-auto mb-2 size-5 text-muted-foreground/50" aria-hidden />
+              <ForkKnifeIcon
+                className="mx-auto mb-2 size-5 text-muted-foreground/50"
+                aria-hidden
+                weight="duotone"
+              />
               Nothing logged {isToday ? "yet today" : "this day"}.
             </div>
           ) : (
@@ -466,7 +471,7 @@ function NutritionPage() {
                         onClick={() => handleDeleteMeal(m.id)}
                         aria-label="Remove entry"
                       >
-                        <Trash2 className="size-4" />
+                        <TrashIcon className="size-4" weight="duotone" />
                       </Button>
                     </div>
                   </Reveal>
@@ -580,7 +585,7 @@ function MacroTile({
   goal = "hit",
   hero,
 }: {
-  icon: typeof Utensils;
+  icon: PhosphorIcon;
   label: string;
   value: number;
   target?: number;
@@ -594,7 +599,7 @@ function MacroTile({
     <div className={`zen-card p-4 ${hero ? "ring-1 ring-primary/20" : ""}`}>
       <div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} /> {label}
+          <Icon className={`size-3.5 ${hero ? "text-primary" : ""}`} weight="duotone" /> {label}
         </div>
         <div className={`mt-1 font-semibold tabular-nums ${hero ? "text-3xl" : "text-2xl"}`}>
           {value}
