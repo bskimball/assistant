@@ -1,4 +1,5 @@
 import { fmtMoney } from "@/components/finance/shared";
+import { Collapse } from "@/components/motion";
 import { useState } from "react";
 import { ArrowsClockwiseIcon, CaretDownIcon, LinkIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -243,122 +244,125 @@ export function SimplefinConnectionsCard({
               />
             </button>
 
-            {expanded && status?.accounts.length ? (
-              <ul className="space-y-2">
-                {status.accounts.map((account) => {
-                  const stale =
-                    account.balanceDate && Date.now() / 1000 - account.balanceDate > 48 * 60 * 60;
-                  const aliasValue =
-                    aliasDrafts[account.id] ?? status.aliases[account.id] ?? account.displayName;
-                  return (
-                    <li key={account.id} className="rounded-md border border-border/60 px-3 py-2">
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">
-                            {account.orgName ? `${account.orgName} · ` : ""}
-                            {account.name}
+            <Collapse open={expanded} className="space-y-3">
+              {status?.accounts.length ? (
+                <ul className="space-y-2">
+                  {status.accounts.map((account) => {
+                    const stale =
+                      account.balanceDate && Date.now() / 1000 - account.balanceDate > 48 * 60 * 60;
+                    const aliasValue =
+                      aliasDrafts[account.id] ?? status.aliases[account.id] ?? account.displayName;
+                    return (
+                      <li key={account.id} className="rounded-md border border-border/60 px-3 py-2">
+                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium">
+                              {account.orgName ? `${account.orgName} · ` : ""}
+                              {account.name}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {fmtMoney(account.balance)} {account.currency}
+                              {account.balanceDate
+                                ? ` · as of ${fmtDate(account.balanceDate * 1000)}`
+                                : ""}
+                              {stale ? " · stale" : ""}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {fmtMoney(account.balance)} {account.currency}
-                            {account.balanceDate
-                              ? ` · as of ${fmtDate(account.balanceDate * 1000)}`
-                              : ""}
-                            {stale ? " · stale" : ""}
-                          </div>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] lg:w-[24rem]">
-                          <Input
-                            value={aliasValue}
-                            onChange={(e) =>
-                              setAliasDrafts((drafts) => ({
-                                ...drafts,
-                                [account.id]: e.target.value,
-                              }))
-                            }
-                            aria-label={`Alias for ${account.name}`}
-                            className="h-8"
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => saveAlias(account.id, account.displayName)}
-                            disabled={busy}
-                          >
-                            Save alias
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {status.accountCutovers[account.id] ? (
-                          <>
-                            <span className="text-[11px] text-muted-foreground">
-                              History imported since {status.accountCutovers[account.id]}
-                            </span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 px-2 text-[11px]"
-                              onClick={() => undoHistory(account.id)}
-                              disabled={busy}
-                            >
-                              Undo
-                            </Button>
-                          </>
-                        ) : (
-                          <>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] lg:w-[24rem]">
+                            <Input
+                              value={aliasValue}
+                              onChange={(e) =>
+                                setAliasDrafts((drafts) => ({
+                                  ...drafts,
+                                  [account.id]: e.target.value,
+                                }))
+                              }
+                              aria-label={`Alias for ${account.name}`}
+                              className="h-8"
+                            />
                             <Button
                               type="button"
                               size="sm"
                               variant="outline"
-                              onClick={() => backfillHistory(account.id)}
+                              onClick={() => saveAlias(account.id, account.displayName)}
                               disabled={busy}
                             >
-                              Import 90-day history
+                              Save alias
                             </Button>
-                            <span className="text-[11px] text-muted-foreground">
-                              Feeds recurring-charge detection. Skip if you already CSV-imported
-                              this account — it could double-count.
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      {status.loanOptions.length > 0 && (
-                        <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center">
-                          <Label className="text-xs text-muted-foreground">Loan link</Label>
-                          <Select
-                            value={status.loanLinks[account.id] || "none"}
-                            onValueChange={(v) => linkLoan(account.id, v === "none" ? "" : v)}
-                            disabled={busy}
-                          >
-                            <SelectTrigger aria-label="Loan link" className="h-8 w-full sm:w-auto">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectGroup>
-                                <SelectItem value="none">Not linked</SelectItem>
-                                {status.loanOptions.map((loan) => (
-                                  <SelectItem key={loan.id} value={loan.id}>
-                                    {loan.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            </SelectContent>
-                          </Select>
+                          </div>
                         </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : expanded ? (
-              <p className="text-sm text-muted-foreground">
-                Connected. Run a sync to list accounts and write today’s finance snapshot.
-              </p>
-            ) : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {status.accountCutovers[account.id] ? (
+                            <>
+                              <span className="text-[11px] text-muted-foreground">
+                                History imported since {status.accountCutovers[account.id]}
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-[11px]"
+                                onClick={() => undoHistory(account.id)}
+                                disabled={busy}
+                              >
+                                Undo
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => backfillHistory(account.id)}
+                                disabled={busy}
+                              >
+                                Import 90-day history
+                              </Button>
+                              <span className="text-[11px] text-muted-foreground">
+                                Feeds recurring-charge detection. Skip if you already CSV-imported
+                                this account — it could double-count.
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        {status.loanOptions.length > 0 && (
+                          <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center">
+                            <Label className="text-xs text-muted-foreground">Loan link</Label>
+                            <Select
+                              value={status.loanLinks[account.id] || "none"}
+                              onValueChange={(v) => linkLoan(account.id, v === "none" ? "" : v)}
+                              disabled={busy}
+                            >
+                              <SelectTrigger
+                                aria-label="Loan link"
+                                className="h-8 w-full sm:w-auto"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  <SelectItem value="none">Not linked</SelectItem>
+                                  {status.loanOptions.map((loan) => (
+                                    <SelectItem key={loan.id} value={loan.id}>
+                                      {loan.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Connected. Run a sync to list accounts and write today’s finance snapshot.
+                </p>
+              )}
 
-            {expanded && (
               <Button
                 type="button"
                 size="sm"
@@ -368,7 +372,7 @@ export function SimplefinConnectionsCard({
               >
                 Disconnect
               </Button>
-            )}
+            </Collapse>
           </>
         )}
       </div>

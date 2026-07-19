@@ -806,17 +806,25 @@ function KanbanBoard() {
                         );
                       })}
                     </AnimatePresence>
-                    {colTasks.length === 0 && (
-                      <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-                        <col.icon
-                          className={`size-7 transition-colors duration-150 ${
-                            isDropTarget ? "text-primary/60" : "text-muted-foreground/25"
-                          }`}
-                          weight="duotone"
-                        />
-                        <p className="voice text-xs text-muted-foreground/60">{col.empty}</p>
-                      </div>
-                    )}
+                    <AnimatePresence initial={false}>
+                      {colTasks.length === 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.97 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+                          className="flex flex-col items-center justify-center gap-2 py-8 text-center"
+                        >
+                          <col.icon
+                            className={`size-7 transition-colors duration-150 ${
+                              isDropTarget ? "text-primary/60" : "text-muted-foreground/25"
+                            }`}
+                            weight="duotone"
+                          />
+                          <p className="voice text-xs text-muted-foreground/60">{col.empty}</p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
               );

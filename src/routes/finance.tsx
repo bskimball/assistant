@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Collapse } from "@/components/motion";
 import { PageHeader } from "@/components/page-header";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { fmtMoney } from "@/components/finance/shared";
@@ -98,9 +99,9 @@ function FinanceLayout() {
         </PageHeader>
       }
     >
-      {status && (
+      <Collapse open={Boolean(status)}>
         <div className="zen-card mb-4 px-3 py-2 text-sm text-muted-foreground">{status}</div>
-      )}
+      </Collapse>
 
       {loading && !hub ? (
         <div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   CaretDownIcon,
   CaretLeftIcon,
@@ -11,6 +11,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Collapse } from "@/components/motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -65,11 +66,14 @@ export function CollapsibleCard({
   className?: string;
 }) {
   const storageKey = `finance:card:${id}`;
-  const [storedOpen, setStoredOpen] = useState(() => {
-    if (typeof window === "undefined") return defaultOpen;
+  // Start from defaultOpen on both server and client, then adopt the stored
+  // preference after hydration — reading localStorage in the initializer
+  // caused server/client HTML mismatches (hydration errors).
+  const [storedOpen, setStoredOpen] = useState(defaultOpen);
+  useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
-    return saved === null ? defaultOpen : saved === "true";
-  });
+    if (saved !== null) setStoredOpen(saved === "true");
+  }, [storageKey]);
   const open = forceOpen || storedOpen;
 
   function toggle() {
@@ -108,7 +112,9 @@ export function CollapsibleCard({
         </button>
         <div className="mt-2 text-xs text-muted-foreground sm:hidden">{summary}</div>
       </CardHeader>
-      {open && <CardContent>{children}</CardContent>}
+      <Collapse open={open}>
+        <CardContent>{children}</CardContent>
+      </Collapse>
     </Card>
   );
 }

@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Reveal, revealDelay } from "@/components/motion";
+import { Collapse, Reveal, revealDelay } from "@/components/motion";
 import { useHealthLogging } from "@/hooks/use-health-logging";
 import { validateWorkoutSearch } from "@/lib/health-workflow";
 import {
@@ -471,9 +471,9 @@ function WorkoutsPage() {
         />
       </div>
 
-      {status && (
+      <Collapse open={Boolean(status)}>
         <div className="zen-card mb-4 px-3 py-2 text-sm text-muted-foreground">{status}</div>
-      )}
+      </Collapse>
 
       {/* This week's plan */}
       <div className="zen-card mb-6 overflow-hidden p-6">
@@ -594,11 +594,11 @@ function WorkoutsPage() {
                       )}
                     </div>
 
-                    {open && (
+                    <Collapse open={open}>
                       <div className="zen-surface-nested ml-15 mt-3 p-2">
                         <PhasedExerciseList exercises={session.exercises} />
                       </div>
-                    )}
+                    </Collapse>
                   </Reveal>
                 );
               })}
@@ -1023,11 +1023,11 @@ function WorkoutsPage() {
                         <TrashIcon className="size-4" weight="duotone" />
                       </Button>
                     </div>
-                    {open && exs.length > 0 && (
+                    <Collapse open={open && exs.length > 0}>
                       <div className="zen-surface-nested mt-3 p-2">
                         <PhasedExerciseList exercises={exs} />
                       </div>
-                    )}
+                    </Collapse>
                   </Reveal>
                 );
               })}

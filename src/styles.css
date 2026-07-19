@@ -714,14 +714,50 @@
   background: var(--primary);
 }
 
-/* Page transitions are handled by motion (`AnimatePresence` in __root.tsx),
-   which honors reduce-motion via `MotionConfig reducedMotion="user"`. */
+/* Page transitions: the router navigates inside document.startViewTransition
+   (`defaultViewTransition: true` in router.tsx). The old page is snapshotted
+   and cross-faded over the new one, so route swaps never blink through the
+   body background. The persistent chrome (header shelf, mobile tab bar) is
+   opted out below so it stays rock-solid while content fades. */
+::view-transition-old(root) {
+  animation: vt-page-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+::view-transition-new(root) {
+  animation: vt-page-in 240ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+@keyframes vt-page-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-page-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Persistent chrome gets its own named group: identical on both sides, so it
+   doesn't visibly participate in the cross-fade. */
+.app-shelf {
+  view-transition-name: app-shelf;
+}
+.app-tabbar {
+  view-transition-name: app-tabbar;
+}
+::view-transition-group(app-shelf),
+::view-transition-group(app-tabbar) {
+  animation-duration: 0s;
+}
 
 /* Reduce motion respect */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;
     transition: none !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-group(*) {
+    animation: none !important;
   }
 }
 

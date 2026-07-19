@@ -1,3 +1,4 @@
+import { Collapse } from "@/components/motion";
 import { MonthNav } from "@/components/finance/shared";
 import { fmtMoney } from "@/components/finance/shared";
 import type { FinanceTabProps } from "@/components/finance/shared";
@@ -809,7 +810,7 @@ function RecurringRow({
         />
       </button>
 
-      {open && (
+      <Collapse open={open}>
         <div className="mb-2 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span>
@@ -972,9 +973,9 @@ function RecurringRow({
                 open={whyOpen}
                 onClick={() => setWhyCollapsed((collapsed) => !collapsed)}
               />
-              {whyOpen && (
+              <Collapse open={whyOpen}>
                 <RecurringWhyPanel sub={s} transactions={transactions} onRestore={onRestore} />
-              )}
+              </Collapse>
             </div>
           )}
 
@@ -1146,7 +1147,7 @@ function RecurringRow({
             </div>
           ) : null}
         </div>
-      )}
+      </Collapse>
     </li>
   );
 }
@@ -1304,7 +1305,7 @@ function MonthlyPaymentCheckCard({
             />
             {showChecklist ? "Hide" : "Show"} payment checklist
           </button>
-          {showChecklist && (
+          <Collapse open={showChecklist}>
             <ul className="mt-2 divide-y divide-border/60 rounded-md border border-border/60">
               {checklist.map((item) => {
                 const paidCount = Math.min(item.matchedCount, item.expectedThisMonth);
@@ -1343,7 +1344,7 @@ function MonthlyPaymentCheckCard({
                 );
               })}
             </ul>
-          )}
+          </Collapse>
         </div>
       )}
 

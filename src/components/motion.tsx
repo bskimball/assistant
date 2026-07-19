@@ -16,7 +16,7 @@
  *   <Stagger><Item/>…<Item/></Stagger>   // orchestrated cascade
  */
 
-import { motion, type Variants } from "motion/react";
+import { AnimatePresence, motion, type Variants } from "motion/react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +104,38 @@ export function Stagger({
     >
       {children}
     </M>
+  );
+}
+
+/**
+ * Animated expand/collapse for disclosure content ({open && …} sections).
+ * Height auto ↔ 0 with opacity, on the shared spring. Children unmount when
+ * closed (same semantics as a plain conditional render). Interruptible —
+ * rapid toggles retarget smoothly.
+ */
+export function Collapse({
+  open,
+  children,
+  className,
+}: {
+  open: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          className={cn("overflow-hidden", className)}
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={SPRING}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

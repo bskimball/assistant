@@ -147,12 +147,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         {/* Persistent nav (hidden on the login gate) */}
         {showNav && <AppNav />}
         {showPending && <div className="route-progress" aria-hidden />}
-        {/* No shell-level page fade. A whole-page opacity transition here caused
-            a black "blink" between routes: with the photographic route
-            backgrounds, fading the outgoing page to 0 revealed the dark body
-            background before the incoming page mounted. Each route already
-            animates its own content in via <Reveal>/<Stagger>, so entrance
-            motion is handled per-page and the shell just swaps children.
+        {/* Page transitions are handled by the View Transitions API
+            (`defaultViewTransition: true` in router.tsx + ::view-transition
+            rules in styles.css). The browser cross-fades a snapshot of the old
+            page over the new one, so the photographic route backgrounds never
+            blink through the dark body background — which is why there is no
+            shell-level opacity fade here (a previous attempt caused exactly
+            that blink). Per-page content entrances stay with <Reveal>/<Stagger>.
 
             The only shell-level treatment is the pending-dim: while the next
             route's loaders run, the stale page dims slightly so a tap registers

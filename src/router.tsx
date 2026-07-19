@@ -25,6 +25,12 @@ export function getRouter() {
     // Exposed to every route's loader/beforeLoad as `context.queryClient`.
     context: { queryClient },
     scrollRestoration: true,
+    // Cross-fade routes via the View Transitions API. The browser overlays a
+    // snapshot of the old page while the new one renders, so the photographic
+    // route backgrounds never blink to black (which a shell-level opacity fade
+    // caused). Timing/easing + reduced-motion live in styles.css; unsupported
+    // browsers just swap instantly.
+    defaultViewTransition: true,
     defaultPreload: "intent",
     // Let TanStack Query own freshness: the router always calls loaders, and
     // `ensureQueryData` returns cached data when fresh (cheap), refetches when stale.
