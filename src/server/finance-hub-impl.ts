@@ -2,6 +2,9 @@ import type { CategoryGroup, ISODate, Transaction, WatchlistId } from "@/lib/dom
 import {
   DEFAULT_BUDGET_TARGETS,
   isCuttableSubscription,
+  recurringBudgetBucket,
+  spendAmountOf,
+  spendBucketOf,
   subscriptionMonthlyCost,
   toISODate,
 } from "@/lib/domain";
@@ -10,12 +13,17 @@ import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
   buildBudgetInsight,
+  buildCashFlowProjection,
   calculateCashFlowCalendar,
+  calculateEmergencyFund,
   calculateSafeToSpend,
   monthKey,
+  recurringAdditionsForMonth,
   rollupMonth,
   transactionsBeforeMonth,
+  transactionsForMonth,
   withAutoWatchlist,
+  type BudgetBucket,
   type MonthBuckets,
   type WatchlistRuleValue,
 } from "@/lib/finance-math";
@@ -91,14 +99,76 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
   const insightTransactions = transactions.filter(
     (transaction) => toISODate(transaction.timestamp) <= day,
   );
+  const targets = budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const budgetInsight = buildBudgetInsight({
     transactions: insightTransactions,
     subscriptions,
     month,
     takeHome: budget?.monthlyTakeHome ?? 0,
-    targets: budget?.targets ?? DEFAULT_BUDGET_TARGETS,
+    targets,
     now: requestedAt,
     priorTransactions: transactionsBeforeMonth(insightTransactions, month),
+  });
+
+  // Cash-flow projection input assembly — mirrored from former CashFlowProjectionCard.
+  const startMonth = day.slice(0, 7);
+  const cashOnHand = cashBalance(snapshotInfo.snapshot.accounts);
+  const monthTxns = transactionsForMonth(transactions, startMonth);
+  const takeHome =
+    budget?.monthlyTakeHome ??
+    monthTxns
+      .filter((t) => t.amount > 0 && t.categoryGroup === "income")
+      .reduce((sum, t) => sum + t.amount, 0);
+  const buckets: Record<BudgetBucket, number> = {
+    needs: 0,
+    wants: 0,
+    savings: 0,
+  };
+  for (const t of monthTxns) {
+    if (t.excludeFromBudget) continue;
+    const bucket = spendBucketOf(t.categoryGroup);
+    if (bucket) buckets[bucket] += spendAmountOf(t);
+  }
+  const recurring = recurringAdditionsForMonth(subscriptions, monthTxns, startMonth);
+  const monthlyBuckets =
+    takeHome > 0
+      ? {
+          needs: Math.max(buckets.needs + recurring.needs, takeHome * targets.needs),
+          wants: Math.max(buckets.wants + recurring.wants, takeHome * targets.wants),
+          savings: Math.max(buckets.savings + recurring.savings, takeHome * targets.savings),
+        }
+      : {
+          needs: buckets.needs + recurring.needs,
+          wants: buckets.wants + recurring.wants,
+          savings: buckets.savings + recurring.savings,
+        };
+  const cashFlowProjection = buildCashFlowProjection({
+    startMonth,
+    months: 12,
+    transactions,
+    subscriptions,
+    startingCash: cashOnHand,
+    monthlyIncome: takeHome,
+    monthlyBuckets,
+    includeRecurringCommitments: false,
+  });
+
+  // Emergency fund — mirrored from former OverviewTab assembly.
+  // Prefer budget take-home (0 when unset), matching overview.tsx not the projection path.
+  const emergencyTakeHome = budget?.monthlyTakeHome ?? 0;
+  const monthlyEssentialExpenses = Math.max(
+    budgetInsight.bucketTotals.needs,
+    emergencyTakeHome > 0 ? emergencyTakeHome * targets.needs : 0,
+  );
+  const cashFlow = budgetInsight.leftAfterOut;
+  const recurringSavingsMonthly = subscriptions
+    .filter((s) => s.status === "active" && recurringBudgetBucket(s) === "savings")
+    .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
+  const emergencyContribution = Math.max(0, cashFlow, recurringSavingsMonthly);
+  const emergencyFund = calculateEmergencyFund({
+    monthlyEssentialExpenses,
+    currentSavings: cashOnHand,
+    monthlyContribution: emergencyContribution,
   });
 
   return {
@@ -121,11 +191,13 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
       todayISO: day,
       // Unified with client cashBalance: cash accounts only, positive balances.
       // Formerly an inline dual-regex filter; classifyAccount owns the keywords now.
-      currentCashBalance: cashBalance(snapshotInfo.snapshot.accounts),
+      currentCashBalance: cashOnHand,
       monthlyTakeHome: budget?.monthlyTakeHome,
       paySchedule: budget?.paySchedule,
       subscriptions,
     }),
+    cashFlowProjection,
+    emergencyFund,
   };
 }
 

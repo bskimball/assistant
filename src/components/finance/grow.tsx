@@ -28,12 +28,7 @@ import {
   DEFAULT_BUDGET_TARGETS,
   type FinanceAdviceItem,
 } from "@/lib/domain";
-import {
-  buildCashFlowProjection,
-  recurringAdditionsForMonth,
-  transactionsForMonth,
-  type BudgetBucket,
-} from "@/lib/finance-math";
+import { transactionsForMonth } from "@/lib/finance-math";
 import {
   CollapsibleCard,
   InfoHint,
@@ -41,7 +36,6 @@ import {
   formatMonthLabel,
   isPaycheckLike,
 } from "@/components/finance/shared";
-import { cashBalance } from "@/lib/finance-accounts";
 
 const ADVICE_META: Record<
   FinanceAdviceItem["category"],
@@ -265,50 +259,10 @@ export function GrowTab({
   );
 }
 
-function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
-  const startMonth = today.slice(0, 7);
-  const accounts = hub.snapshot.accounts || [];
-  const cashOnHand = cashBalance(accounts);
-  const monthTxns = transactionsForMonth(hub.transactions, startMonth);
-  const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
-  const takeHome =
-    hub.budget?.monthlyTakeHome ??
-    monthTxns
-      .filter((t) => t.amount > 0 && t.categoryGroup === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
-  const buckets: Record<BudgetBucket, number> = {
-    needs: 0,
-    wants: 0,
-    savings: 0,
-  };
-  for (const t of monthTxns) {
-    if (t.excludeFromBudget) continue;
-    const bucket = spendBucketOf(t.categoryGroup);
-    if (bucket) buckets[bucket] += spendAmountOf(t);
-  }
-  const recurring = recurringAdditionsForMonth(hub.subscriptions, monthTxns, startMonth);
-  const monthlyBuckets =
-    takeHome > 0
-      ? {
-          needs: Math.max(buckets.needs + recurring.needs, takeHome * targets.needs),
-          wants: Math.max(buckets.wants + recurring.wants, takeHome * targets.wants),
-          savings: Math.max(buckets.savings + recurring.savings, takeHome * targets.savings),
-        }
-      : {
-          needs: buckets.needs + recurring.needs,
-          wants: buckets.wants + recurring.wants,
-          savings: buckets.savings + recurring.savings,
-        };
-  const projection = buildCashFlowProjection({
-    startMonth,
-    months: 12,
-    transactions: hub.transactions,
-    subscriptions: hub.subscriptions,
-    startingCash: cashOnHand,
-    monthlyIncome: takeHome,
-    monthlyBuckets,
-    includeRecurringCommitments: false,
-  });
+function CashFlowProjectionCard({ hub }: { hub: FinanceHubPayload; today: string }) {
+  const projection = hub.cashFlowProjection;
+  // Starting cash is the projection seed (months[0].startingCash); fall back for empty runs.
+  const cashOnHand = projection.months[0]?.startingCash ?? projection.endingCash;
   const averageNet = projection.months.length
     ? projection.totalNetCashFlow / projection.months.length
     : 0;

@@ -16,6 +16,8 @@ import type {
 import type {
   BudgetInsight,
   CashFlowCalendar,
+  CashFlowProjection,
+  EmergencyFundResult,
   RecurringInsight,
   SafeToSpendResult,
 } from "@/lib/finance-math";
@@ -36,6 +38,10 @@ export interface FinanceHubPayload {
   budgetInsight: BudgetInsight;
   safeToSpend: SafeToSpendResult;
   cashFlowCalendar: CashFlowCalendar;
+  /** 12-month cash-flow projection (fixed params; Grow tab is display-only). */
+  cashFlowProjection: CashFlowProjection;
+  /** Emergency-fund status derived from cash + essential-needs baseline. */
+  emergencyFund: EmergencyFundResult;
 }
 
 export interface FinanceAdvicePayload {

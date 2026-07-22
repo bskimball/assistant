@@ -42,9 +42,6 @@ import { saveDailyFinance } from "@/server/domain";
 import { acceptFinanceActions, setTransactionWatchlist } from "@/server/finance";
 import type { FinanceHubPayload } from "@/lib/finance-types";
 import {
-  subscriptionMonthlyCost,
-  recurringBudgetBucket,
-  DEFAULT_BUDGET_TARGETS,
   WATCHLIST_IDS,
   WATCHLIST_META,
   type Transaction,
@@ -53,11 +50,11 @@ import {
   type WatchlistId,
 } from "@/lib/domain";
 import {
-  calculateEmergencyFund,
   recurringItemsForMonth,
   rollupWatchlistMonth,
   transactionsBeforeMonth,
   transactionsForMonth,
+  type EmergencyFundResult,
 } from "@/lib/finance-math";
 import {
   ACCOUNT_GROUP_META,
@@ -68,7 +65,7 @@ import {
   fmtISODate,
   summarizeImportedAccounts,
 } from "@/components/finance/shared";
-import { type AccountType, cashBalance, classifyAccount } from "@/lib/finance-accounts";
+import { type AccountType, classifyAccount } from "@/lib/finance-accounts";
 
 export function OverviewTab({
   hub,
@@ -207,11 +204,6 @@ export function OverviewTab({
 
   const currentMonth = today.slice(0, 7);
   const monthTxns = transactionsForMonth(hub.transactions, currentMonth);
-  // Imported income only captures deposits to the accounts you've imported, so a
-  // second paycheck landing in another account is missed. Prefer the monthly
-  // take-home you set on the Budget tab (your full after-tax pay) when available.
-  const takeHome = hub.budget?.monthlyTakeHome ?? 0;
-  const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   // Same plan math as the Budget tab (including prior-month weekly recurring
   // anchors). Overview never re-derives moneyOut — only displays `money.*`.
   const priorTxns = transactionsBeforeMonth(hub.transactions, currentMonth);
@@ -233,20 +225,7 @@ export function OverviewTab({
   const savingsRemainingTarget = money.savingsTargetRemaining;
   const planBuckets = money.statementBuckets;
   const recurringByBucket = money.unpaidRecurring;
-  const monthlyEssentialExpenses = Math.max(
-    money.bucketTotals.needs,
-    takeHome > 0 ? takeHome * targets.needs : 0,
-  );
-  const cashOnHand = cashBalance(accounts);
-  const recurringSavingsMonthly = hub.subscriptions
-    .filter((s) => s.status === "active" && recurringBudgetBucket(s) === "savings")
-    .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
-  const emergencyContribution = Math.max(0, cashFlow, recurringSavingsMonthly);
-  const emergencyFund = calculateEmergencyFund({
-    monthlyEssentialExpenses,
-    currentSavings: cashOnHand,
-    monthlyContribution: emergencyContribution,
-  });
+  const emergencyFund = hub.emergencyFund;
 
   // An account is "synced" when its saved name matches a SimpleFIN display name
   // or a saved alias. Status may be loading/absent — then everything reads manual.
@@ -834,7 +813,7 @@ function CashFlowStatusChip({ result }: { result: FinanceHubPayload["cashFlowCal
   );
 }
 
-function EmergencyFundChip({ fund }: { fund: ReturnType<typeof calculateEmergencyFund> }) {
+function EmergencyFundChip({ fund }: { fund: EmergencyFundResult }) {
   const statusMeta: Record<
     typeof fund.status,
     { label: string; variant: "success" | "warning" | "secondary"; className: string }
