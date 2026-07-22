@@ -344,12 +344,7 @@ export type CategoryGroup = "needs" | "wants" | "savings" | "income" | "transfer
  * Problem-area spend labels for the Overview Spending Watchlist (not 50/30/20).
  * Only a short fixed list — curbs a few leakage points, not a full pie chart.
  */
-export type WatchlistId =
-  | "groceries"
-  | "dining"
-  | "shopping"
-  | "subscriptions"
-  | "coffee_snacks";
+export type WatchlistId = "groceries" | "dining" | "shopping" | "subscriptions" | "coffee_snacks";
 
 export const WATCHLIST_IDS = [
   "groceries",

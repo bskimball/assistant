@@ -88,15 +88,11 @@ function isCategoryGroup(value: unknown): value is CategoryGroup {
   return typeof value === "string" && CATEGORY_GROUPS.has(value as CategoryGroup);
 }
 
-function descriptorFor(
-  t: Pick<Transaction, "merchant" | "category" | "notes">,
-): string {
+function descriptorFor(t: Pick<Transaction, "merchant" | "category" | "notes">): string {
   return transactionMerchant(t);
 }
 
-export function cacheKeyFor(
-  t: Pick<Transaction, "merchant" | "category" | "notes">,
-): string {
+export function cacheKeyFor(t: Pick<Transaction, "merchant" | "category" | "notes">): string {
   return normalizeMerchant(descriptorFor(t));
 }
 

@@ -1,5 +1,6 @@
 import type { CategoryGroup, ISODate, Transaction, WatchlistId } from "@/lib/domain";
 import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
+import { activeTransactions, cashBalance, isActive } from "@/lib/finance-accounts";
 import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
@@ -72,9 +73,9 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
   const month = day.slice(0, 7);
   // In-memory only: never CAS-write the ledger on a read path.
   const previewed = withWatchlistPreview(txns.transactions, month, rulesStore.rules);
-  const subscriptions = subs.subscriptions.filter((s) => !s.deletedAt);
-  const transactions = previewed.filter((t) => !t.deletedAt);
-  const deletedTransactions = previewed.filter((t) => !!t.deletedAt);
+  const subscriptions = subs.subscriptions.filter(isActive);
+  const transactions = activeTransactions(previewed);
+  const deletedTransactions = previewed.filter((t) => !isActive(t));
   return {
     snapshot: snapshotInfo.snapshot,
     snapshotSourceDate: snapshotInfo.sourceDate,
@@ -91,15 +92,9 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
     }),
     cashFlowCalendar: calculateCashFlowCalendar({
       todayISO: day,
-      currentCashBalance: snapshotInfo.snapshot.accounts
-        .filter((account) => /(?:checking|savings|cash|bank)/i.test(account.account))
-        .filter(
-          (account) =>
-            !/(?:loan|credit|card|401k|ira|brokerage|investment|stock|crypto)/i.test(
-              account.account,
-            ),
-        )
-        .reduce((sum, account) => sum + account.amount, 0),
+      // Unified with client cashBalance: cash accounts only, positive balances.
+      // Formerly an inline dual-regex filter; classifyAccount owns the keywords now.
+      currentCashBalance: cashBalance(snapshotInfo.snapshot.accounts),
       monthlyTakeHome: budget?.monthlyTakeHome,
       paySchedule: budget?.paySchedule,
       subscriptions,
@@ -122,7 +117,7 @@ export async function applyRecurringInsightImpl(data: {
     loadSubscriptionsImpl(),
     loadTransactionsImpl(),
   ]);
-  const subscriptions = subsStore.subscriptions.filter((s) => !s.deletedAt);
+  const subscriptions = subsStore.subscriptions.filter(isActive);
   const insight = analyzeRecurringHealth({
     subscriptions,
     transactions: txnStore.transactions,
@@ -163,10 +158,10 @@ export async function loadFinanceContextImpl(date: ISODate): Promise<FinanceCont
     loadSubscriptionsImpl(),
     loadTransactionsImpl(),
   ]);
-  const transactions = txns.transactions.filter((t) => !t.deletedAt);
+  const transactions = activeTransactions(txns.transactions);
   const month = date.slice(0, 7);
   const thisMonth = rollupMonth(transactions, month);
-  const active = subs.subscriptions.filter((s) => !s.deletedAt && s.status === "active");
+  const active = subs.subscriptions.filter((s) => isActive(s) && s.status === "active");
   const monthTxns = transactions.filter((t) => monthKey(t.timestamp) === month);
   addUnseenRecurringToBuckets(thisMonth, active, monthTxns);
   const cuttableSubscriptions = active.filter(isCuttableSubscription);

@@ -10,12 +10,10 @@ const mockState = vi.hoisted(() => ({
 vi.mock("@/server/domain-impl", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/domain-impl")>()),
   loadCategoryRulesImpl: vi.fn(async () => ({ rules: mockState.rules, updatedAt: 0 })),
-  updateTransactionsImpl: vi.fn(
-    async (mutate: (transactions: Transaction[]) => Transaction[]) => {
-      mockState.transactions = mutate(mockState.transactions);
-      return { transactions: mockState.transactions, updatedAt: 0 };
-    },
-  ),
+  updateTransactionsImpl: vi.fn(async (mutate: (transactions: Transaction[]) => Transaction[]) => {
+    mockState.transactions = mutate(mockState.transactions);
+    return { transactions: mockState.transactions, updatedAt: 0 };
+  }),
 }));
 
 vi.mock("@/server/finance-ai-match", async (importOriginal) => ({
@@ -88,11 +86,9 @@ describe("recategorizeAllTransactionsImpl", () => {
 
   it("applies learned merchant rules but leaves watchlist orthogonal to groups", async () => {
     mockState.rules = {
-      "kroger": { group: "needs", watchlistId: "groceries" },
+      kroger: { group: "needs", watchlistId: "groceries" },
     };
-    mockState.transactions = [
-      txn({ id: "a", category: "KROGER #123", categoryGroup: "wants" }),
-    ];
+    mockState.transactions = [txn({ id: "a", category: "KROGER #123", categoryGroup: "wants" })];
     await recategorizeAllTransactionsImpl();
     const row = mockState.transactions[0];
     expect(row.categoryGroup).toBe("needs");

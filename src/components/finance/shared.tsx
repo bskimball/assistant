@@ -23,10 +23,10 @@ import {
   type RecurringKind,
   type Subscription,
   type Transaction,
-  type AccountBalance,
   type WatchlistId,
 } from "@/lib/domain";
 import { type BudgetBucket, type BudgetRecurringItem } from "@/lib/finance-math";
+import type { AccountType } from "@/lib/finance-accounts";
 
 import type { FinanceHubPayload } from "@/lib/finance-types";
 
@@ -374,7 +374,7 @@ export function MiniStat({
 
 /* ---------------- Shared bits ---------------- */
 
-export type AccountType = "cash" | "credit" | "investments" | "other";
+export type { AccountType } from "@/lib/finance-accounts";
 
 export const ACCOUNT_GROUP_META: {
   type: AccountType;
@@ -386,21 +386,6 @@ export const ACCOUNT_GROUP_META: {
   { type: "investments", label: "Investments", Icon: ChartLineIcon },
   { type: "other", label: "Other", Icon: MoneyIcon },
 ];
-
-// Bucket an account by a case-insensitive keyword match on its name/alias.
-export function inferAccountType(name: string): AccountType {
-  const s = name.toLowerCase();
-  if (/(checking|savings|bank)/.test(s)) return "cash";
-  if (/(credit|card|platinum)/.test(s)) return "credit";
-  if (/(robinhood|stock|crypto|bitcoin|401k|brokerage|ira)/.test(s)) return "investments";
-  return "other";
-}
-
-export function cashLikeBalance(accounts: AccountBalance[]): number {
-  return accounts
-    .filter((account) => inferAccountType(account.account) === "cash" && account.amount > 0)
-    .reduce((sum, account) => sum + account.amount, 0);
-}
 
 export const SOURCE_BADGE_META: Record<
   NonNullable<Transaction["source"]>,

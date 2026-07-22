@@ -38,10 +38,10 @@ import {
   CollapsibleCard,
   InfoHint,
   MiniStat,
-  cashLikeBalance,
   formatMonthLabel,
   isPaycheckLike,
 } from "@/components/finance/shared";
+import { cashBalance } from "@/lib/finance-accounts";
 
 const ADVICE_META: Record<
   FinanceAdviceItem["category"],
@@ -268,7 +268,7 @@ export function GrowTab({
 function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
   const startMonth = today.slice(0, 7);
   const accounts = hub.snapshot.accounts || [];
-  const cashOnHand = cashLikeBalance(accounts);
+  const cashOnHand = cashBalance(accounts);
   const monthTxns = transactionsForMonth(hub.transactions, startMonth);
   const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const takeHome =

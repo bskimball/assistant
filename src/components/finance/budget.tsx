@@ -47,6 +47,7 @@ import {
   type CategoryGroup,
   type Transaction,
 } from "@/lib/domain";
+import { activeTransactions } from "@/lib/finance-accounts";
 import {
   buildBudgetInsight,
   detectOneTimeCandidates,
@@ -112,7 +113,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
   const th = Number(takeHome) || hub.budget?.monthlyTakeHome || 0;
 
   // Active ledger only — hub may still include soft-deleted rows in other lists.
-  const activeTxns = hub.transactions.filter((t) => !t.deletedAt);
+  const activeTxns = activeTransactions(hub.transactions);
   const monthTxns = transactionsForMonth(activeTxns, selectedMonth);
   // Per-bucket totals + the transactions behind each bar. One-time charges the
   // user has marked (excludeFromBudget) are kept in the lists and tracked as real

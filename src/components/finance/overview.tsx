@@ -60,18 +60,16 @@ import {
   transactionsBeforeMonth,
   transactionsForMonth,
 } from "@/lib/finance-math";
-import type { AccountType } from "@/components/finance/shared";
 import {
   ACCOUNT_GROUP_META,
   Stat,
   TxnSubline,
-  cashLikeBalance,
   displayMerchant,
   fmtDate,
   fmtISODate,
-  inferAccountType,
   summarizeImportedAccounts,
 } from "@/components/finance/shared";
+import { type AccountType, cashBalance, classifyAccount } from "@/lib/finance-accounts";
 
 export function OverviewTab({
   hub,
@@ -246,7 +244,7 @@ export function OverviewTab({
     money.bucketTotals.needs,
     takeHome > 0 ? takeHome * targets.needs : 0,
   );
-  const cashOnHand = cashLikeBalance(accounts);
+  const cashOnHand = cashBalance(accounts);
   const recurringSavingsMonthly = hub.subscriptions
     .filter((s) => s.status === "active" && recurringBudgetBucket(s) === "savings")
     .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
@@ -274,7 +272,7 @@ export function OverviewTab({
 
   // Group saved balances by inferred type for the single-source-of-truth card.
   const accountGroups = ACCOUNT_GROUP_META.map((meta) => {
-    const rows = accounts.filter((a) => inferAccountType(a.account) === meta.type);
+    const rows = accounts.filter((a) => classifyAccount(a.account) === meta.type);
     return { ...meta, rows, subtotal: rows.reduce((s, a) => s + a.amount, 0) };
   }).filter((g) => g.rows.length > 0);
   const accountsTotal = accounts.reduce((s, a) => s + a.amount, 0);

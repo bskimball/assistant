@@ -250,11 +250,10 @@ export function normalizeCategoryRules(
 
 export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
   const store = await getDomainStore({ shared: true });
-  const raw =
-    (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
-      rules: {},
-      updatedAt: Date.now(),
-    };
+  const raw = (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
+    rules: {},
+    updatedAt: Date.now(),
+  };
   return {
     rules: normalizeCategoryRules(raw.rules),
     updatedAt: raw.updatedAt ?? Date.now(),
@@ -285,11 +284,7 @@ export async function learnMerchantRuleImpl(input: {
   return updateCategoryRulesImpl((rules) => {
     const existing = rules[key];
     const base: WatchlistRuleValue =
-      typeof existing === "string"
-        ? { group: existing }
-        : existing
-          ? { ...existing }
-          : {};
+      typeof existing === "string" ? { group: existing } : existing ? { ...existing } : {};
     if (input.group) base.group = input.group;
     if (input.clearWatchlist || input.watchlistId === null) base.watchlistId = null;
     else if (input.watchlistId) base.watchlistId = input.watchlistId;
