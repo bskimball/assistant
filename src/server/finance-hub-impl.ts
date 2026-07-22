@@ -1,13 +1,20 @@
 import type { CategoryGroup, ISODate, Transaction, WatchlistId } from "@/lib/domain";
-import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
+import {
+  DEFAULT_BUDGET_TARGETS,
+  isCuttableSubscription,
+  subscriptionMonthlyCost,
+  toISODate,
+} from "@/lib/domain";
 import { activeTransactions, cashBalance, isActive } from "@/lib/finance-accounts";
 import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
+  buildBudgetInsight,
   calculateCashFlowCalendar,
   calculateSafeToSpend,
   monthKey,
   rollupMonth,
+  transactionsBeforeMonth,
   withAutoWatchlist,
   type MonthBuckets,
   type WatchlistRuleValue,
@@ -76,6 +83,24 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
   const subscriptions = subs.subscriptions.filter(isActive);
   const transactions = activeTransactions(previewed);
   const deletedTransactions = previewed.filter((t) => !isActive(t));
+
+  // Single current-month budget insight for Overview + safe-to-spend (must match
+  // calculateSafeToSpend's internal construction when insight is omitted).
+  const [year, monthIndex, dayNum] = day.split("-").map(Number);
+  const requestedAt = Date.UTC(year, monthIndex - 1, dayNum);
+  const insightTransactions = transactions.filter(
+    (transaction) => toISODate(transaction.timestamp) <= day,
+  );
+  const budgetInsight = buildBudgetInsight({
+    transactions: insightTransactions,
+    subscriptions,
+    month,
+    takeHome: budget?.monthlyTakeHome ?? 0,
+    targets: budget?.targets ?? DEFAULT_BUDGET_TARGETS,
+    now: requestedAt,
+    priorTransactions: transactionsBeforeMonth(insightTransactions, month),
+  });
+
   return {
     snapshot: snapshotInfo.snapshot,
     snapshotSourceDate: snapshotInfo.sourceDate,
@@ -84,11 +109,13 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
     transactions,
     deletedTransactions,
     recurringInsights: analyzeRecurringHealth({ subscriptions, transactions: txns.transactions }),
+    budgetInsight,
     safeToSpend: calculateSafeToSpend({
       budget,
       subscriptions,
       transactions,
       date: day,
+      insight: budgetInsight,
     }),
     cashFlowCalendar: calculateCashFlowCalendar({
       todayISO: day,

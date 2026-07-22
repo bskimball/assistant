@@ -106,4 +106,14 @@ describe("loadFinanceHubImpl read-path invariants", () => {
     // Watchlist labels are orthogonal: posted plan spend must be identical.
     expect(tagged.safeToSpend.postedPlanSpend).toBe(withRules.safeToSpend.postedPlanSpend);
   });
+
+  it("exposes budgetInsight that matches safe-to-spend plan spend", async () => {
+    const payload = await loadFinanceHubImpl("2026-01-15");
+    expect(payload.budgetInsight).toBeDefined();
+    // safeToSpend.postedPlanSpend is insight.planSpend when insight is shared.
+    expect(payload.safeToSpend.postedPlanSpend).toBe(payload.budgetInsight.planSpend);
+    // Fixture: -$200 needs + -$60 wants → planSpend 260 (no savings txns).
+    expect(payload.budgetInsight.bucketTotals.needs).toBeGreaterThanOrEqual(200);
+    expect(payload.budgetInsight.bucketTotals.wants).toBeGreaterThanOrEqual(60);
+  });
 });

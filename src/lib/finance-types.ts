@@ -13,7 +13,12 @@ import type {
   Subscription,
   Transaction,
 } from "@/lib/domain";
-import type { CashFlowCalendar, RecurringInsight, SafeToSpendResult } from "@/lib/finance-math";
+import type {
+  BudgetInsight,
+  CashFlowCalendar,
+  RecurringInsight,
+  SafeToSpendResult,
+} from "@/lib/finance-math";
 
 export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number };
 export type BudgetPayload = Budget & { updatedAt: number };
@@ -27,6 +32,8 @@ export interface FinanceHubPayload {
   /** Soft-deleted ledger rows, kept separate so totals remain unaffected. */
   deletedTransactions: Transaction[];
   recurringInsights: RecurringInsight[];
+  /** Current-month 50/30/20 insight — shared by Overview and safe-to-spend. */
+  budgetInsight: BudgetInsight;
   safeToSpend: SafeToSpendResult;
   cashFlowCalendar: CashFlowCalendar;
 }

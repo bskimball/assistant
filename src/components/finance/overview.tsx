@@ -53,7 +53,6 @@ import {
   type WatchlistId,
 } from "@/lib/domain";
 import {
-  buildBudgetInsight,
   calculateEmergencyFund,
   recurringItemsForMonth,
   rollupWatchlistMonth,
@@ -222,14 +221,8 @@ export function OverviewTab({
     priorTxns,
     currentMonth,
   );
-  const money = buildBudgetInsight({
-    transactions: hub.transactions,
-    subscriptions: hub.subscriptions,
-    month: currentMonth,
-    takeHome,
-    targets,
-    priorTransactions: priorTxns,
-  });
+  // Server computes current-month insight once on the hub (shared with safe-to-spend).
+  const money = hub.budgetInsight;
   const usePlannedIncome = money.usingTakeHome;
   const moneyIn = money.moneyIn;
   const knownOutflow = money.moneyOut;
