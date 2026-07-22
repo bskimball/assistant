@@ -5,8 +5,10 @@ import type {
   ISODate,
   Subscription,
   Transaction,
+  WatchlistId,
 } from "@/lib/domain";
-import { newId } from "@/lib/domain";
+import { isWatchlistId, newId } from "@/lib/domain";
+import type { WatchlistRuleValue } from "@/lib/finance-math";
 import { getDomainStore } from "@/server/store";
 
 export type DailyFinancePayload = DailyFinanceSnapshot & { updatedAt: number };
@@ -197,31 +199,102 @@ export async function saveSubscriptionsImpl(data: {
 
 /* ---------- Category rules (learned overrides) ---------- */
 
+/** Stored rule value: legacy string group, or structured group + watchlist. */
+export type CategoryRuleEntry = CategoryGroup | WatchlistRuleValue;
+
 export type CategoryRulesStore = {
-  /** Lowercased merchant/keyword → 50/30/20 group. */
-  rules: Record<string, CategoryGroup>;
+  /** Normalized merchant/keyword → 50/30/20 group and/or watchlist label. */
+  rules: Record<string, CategoryRuleEntry>;
   updatedAt: number;
 };
 
+/** Flatten stored rules to group-only map for the 50/30/20 categorizer. */
+export function categoryGroupRulesOf(
+  rules: Record<string, CategoryRuleEntry>,
+): Record<string, CategoryGroup> {
+  const out: Record<string, CategoryGroup> = {};
+  for (const [key, value] of Object.entries(rules)) {
+    if (typeof value === "string") {
+      out[key] = value;
+      continue;
+    }
+    if (value.group) out[key] = value.group;
+  }
+  return out;
+}
+
+export function normalizeCategoryRules(
+  rules: Record<string, CategoryRuleEntry> | undefined,
+): Record<string, CategoryRuleEntry> {
+  const out: Record<string, CategoryRuleEntry> = {};
+  for (const [key, value] of Object.entries(rules ?? {})) {
+    if (typeof value === "string") {
+      out[key] = value;
+      continue;
+    }
+    const group = value.group;
+    const watchlistId =
+      value.watchlistId === null
+        ? null
+        : isWatchlistId(value.watchlistId)
+          ? value.watchlistId
+          : undefined;
+    if (!group && watchlistId === undefined) continue;
+    out[key] = {
+      ...(group ? { group } : {}),
+      ...(watchlistId !== undefined ? { watchlistId } : {}),
+    };
+  }
+  return out;
+}
+
 export async function loadCategoryRulesImpl(): Promise<CategoryRulesStore> {
   const store = await getDomainStore({ shared: true });
-  return (
+  const raw =
     (await store.ref.get<CategoryRulesStore>("category-rules.json")) ?? {
       rules: {},
       updatedAt: Date.now(),
-    }
-  );
+    };
+  return {
+    rules: normalizeCategoryRules(raw.rules),
+    updatedAt: raw.updatedAt ?? Date.now(),
+  };
 }
 
 /** Atomically merge learned category rules (etag CAS + retry, shared file). */
 export async function updateCategoryRulesImpl(
-  mutate: (rules: Record<string, CategoryGroup>) => Record<string, CategoryGroup>,
+  mutate: (rules: Record<string, CategoryRuleEntry>) => Record<string, CategoryRuleEntry>,
 ): Promise<CategoryRulesStore> {
   const store = await getDomainStore({ shared: true });
   return store.ref.update<CategoryRulesStore>("category-rules.json", (current) => ({
-    rules: mutate(current?.rules ?? {}),
+    rules: normalizeCategoryRules(mutate(normalizeCategoryRules(current?.rules ?? {}))),
     updatedAt: Date.now(),
   }));
+}
+
+export async function learnMerchantRuleImpl(input: {
+  merchantKey: string;
+  group?: CategoryGroup;
+  watchlistId?: WatchlistId | null;
+  clearWatchlist?: boolean;
+}): Promise<CategoryRulesStore> {
+  const key = input.merchantKey.trim();
+  if (!key) {
+    return loadCategoryRulesImpl();
+  }
+  return updateCategoryRulesImpl((rules) => {
+    const existing = rules[key];
+    const base: WatchlistRuleValue =
+      typeof existing === "string"
+        ? { group: existing }
+        : existing
+          ? { ...existing }
+          : {};
+    if (input.group) base.group = input.group;
+    if (input.clearWatchlist || input.watchlistId === null) base.watchlistId = null;
+    else if (input.watchlistId) base.watchlistId = input.watchlistId;
+    return { ...rules, [key]: base };
+  });
 }
 
 /**

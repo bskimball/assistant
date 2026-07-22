@@ -5,17 +5,22 @@ import type {
   Subscription,
   Transaction,
   UserProfile,
+  WatchlistId,
 } from "@/lib/domain";
 import {
   addDaysISO,
   cleanMerchantName,
   DEFAULT_BUDGET_TARGETS,
+  isWatchlistId,
   recurringBudgetBucket,
   recurringKindOf,
   spendAmountOf,
   spendBucketOf,
   subscriptionMonthlyCost,
   toISODate,
+  transactionMerchant,
+  WATCHLIST_IDS,
+  WATCHLIST_META,
 } from "@/lib/domain";
 
 export type BudgetBucket = "needs" | "wants" | "savings";
@@ -276,7 +281,36 @@ export type BudgetInsight = {
   bucketDeltas: { needs: number; wants: number; savings: number };
   projectedPlanSpend: number | null;
   lines: string[];
+  /** Statement plan buckets only (exclude one-time). */
+  statementBuckets: { needs: number; wants: number; savings: number };
+  /** Unpaid remaining recurring by bucket. */
+  unpaidRecurring: { needs: number; wants: number; savings: number };
+  /** Statement + unpaid recurring — same totals Budget bars show. */
+  bucketTotals: { needs: number; wants: number; savings: number };
+  /** moneyIn − moneyOut. moneyOut = planSpend + oneTime + plannedRecurring. */
+  moneyIn: number;
+  moneyOut: number;
+  leftAfterOut: number;
+  importedIncome: number;
+  usingTakeHome: boolean;
+  savingsTarget: number;
+  /** Max(0, savingsTarget − posted savings − unpaid savings recurring). */
+  savingsTargetRemaining: number;
 };
+
+/**
+ * Single source of truth for “this month’s money” on Overview and Budget.
+ * Identities (always):
+ *   bucketTotals.X = statementBuckets.X + unpaidRecurring.X
+ *   planSpend = sum(statementBuckets)
+ *   plannedRecurring = sum(unpaidRecurring)
+ *   committedPlan = planSpend + plannedRecurring = sum(bucketTotals)
+ *   moneyOut = planSpend + oneTimeSpend + plannedRecurring
+ *            = sum(bucketTotals) + oneTimeSpend
+ *   leftAfterOut = moneyIn − moneyOut
+ *   remainingAfterCommitted = moneyIn − moneyOut  (when moneyIn uses take-home)
+ * Savings *target* is NOT in moneyOut — only posted/scheduled savings transfers are.
+ */
 
 export type SafeToSpendStatus = "unavailable" | "on-track" | "tight" | "over-plan";
 
@@ -403,7 +437,7 @@ export function detectRecurringCandidates(input: {
     if (t.categoryGroup === "transfer") continue;
     // Already linked to a tracked item — don't re-propose that stream.
     if (t.recurringId) continue;
-    const key = normalizeMerchant(t.category || "");
+    const key = normalizeMerchant(transactionMerchant(t));
     if (!key) continue;
     const arr = groups.get(key) ?? [];
     arr.push(t);
@@ -437,7 +471,7 @@ export function detectRecurringCandidates(input: {
       const last = sorted[sorted.length - 1];
       candidates.push({
         merchantKey,
-        name: cleanMerchantName(last.category || last.notes || "Unknown"),
+        name: cleanMerchantName(transactionMerchant(last) || "Unknown"),
         amount: dollars(avgAmount),
         cadence,
         status: "active",
@@ -505,7 +539,7 @@ function isRecurringClusterAlreadyTracked(cluster: Transaction[], stored: Subscr
   const latest = [...cluster].sort((a, b) => b.timestamp - a.timestamp)[0];
   const clusterAvg =
     cluster.reduce((sum, t) => sum + Math.abs(t.amount), 0) / Math.max(cluster.length, 1);
-  const descriptor = latest.category || latest.notes || "";
+  const descriptor = transactionMerchant(latest);
 
   for (const sub of stored) {
     const sameStream = amountsAreSameStream(clusterAvg, sub.amount);
@@ -519,7 +553,7 @@ function isRecurringClusterAlreadyTracked(cluster: Transaction[], stored: Subscr
     const nameClose =
       normalizeMerchant(sub.name) === normalizeMerchant(descriptor) ||
       recurringNamesShareToken(sub.name, descriptor);
-    const rawDescriptor = [latest.category, latest.notes].filter(Boolean).join(" ").toLowerCase();
+    const rawDescriptor = [descriptor, latest.notes].filter(Boolean).join(" ").toLowerCase();
     const hintClose = (sub.matchHints ?? []).some((hint) => {
       const normalizedHint = hint.trim().toLowerCase();
       return !!normalizedHint && rawDescriptor.includes(normalizedHint);
@@ -554,7 +588,8 @@ export function recurringNamesShareToken(a?: string, b?: string): boolean {
 
 function recurringDescriptorMatches(sub: Subscription, t: Transaction): boolean {
   const subName = normalizedFinanceLabel(sub.name);
-  const txnName = normalizedFinanceLabel(t.category || t.notes || "");
+  const merchant = transactionMerchant(t);
+  const txnName = normalizedFinanceLabel(merchant);
   const nameMatches =
     !!subName &&
     !!txnName &&
@@ -565,7 +600,7 @@ function recurringDescriptorMatches(sub: Subscription, t: Transaction): boolean 
     !!sub.account &&
     !!t.account &&
     sub.account.trim().toLowerCase() === t.account.trim().toLowerCase();
-  const rawTxnDescriptor = [t.category, t.notes].filter(Boolean).join(" ").toLowerCase();
+  const rawTxnDescriptor = [merchant, t.notes].filter(Boolean).join(" ").toLowerCase();
   const hintMatches = (sub.matchHints ?? []).some((hint) => {
     const normalizedHint = hint.trim().toLowerCase();
     return !!normalizedHint && rawTxnDescriptor.includes(normalizedHint);
@@ -597,7 +632,10 @@ function normalizedAccountFamily(raw?: string): string {
 
 /** Cross-source duplicate heuristic used by both CSV import and SimpleFIN sync. */
 export function crossSourceTransactionMatches(
-  incoming: Pick<Transaction, "timestamp" | "amount" | "account" | "category" | "notes" | "source">,
+  incoming: Pick<
+    Transaction,
+    "timestamp" | "amount" | "account" | "merchant" | "category" | "notes" | "source"
+  >,
   existing: Transaction,
 ): boolean {
   if (
@@ -621,8 +659,8 @@ export function crossSourceTransactionMatches(
     return false;
   }
 
-  const incomingMerchant = incoming.category || incoming.notes || "";
-  const existingMerchant = existing.category || existing.notes || "";
+  const incomingMerchant = transactionMerchant(incoming);
+  const existingMerchant = transactionMerchant(existing);
   return recurringNamesShareToken(incomingMerchant, existingMerchant);
 }
 
@@ -907,10 +945,10 @@ export function detectOneTimeCandidates(input: {
       if (t.recurringId || t.recurringSuggestedId) return [];
       if (activeSubscriptions.some((sub) => recurringMatchesTransaction(sub, t))) return [];
 
-      const merchantKey = normalizedFinanceLabel(t.category);
+      const merchantKey = normalizedFinanceLabel(transactionMerchant(t));
       if (!merchantKey) return [];
       const merchantMatches = lookbackTxns.filter(
-        (candidate) => normalizedFinanceLabel(candidate.category) === merchantKey,
+        (candidate) => normalizedFinanceLabel(transactionMerchant(candidate)) === merchantKey,
       );
       const distinctMonths = new Set(
         merchantMatches.map((candidate) => monthKey(candidate.timestamp)),
@@ -930,7 +968,7 @@ export function detectOneTimeCandidates(input: {
           transactionId: t.id,
           amount,
           timestamp: t.timestamp,
-          merchant: cleanMerchantName(t.category || t.notes || "Unknown merchant"),
+          merchant: cleanMerchantName(transactionMerchant(t) || "Unknown merchant"),
           categoryGroup: t.categoryGroup,
           reason: atLeastDouble
             ? "New merchant · 2× size threshold"
@@ -950,15 +988,37 @@ export function buildBudgetInsight(input: {
   takeHome: number;
   targets: { needs: number; wants: number; savings: number };
   now?: number;
+  /**
+   * Prior-month charges for weekly recurring expected-count anchors. When set,
+   * remaining recurring matches Budget bars (`recurringItemsForMonth` + prior).
+   */
+  priorTransactions?: Transaction[];
 }): BudgetInsight {
   const now = input.now ?? Date.now();
   const monthTxns = transactionsForMonth(input.transactions, input.month).filter(
     (t) => !t.deletedAt,
   );
   const planBuckets = rollupMonth(monthTxns, input.month);
-  const recurring = recurringAdditionsForMonth(input.subscriptions, monthTxns, input.month);
-  const plannedRecurring = dollars(recurring.needs + recurring.wants + recurring.savings);
-  const planSpend = dollars(planBuckets.needs + planBuckets.wants + planBuckets.savings);
+  // Same remaining-recurring path as Budget bars when prior history is supplied.
+  const unpaidRecurring = recurringAdditionsFromItems(
+    recurringItemsForMonth(input.subscriptions, monthTxns, input.priorTransactions, input.month),
+  );
+  const statementBuckets = {
+    needs: dollars(planBuckets.needs),
+    wants: dollars(planBuckets.wants),
+    savings: dollars(planBuckets.savings),
+  };
+  const plannedRecurring = dollars(
+    unpaidRecurring.needs + unpaidRecurring.wants + unpaidRecurring.savings,
+  );
+  const planSpend = dollars(
+    statementBuckets.needs + statementBuckets.wants + statementBuckets.savings,
+  );
+  const bucketTotals = {
+    needs: dollars(statementBuckets.needs + unpaidRecurring.needs),
+    wants: dollars(statementBuckets.wants + unpaidRecurring.wants),
+    savings: dollars(statementBuckets.savings + unpaidRecurring.savings),
+  };
   const activeSubscriptions = input.subscriptions.filter(
     (sub) => !sub.deletedAt && sub.status === "active",
   );
@@ -979,14 +1039,27 @@ export function buildBudgetInsight(input: {
   const oneTimeSpend = dollars(oneTimeTxns.reduce((sum, t) => sum + spendAmountOf(t), 0));
   const totalSpent = dollars(planSpend + oneTimeSpend);
   const takeHome = positive(input.takeHome);
-  const actualNeeds = dollars(planBuckets.needs + recurring.needs);
-  const actualWants = dollars(planBuckets.wants + recurring.wants);
-  const actualSavings = dollars(planBuckets.savings + recurring.savings);
+  const actualNeeds = bucketTotals.needs;
+  const actualWants = bucketTotals.wants;
+  const actualSavings = bucketTotals.savings;
   const bucketDeltas = {
     needs: dollars(actualNeeds - takeHome * input.targets.needs),
     wants: dollars(actualWants - takeHome * input.targets.wants),
     savings: dollars(takeHome * input.targets.savings - actualSavings),
   };
+  const importedIncome = dollars(
+    monthTxns.filter((t) => t.categoryGroup === "income").reduce((sum, t) => sum + t.amount, 0),
+  );
+  const usingTakeHome = takeHome > 0;
+  const moneyIn = usingTakeHome ? takeHome : importedIncome;
+  // moneyOut = plan so far + one-time + unpaid remaining recurring.
+  // Equivalent: sum(bucketTotals) + oneTimeSpend.
+  const moneyOut = dollars(planSpend + oneTimeSpend + plannedRecurring);
+  const leftAfterOut = dollars(moneyIn - moneyOut);
+  const savingsTarget = dollars(takeHome * input.targets.savings);
+  const savingsTargetRemaining = dollars(
+    Math.max(0, savingsTarget - statementBuckets.savings - unpaidRecurring.savings),
+  );
   const currentMonth = monthKey(now);
   const dayOfMonth = Math.max(1, new Date(now).getUTCDate());
   const daysInMonth = daysInMonthUTC(now);
@@ -999,7 +1072,7 @@ export function buildBudgetInsight(input: {
   const lines: string[] = [];
   if (takeHome > 0) {
     lines.push(
-      `Committed so far: $${planSpend.toLocaleString()} plan + $${plannedRecurring.toLocaleString()} remaining recurring = $${committedPlan.toLocaleString()} of $${dollars(takeHome).toLocaleString()} take-home.`,
+      `Plan so far: $${planSpend.toLocaleString()} (needs + wants + savings contributions) + $${plannedRecurring.toLocaleString()} remaining recurring = $${committedPlan.toLocaleString()} of $${dollars(takeHome).toLocaleString()} take-home.`,
     );
   }
   const projectedVariableExtra = dollars(projectedVariable - variablePlanSpend);
@@ -1028,7 +1101,7 @@ export function buildBudgetInsight(input: {
           ? `Needs are $${dollars(pressure.value).toLocaleString()} over plan. Verify bills, loan payments, and one-time charges first.`
           : pressure.key === "wants"
             ? `Wants are $${dollars(pressure.value).toLocaleString()} over plan. Move essentials or mark true one-time charges.`
-            : `Savings is $${dollars(pressure.value).toLocaleString()} short of the monthly target. Add or verify an automatic transfer.`,
+            : `Savings contributions are $${dollars(pressure.value).toLocaleString()} short of the monthly target. Add or verify an automatic transfer.`,
       );
     } else {
       lines.push("This month is on plan so far. Keep verifying recurring payments as they land.");
@@ -1037,12 +1110,12 @@ export function buildBudgetInsight(input: {
   const biggestOneTime = oneTimeTxns.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))[0];
   if (biggestOneTime) {
     lines.push(
-      `Biggest one-time: ${cleanMerchantName(biggestOneTime.category || biggestOneTime.notes || "Unknown merchant")}, $${dollars(Math.abs(biggestOneTime.amount)).toLocaleString()} — tracked, not counted against the plan.`,
+      `Biggest one-time: ${cleanMerchantName(biggestOneTime.category || biggestOneTime.notes || "Unknown merchant")}, $${dollars(Math.abs(biggestOneTime.amount)).toLocaleString()} — real cash out on Overview, left out of Budget plan bars.`,
     );
   }
   if (bucketDeltas.savings > 0) {
     lines.push(
-      `Savings shortfall: $${dollars(bucketDeltas.savings).toLocaleString()} left to hit this month’s target.`,
+      `Savings contributions shortfall: $${dollars(bucketDeltas.savings).toLocaleString()} left to hit this month’s target (Overview reserves this; Budget does not).`,
     );
   }
 
@@ -1059,6 +1132,20 @@ export function buildBudgetInsight(input: {
     bucketDeltas,
     projectedPlanSpend,
     lines: lines.slice(0, 4),
+    statementBuckets,
+    unpaidRecurring: {
+      needs: dollars(unpaidRecurring.needs),
+      wants: dollars(unpaidRecurring.wants),
+      savings: dollars(unpaidRecurring.savings),
+    },
+    bucketTotals,
+    moneyIn,
+    moneyOut,
+    leftAfterOut,
+    importedIncome,
+    usingTakeHome,
+    savingsTarget,
+    savingsTargetRemaining,
   };
 }
 
@@ -1068,10 +1155,11 @@ function daysInMonthUTC(timestamp: number): number {
 }
 
 /**
- * Derive a household's remaining monthly discretionary budget after known plan
- * spending, unpaid recurring commitments, excluded one-time costs, and the
- * still-unmet savings target. This deliberately composes `buildBudgetInsight`
- * so all budget surfaces treat recurring and excluded transactions consistently.
+ * Overview liquidity guardrail: remaining discretionary cash after plan so far
+ * (needs + wants + savings contributions), unpaid recurring, one-time cash out,
+ * and a reserve for any still-unmet savings target. Budget plan pacing uses
+ * `buildBudgetInsight` without this final savings reserve; Overview is tighter
+ * on purpose. Composes `buildBudgetInsight` so recurring / exclude rules match.
  */
 export function calculateSafeToSpend(input: {
   budget: BudgetLike;
@@ -1079,10 +1167,11 @@ export function calculateSafeToSpend(input: {
   subscriptions: Subscription[];
   date: string;
 }): SafeToSpendResult {
-  const [year, month, day] = input.date.split("-").map(Number);
-  const requestedAt = Date.UTC(year, month - 1, day);
+  const [year, monthIndex, day] = input.date.split("-").map(Number);
+  const requestedAt = Date.UTC(year, monthIndex - 1, day);
   const daysInMonth = daysInMonthUTC(requestedAt);
   const remainingDays = Math.max(1, daysInMonth - day + 1);
+  const monthKeyForDate = input.date.slice(0, 7);
 
   if (!input.budget || positive(input.budget.monthlyTakeHome) === 0) {
     return {
@@ -1102,15 +1191,19 @@ export function calculateSafeToSpend(input: {
     };
   }
 
+  const transactions = input.transactions.filter(
+    (transaction) => toISODate(transaction.timestamp) <= input.date,
+  );
+  // Same prior-month weekly anchors as the Budget tab so guardrail recurring
+  // matches plan bars / Overview cash-out composition.
   const insight = buildBudgetInsight({
-    transactions: input.transactions.filter(
-      (transaction) => toISODate(transaction.timestamp) <= input.date,
-    ),
+    transactions,
     subscriptions: input.subscriptions,
-    month: input.date.slice(0, 7),
+    month: monthKeyForDate,
     takeHome: input.budget.monthlyTakeHome,
     targets: input.budget.targets,
     now: requestedAt,
+    priorTransactions: transactionsBeforeMonth(transactions, monthKeyForDate),
   });
   const monthlyTakeHome = dollars(input.budget.monthlyTakeHome);
   const savingsTarget = dollars(monthlyTakeHome * input.budget.targets.savings);
@@ -1128,10 +1221,10 @@ export function calculateSafeToSpend(input: {
         : "on-track";
   const explanation =
     status === "over-plan"
-      ? `Posted spending, upcoming recurring commitments, and one-time costs are $${Math.abs(insight.remainingAfterCommitted).toLocaleString()} over monthly take-home.`
+      ? `Plan so far, upcoming recurring, and one-time cash out are $${Math.abs(insight.remainingAfterCommitted).toLocaleString()} over monthly take-home.`
       : safeToSpendThisMonth === 0
-        ? `$${insight.remainingAfterCommitted.toLocaleString()} remains after spending, upcoming recurring commitments, and one-time costs, but $${savingsReserve.toLocaleString()} is still needed for the savings target.`
-        : `After spending, upcoming recurring commitments, one-time costs, and $${savingsReserve.toLocaleString()} still needed for savings, $${safeToSpendThisMonth.toLocaleString()} remains.`;
+        ? `$${insight.remainingAfterCommitted.toLocaleString()} remains after plan so far, upcoming recurring, and one-time cash out, but $${savingsReserve.toLocaleString()} is reserved for the remaining savings target.`
+        : `After plan so far, upcoming recurring, one-time cash out, and $${savingsReserve.toLocaleString()} reserved for remaining savings, $${safeToSpendThisMonth.toLocaleString()} remains safe to spend.`;
 
   return {
     status,
@@ -1852,4 +1945,262 @@ export function fallbackFinanceAdvice(args: {
   });
 
   return items;
+}
+
+/* ---------- Spending Watchlist (problem-area analysis) ---------- */
+
+export type WatchlistRuleValue = {
+  group?: CategoryGroup;
+  watchlistId?: WatchlistId | null;
+};
+
+/** Built-in merchant keywords for auto watchlist assignment (deterministic). */
+export const WATCHLIST_KEYWORDS: { id: WatchlistId; keywords: string[] }[] = [
+  {
+    id: "coffee_snacks",
+    keywords: [
+      "starbucks",
+      "dunkin",
+      "dutch bros",
+      "peets",
+      "peet's",
+      "tim hortons",
+      "7-eleven",
+      "7 eleven",
+      "wawa",
+      "sheetz",
+      "circle k",
+    ],
+  },
+  {
+    id: "dining",
+    keywords: [
+      "doordash",
+      "uber eats",
+      "grubhub",
+      "postmates",
+      "seamless",
+      "restaurant",
+      "mcdonald",
+      "chipotle",
+      "wendy",
+      "taco bell",
+      "burger king",
+      "chick-fil-a",
+      "chickfila",
+      "panera",
+      "subway",
+      "olive garden",
+      "applebee",
+      "ihop",
+      "denny",
+      "pizza",
+      "sushi",
+      "steakhouse",
+      "cafe",
+      "coffee shop",
+    ],
+  },
+  {
+    id: "subscriptions",
+    keywords: [
+      "netflix",
+      "hulu",
+      "spotify",
+      "disney+",
+      "disney plus",
+      "hbo",
+      "max.com",
+      "youtube premium",
+      "prime video",
+      "apple.com/bill",
+      "icloud",
+      "adobe",
+      "microsoft 365",
+      "planet fitness",
+      "peloton",
+      "gym membership",
+      "patreon",
+      "onlyfans",
+      "chatgpt",
+      "openai",
+      "anthropic",
+      "cursor",
+    ],
+  },
+  {
+    id: "shopping",
+    keywords: [
+      "amazon",
+      "amzn",
+      "ebay",
+      "etsy",
+      "best buy",
+      "bestbuy",
+      "nike",
+      "//www.amazon",
+      "apple store",
+      "ebay o",
+    ],
+  },
+  {
+    id: "groceries",
+    keywords: [
+      "grocery",
+      "groceries",
+      "safeway",
+      "kroger",
+      "wegmans",
+      "aldi",
+      "costco",
+      "walmart",
+      "target",
+      "trader joe",
+      "whole foods",
+      "publix",
+      "food lion",
+      "harris teeter",
+      "sprouts",
+      "lidl",
+      "meijer",
+    ],
+  },
+];
+
+export function ruleWatchlistFor(
+  description: string,
+  rules: Record<string, WatchlistRuleValue | CategoryGroup>,
+): WatchlistId | null | undefined {
+  const norm = normalizeMerchant(description);
+  if (!norm) return undefined;
+  for (const [key, value] of Object.entries(rules)) {
+    if (!norm.includes(key)) continue;
+    // Legacy group-only rules don't answer watchlist — keep looking / fall through.
+    if (typeof value === "string") continue;
+    if (value.watchlistId === null) return null;
+    if (isWatchlistId(value.watchlistId)) return value.watchlistId;
+  }
+  return undefined;
+}
+
+export function keywordWatchlistFor(description: string): WatchlistId | null {
+  const haystack = description.toLowerCase();
+  for (const { id, keywords } of WATCHLIST_KEYWORDS) {
+    if (keywords.some((k) => haystack.includes(k))) return id;
+  }
+  return null;
+}
+
+/**
+ * Auto-assign a watchlist label. Priority: user lock → learned rule → keywords.
+ * Returns null when rules explicitly clear the label; undefined when no match.
+ */
+export function assignWatchlistId(
+  description: string,
+  rules: Record<string, WatchlistRuleValue | CategoryGroup>,
+  current?: Pick<Transaction, "watchlistId" | "watchlistSource">,
+): { watchlistId?: WatchlistId; watchlistSource?: Transaction["watchlistSource"] } | null {
+  if (current?.watchlistSource === "user") return null;
+  if (current?.watchlistId && current.watchlistSource) return null;
+
+  const fromRule = ruleWatchlistFor(description, rules);
+  if (fromRule === null) {
+    return { watchlistId: undefined, watchlistSource: "rule" };
+  }
+  if (fromRule) {
+    return { watchlistId: fromRule, watchlistSource: "rule" };
+  }
+
+  const fromKeyword = keywordWatchlistFor(description);
+  if (fromKeyword) {
+    return { watchlistId: fromKeyword, watchlistSource: "keyword" };
+  }
+  return null;
+}
+
+export function withAutoWatchlist<
+  T extends Pick<
+    Transaction,
+    | "merchant"
+    | "category"
+    | "notes"
+    | "watchlistId"
+    | "watchlistSource"
+    | "categoryGroup"
+    | "amount"
+  >,
+>(transaction: T, rules: Record<string, WatchlistRuleValue | CategoryGroup>): T {
+  // Only problem-area spend; income/transfers stay off the watchlist.
+  // Never mutates categoryGroup / amount — watchlist is orthogonal to 50/30/20.
+  if (
+    transaction.categoryGroup === "income" ||
+    transaction.categoryGroup === "transfer" ||
+    transaction.categoryGroup === "savings" ||
+    transaction.amount >= 0
+  ) {
+    return transaction;
+  }
+  const assigned = assignWatchlistId(transactionMerchant(transaction), rules, transaction);
+  if (!assigned) return transaction;
+  if (
+    assigned.watchlistId === transaction.watchlistId &&
+    assigned.watchlistSource === transaction.watchlistSource
+  ) {
+    return transaction;
+  }
+  // Explicit field writes only — do not reshape the rest of the transaction.
+  if (!assigned.watchlistId) {
+    if (
+      transaction.watchlistId === undefined &&
+      transaction.watchlistSource === assigned.watchlistSource
+    ) {
+      return transaction;
+    }
+    const next = { ...transaction, watchlistSource: assigned.watchlistSource };
+    delete (next as { watchlistId?: WatchlistId }).watchlistId;
+    return next;
+  }
+  return {
+    ...transaction,
+    watchlistId: assigned.watchlistId,
+    watchlistSource: assigned.watchlistSource,
+  };
+}
+
+export type WatchlistMonthRow = {
+  id: WatchlistId;
+  label: string;
+  shortLabel: string;
+  spent: number;
+  count: number;
+};
+
+/** This-month watchlist totals (descending by spend). Omits empty labels. */
+export function rollupWatchlistMonth(
+  transactions: Transaction[],
+  month: string,
+): WatchlistMonthRow[] {
+  const totals: Record<WatchlistId, { spent: number; count: number }> = {
+    groceries: { spent: 0, count: 0 },
+    dining: { spent: 0, count: 0 },
+    shopping: { spent: 0, count: 0 },
+    subscriptions: { spent: 0, count: 0 },
+    coffee_snacks: { spent: 0, count: 0 },
+  };
+  for (const t of transactionsForMonth(transactions, month)) {
+    if (t.deletedAt || t.amount >= 0 || !t.watchlistId) continue;
+    if (!isWatchlistId(t.watchlistId)) continue;
+    // Absolute outflow — watchlist is problem-area cash, not 50/30/20 plan math.
+    totals[t.watchlistId].spent += Math.abs(t.amount);
+    totals[t.watchlistId].count += 1;
+  }
+  return WATCHLIST_IDS.map((id) => ({
+    id,
+    label: WATCHLIST_META[id].label,
+    shortLabel: WATCHLIST_META[id].shortLabel,
+    spent: dollars(totals[id].spent),
+    count: totals[id].count,
+  }))
+    .filter((row) => row.spent > 0 || row.count > 0)
+    .sort((a, b) => b.spent - a.spent || a.label.localeCompare(b.label));
 }

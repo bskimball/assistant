@@ -606,6 +606,7 @@ function ChatPage() {
                 exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
                 transition={{ type: "spring", duration: 0.3, bounce: 0 }}
               >
+                <div className="text-xs tracking-tight text-muted-foreground">Coach</div>
                 <h1 className="greeting-display on-scene text-3xl text-foreground">Chat</h1>
               </motion.div>
             )}

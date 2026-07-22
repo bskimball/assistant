@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { cleanMerchantName, type Transaction } from "@/lib/domain";
+import { cleanMerchantName, transactionMerchant, type Transaction } from "@/lib/domain";
 import { restoreTransaction } from "@/server/finance";
 
 const PAGE_SIZE = 50;
@@ -79,7 +79,7 @@ function FinanceTransactionsPage() {
       .filter((transaction) => {
         if (normalizedQuery) {
           const searchable =
-            `${transaction.category ?? ""} ${transaction.notes ?? ""} ${transaction.account ?? ""}`.toLowerCase();
+            `${transactionMerchant(transaction)} ${transaction.notes ?? ""} ${transaction.account ?? ""}`.toLowerCase();
           if (!searchable.includes(normalizedQuery)) return false;
         }
         if (accountKey && transaction.account?.trim().toLowerCase() !== accountKey) return false;
@@ -123,7 +123,7 @@ function FinanceTransactionsPage() {
     try {
       await restoreTransaction({ data: { id: transaction.id } });
       await reload();
-      flash(`Restored ${cleanMerchantName(transaction.category || "transaction")}.`);
+      flash(`Restored ${cleanMerchantName(transactionMerchant(transaction) || "transaction")}.`);
     } catch (error) {
       flash(error instanceof Error ? error.message : "Couldn’t restore that transaction.");
     } finally {
@@ -142,7 +142,8 @@ function FinanceTransactionsPage() {
     <Reveal>
       <div className="space-y-4">
         <div>
-          <h2 className="text-balance text-xl font-semibold tracking-tight">Transactions</h2>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Ledger</div>
+          <h2 className="display-title text-balance text-xl">Transactions</h2>
           <p className="mt-1 text-pretty text-sm text-muted-foreground">
             Search, verify, and review every synced, imported, and manual ledger entry.
           </p>
@@ -396,8 +397,10 @@ function TransactionRow({
   onRestore: () => void;
 }) {
   const deleted = Boolean(transaction.deletedAt);
-  const rawDescriptor = transaction.category?.trim() || "No bank descriptor";
-  const merchant = transaction.category ? cleanMerchantName(transaction.category) : "Transaction";
+  const rawDescriptor = transactionMerchant(transaction) || "No bank descriptor";
+  const merchant = transactionMerchant(transaction)
+    ? cleanMerchantName(transactionMerchant(transaction))
+    : "Transaction";
 
   return (
     <li

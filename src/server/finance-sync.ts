@@ -8,7 +8,7 @@
 
 import type { AccountBalance, ISODate, Position, Subscription, Transaction } from "@/lib/domain";
 import { addDaysISO, newId, todayISO } from "@/lib/domain";
-import { crossSourceTransactionMatches } from "@/lib/finance-math";
+import { crossSourceTransactionMatches, withAutoWatchlist } from "@/lib/finance-math";
 import {
   claimSetupToken,
   fetchAccounts,
@@ -21,6 +21,7 @@ import {
 import { categorize } from "@/server/finance-parse";
 import { enrichNewTransactions } from "@/server/finance-ai-match";
 import {
+  categoryGroupRulesOf,
   loadCategoryRulesImpl,
   loadLatestDailyFinanceImpl,
   loadSubscriptionsImpl,
@@ -485,7 +486,8 @@ async function ingestTransactions(
   if (!state.cutoverDate && !Object.keys(state.accountCutovers ?? {}).length) {
     return { added: 0, newTxns: [] };
   }
-  const rules = (await loadCategoryRulesImpl()).rules;
+  const storedRules = (await loadCategoryRulesImpl()).rules;
+  const groupRules = categoryGroupRulesOf(storedRules);
   const now = Date.now();
   let added = 0;
   let newTxns: Transaction[] = [];
@@ -513,19 +515,24 @@ async function ingestTransactions(
         const amount = parseSimplefinMoney(sfinTxn.amount);
         if (!amount) continue;
         const description = sfinTxn.description || "SimpleFIN transaction";
-        const txn: Transaction = {
-          id: newId("txn"),
-          createdAt: now,
-          timestamp: sfinTxn.posted * 1000,
-          type: amount > 0 ? "deposit" : "withdrawal",
-          amount,
-          currency: account.currency || "USD",
-          account: accountName,
-          category: description.slice(0, 60),
-          categoryGroup: categorize(description, amount, rules),
-          dedupeKey,
-          source: "sync",
-        };
+        const merchant = description.slice(0, 60);
+        const txn = withAutoWatchlist(
+          {
+            id: newId("txn"),
+            createdAt: now,
+            timestamp: sfinTxn.posted * 1000,
+            type: (amount > 0 ? "deposit" : "withdrawal") as Transaction["type"],
+            amount,
+            currency: account.currency || "USD",
+            account: accountName,
+            merchant,
+            category: merchant,
+            categoryGroup: categorize(description, amount, groupRules),
+            dedupeKey,
+            source: "sync" as const,
+          },
+          storedRules,
+        );
         if (transactions.some((existing) => crossSourceTransactionMatches(txn, existing))) {
           continue;
         }

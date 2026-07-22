@@ -1,4 +1,4 @@
-import type { ISODate } from "@/lib/domain";
+import type { CategoryGroup, ISODate, Transaction, WatchlistId } from "@/lib/domain";
 import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
 import {
   addUnseenRecurringToBuckets,
@@ -7,10 +7,13 @@ import {
   calculateSafeToSpend,
   monthKey,
   rollupMonth,
+  withAutoWatchlist,
   type MonthBuckets,
+  type WatchlistRuleValue,
 } from "@/lib/finance-math";
 import {
   loadBudgetImpl,
+  loadCategoryRulesImpl,
   loadLatestDailyFinanceImpl,
   loadSubscriptionsImpl,
   loadTransactionsImpl,
@@ -28,17 +31,50 @@ export async function loadFinanceSnapshotForHubImpl(
   return loadLatestDailyFinanceImpl(day);
 }
 
+/**
+ * Preview watchlist labels for the current month without writing the ledger.
+ * Persistence only happens on import/sync or explicit user correction — hub reads
+ * must never rewrite transactions.json (that can race and thrash budget views).
+ */
+function withWatchlistPreview(
+  transactions: Transaction[],
+  month: string,
+  rules: Record<string, WatchlistRuleValue | CategoryGroup>,
+): Transaction[] {
+  return transactions.map((t) => {
+    if (t.deletedAt || monthKey(t.timestamp) !== month) return t;
+    const next = withAutoWatchlist(t, rules);
+    // Guard: watchlist preview may only touch watchlist fields.
+    if (
+      next.categoryGroup !== t.categoryGroup ||
+      next.amount !== t.amount ||
+      next.excludeFromBudget !== t.excludeFromBudget
+    ) {
+      return {
+        ...t,
+        watchlistId: next.watchlistId as WatchlistId | undefined,
+        watchlistSource: next.watchlistSource,
+      };
+    }
+    return next;
+  });
+}
+
 /** Assemble the Finance Hub's single read payload. */
 export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayload> {
-  const [snapshotInfo, budget, subs, txns] = await Promise.all([
+  const [snapshotInfo, budget, subs, txns, rulesStore] = await Promise.all([
     loadFinanceSnapshotForHubImpl(day),
     loadBudgetImpl(),
     loadSubscriptionsImpl(),
     loadTransactionsImpl(),
+    loadCategoryRulesImpl(),
   ]);
+  const month = day.slice(0, 7);
+  // In-memory only: never CAS-write the ledger on a read path.
+  const previewed = withWatchlistPreview(txns.transactions, month, rulesStore.rules);
   const subscriptions = subs.subscriptions.filter((s) => !s.deletedAt);
-  const transactions = txns.transactions.filter((t) => !t.deletedAt);
-  const deletedTransactions = txns.transactions.filter((t) => !!t.deletedAt);
+  const transactions = previewed.filter((t) => !t.deletedAt);
+  const deletedTransactions = previewed.filter((t) => !!t.deletedAt);
   return {
     snapshot: snapshotInfo.snapshot,
     snapshotSourceDate: snapshotInfo.sourceDate,

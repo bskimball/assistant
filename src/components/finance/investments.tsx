@@ -119,11 +119,11 @@ export function InvestmentsTab({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-card/70 backdrop-blur-xl backdrop-saturate-150 px-4 py-4 ring-1 ring-foreground/10 dark:ring-primary/15">
-        <div className="text-xs font-medium text-muted-foreground">Holdings total value</div>
-        <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
-          {fmtMoney(total)}
+      <div className="zen-card space-y-1 px-4 py-4">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Holdings total value
         </div>
+        <div className="greeting-display text-2xl tabular-nums sm:text-3xl">{fmtMoney(total)}</div>
         <div className="mt-3 grid grid-cols-2 gap-3">
           <MiniStat label="Positions" value={String(positions.length)} />
           <MiniStat

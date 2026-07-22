@@ -152,7 +152,7 @@ export function GrowTab({
       <CashFlowProjectionCard hub={hub} today={today} />
       <RevenueGrowthCard hub={hub} today={today} />
 
-      <div className="flex flex-col gap-3 rounded-xl bg-card/70 backdrop-blur-xl backdrop-saturate-150 px-4 py-3 ring-1 ring-foreground/10 dark:ring-primary/15 sm:flex-row sm:items-center sm:justify-between">
+      <div className="zen-card flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-pretty text-sm text-muted-foreground">
           Personalized budget fixes, a subscription audit, and investing moves — grounded in your
           real numbers.
@@ -333,7 +333,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="zen-surface-nested flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-xs font-medium text-muted-foreground">Projected ending cash</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
@@ -349,7 +349,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
           <MiniStat label="Starting cash" value={fmtMoney(cashOnHand)} />
           <MiniStat label="Lowest projected cash" value={fmtMoney(lowPoint)} />
         </div>
-        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+        <div className="zen-surface-nested px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               Average monthly net{" "}

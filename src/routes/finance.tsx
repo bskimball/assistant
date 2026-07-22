@@ -92,9 +92,13 @@ function FinanceLayout() {
           voice="Money is a tool. Keep it quiet and clear."
           className="mb-8"
         >
-          <div className="zen-card px-3 py-2 text-right">
-            <div className="text-[10px] text-muted-foreground">Net worth</div>
-            <div className="text-2xl font-semibold tabular-nums">{fmtMoney(netWorth)}</div>
+          <div className="zen-card px-5 py-3 text-right">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Net worth
+            </div>
+            <div className="greeting-display mt-0.5 text-3xl tabular-nums">
+              {fmtMoney(netWorth)}
+            </div>
           </div>
         </PageHeader>
       }

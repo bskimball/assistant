@@ -50,7 +50,6 @@ import {
 import {
   buildBudgetInsight,
   detectOneTimeCandidates,
-  recurringAdditionsFromItems,
   recurringItemsForMonth,
   transactionsBeforeMonth,
   transactionsForMonth,
@@ -112,12 +111,17 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
   const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const th = Number(takeHome) || hub.budget?.monthlyTakeHome || 0;
 
-  const monthTxns = transactionsForMonth(hub.transactions, selectedMonth);
+  // Active ledger only — hub may still include soft-deleted rows in other lists.
+  const activeTxns = hub.transactions.filter((t) => !t.deletedAt);
+  const monthTxns = transactionsForMonth(activeTxns, selectedMonth);
   // Per-bucket totals + the transactions behind each bar. One-time charges the
   // user has marked (excludeFromBudget) are kept in the lists and tracked as real
   // money, but left out of plan totals so a single big bill doesn't blow the
-  // monthly 50/30/20 comparison.
-  const buckets: Record<BudgetBucket, number> = {
+  // monthly 50/30/20 comparison. Bars are driven only by categoryGroup + remaining
+  // recurring — never by watchlist labels.
+  // Statement-only buckets (for optimistic recategorize UI). Unpaid recurring and
+  // final bar totals always come from buildBudgetInsight so Overview/Budget cannot drift.
+  const statementBucketsLocal: Record<BudgetBucket, number> = {
     needs: 0,
     wants: 0,
     savings: 0,
@@ -131,7 +135,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     const b = moveOverrides[t.id] ?? spendBucketOf(t.categoryGroup);
     if (!b) continue;
     bucketTxns[b].push(t);
-    if (!t.excludeFromBudget) buckets[b] += spendAmountOf(t);
+    if (!t.excludeFromBudget) statementBucketsLocal[b] += spendAmountOf(t);
   }
   for (const b of ["needs", "wants", "savings"] as const) {
     bucketTxns[b].sort((a, c) => Math.abs(c.amount) - Math.abs(a.amount));
@@ -172,31 +176,37 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     }
   }
 
-  // Recurring commitments are normalized into the same 50/30/20 buckets as
-  // imported transactions. Show the full monthly plan every month, but only add
-  // rows that are not already represented by imported statement data.
+  // Recurring item rows still come from the shared helper (for breakdown UI).
+  // Totals must match buildBudgetInsight.unpaidRecurring / bucketTotals.
+  const priorTxns = transactionsBeforeMonth(activeTxns, selectedMonth);
   const recurringItems = recurringItemsForMonth(
     hub.subscriptions,
     monthTxns,
-    transactionsBeforeMonth(hub.transactions, selectedMonth),
+    priorTxns,
     selectedMonth,
   );
-  const recurringAdditions = recurringAdditionsFromItems(recurringItems);
-  for (const b of ["needs", "wants", "savings"] as const) {
-    buckets[b] += recurringAdditions[b];
-  }
-  const plannedRecurring =
-    recurringAdditions.needs + recurringAdditions.wants + recurringAdditions.savings;
   const budgetInsight = buildBudgetInsight({
-    transactions: hub.transactions,
+    transactions: activeTxns,
     subscriptions: hub.subscriptions,
     month: selectedMonth,
     takeHome: th,
     targets,
+    priorTransactions: priorTxns,
   });
+  const recurringAdditions = budgetInsight.unpaidRecurring;
+  const plannedRecurring = budgetInsight.plannedRecurring;
+  // Prefer insight totals; only layer local statement overrides while a move is in-flight.
+  const hasMoveOverrides = Object.keys(moveOverrides).length > 0;
+  const buckets: Record<BudgetBucket, number> = hasMoveOverrides
+    ? {
+        needs: statementBucketsLocal.needs + recurringAdditions.needs,
+        wants: statementBucketsLocal.wants + recurringAdditions.wants,
+        savings: statementBucketsLocal.savings + recurringAdditions.savings,
+      }
+    : { ...budgetInsight.bucketTotals };
   const oneTimeCandidates = isCurrentMonth
     ? detectOneTimeCandidates({
-        transactions: hub.transactions,
+        transactions: activeTxns,
         subscriptions: hub.subscriptions,
         month: selectedMonth,
         monthlyTakeHome: th,
@@ -392,52 +402,57 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="-mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-            <span>Imported + synced spend for {formatMonthLabel(selectedMonth)}.</span>
+            <span>Plan pacing for {formatMonthLabel(selectedMonth)} (not bank cash flow).</span>
             <InfoHint>
-              Spending here comes from your imported and synced transactions, plus active recurring
-              commitments from the Recurring tab that haven’t shown up in statements yet. “Left
-              before upcoming bills” subtracts posted plan spending and one-time spending. “Left
-              before savings target” also subtracts upcoming recurring commitments, but it does not
-              reserve the unmet savings target. The Overview guardrail shows that final reserve
-              separately. Targets are 50/30/20 of the take-home baseline in this header.
+              Budget answers “how am I tracking the 50/30/20 plan?” Overview answers “what left the
+              account and what is still safe to spend?” Bars include needs, wants, and savings
+              contributions from imported/synced transactions, plus unmatched recurring. One-time
+              charges are tracked separately and left out of the plan. Remaining monthly budget =
+              take-home − plan so far − upcoming recurring (one-time excluded). Overview’s safe-to-
+              spend also reserves any still-unmet savings target, so it is usually lower.
             </InfoHint>
           </div>
           {th > 0 ? (
             <>
-              {/* Hero: the two numbers that matter, with three secondary tiles. */}
-              <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+              {/* Hero: plan residual + secondary tiles. Cash liquidity lives on Overview. */}
+              <div className="zen-surface-nested p-3">
                 <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
                   <div>
-                    <div className="text-xs font-medium text-muted-foreground">
-                      Left before upcoming bills
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Remaining monthly budget
                     </div>
                     <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
-                      {fmtMoney(budgetInsight.remainingCash)}
+                      {fmtMoney(budgetInsight.remainingAfterCommitted + budgetInsight.oneTimeSpend)}
                     </div>
                     <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      Includes one-time spending
+                      Take-home − plan so far − upcoming recurring (one-time excluded)
                     </div>
                   </div>
                   <div className="border-l border-border/60 pl-6">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      Left before savings target
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      After one-time cash out
                     </div>
                     <div className="mt-1 text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">
                       {fmtMoney(budgetInsight.remainingAfterCommitted)}
                     </div>
                     <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      After upcoming recurring and one-time spending
+                      Same residual as Overview “left after commitments” — no savings reserve yet
                     </div>
                   </div>
                 </div>
+                <div className="mt-2 text-[10px] text-muted-foreground">
+                  Includes: needs, wants, savings contributions, upcoming recurring. Excludes:
+                  one-time charges ({fmtMoney(budgetInsight.oneTimeSpend)}) and unmet savings
+                  reserve (Overview only).
+                </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <MiniStat
-                    label="Spent so far"
+                    label="Plan so far"
                     value={fmtMoney(budgetInsight.planSpend)}
                     onClick={spentGroups.length > 0 ? () => setBreakdown("spent") : undefined}
                   />
                   <MiniStat
-                    label="One-time"
+                    label="One-time (out of plan)"
                     value={`${fmtMoney(budgetInsight.oneTimeSpend)} · ${budgetInsight.oneTimeCount}`}
                     onClick={oneTimeTxns.length > 0 ? () => setBreakdown("onetime") : undefined}
                   />
@@ -456,7 +471,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                 {(["needs", "wants", "savings"] as const).map((b) => (
                   <BudgetBar
                     key={b}
-                    label={b}
+                    label={b === "savings" ? "Savings contributions" : b}
                     actual={buckets[b]}
                     recurringPlanned={recurringAdditions[b]}
                     target={th * targets[b]}
@@ -471,7 +486,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
 
               {/* Insight: first line, expand for the rest. */}
               {budgetInsight.lines.length > 0 && (
-                <ul className="space-y-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <ul className="space-y-1 zen-surface-nested px-3 py-2 text-xs text-muted-foreground">
                   {(showAllInsightLines
                     ? budgetInsight.lines
                     : budgetInsight.lines.slice(0, 1)
@@ -636,24 +651,25 @@ function BudgetBreakdownDialog({
 }) {
   const meta = {
     spent: {
-      title: "Spent so far",
+      title: "Plan so far",
       total: planSpend,
       count: spentGroups.reduce((n, g) => n + g.txns.length, 0),
       description:
-        "Money already posted to your accounts this month, counted against your 50/30/20 plan.",
+        "Posted needs, wants, and savings contributions counted against your 50/30/20 plan. One-time charges are not included here.",
     },
     onetime: {
-      title: "One-time",
+      title: "One-time (out of plan)",
       total: oneTimeSpend,
       count: oneTimeCount,
-      description: "Charges you marked as one-time — tracked, but left out of the plan.",
+      description:
+        "Charges marked one-time — still real cash out on Overview, but left out of Budget plan bars.",
     },
     recurring: {
       title: "Upcoming recurring",
       total: plannedRecurring,
       count: recurringGroups.reduce((n, g) => n + g.items.length, 0),
       description:
-        "Recurring commitments expected this month that haven’t posted to a statement yet.",
+        "Recurring commitments expected this month that haven’t posted to a statement yet (needs, wants, and savings).",
     },
   } as const;
   const current = active ? meta[active] : null;
@@ -688,7 +704,7 @@ function BudgetBreakdownDialog({
                         <span className="capitalize">{g.label}</span>
                         <span className="tabular-nums">{fmtMoney(g.subtotal)}</span>
                       </div>
-                      <ul className="divide-y divide-border rounded-md border border-border/60 bg-muted/20">
+                      <ul className="zen-surface-nested divide-y divide-border">
                         {g.txns.map((t) => (
                           <li
                             key={t.id}
@@ -713,7 +729,7 @@ function BudgetBreakdownDialog({
                   ))}
                 </div>
               ) : active === "onetime" ? (
-                <ul className="divide-y divide-border rounded-md border border-border/60 bg-muted/20">
+                <ul className="zen-surface-nested divide-y divide-border">
                   {oneTimeTxns.map((t) => (
                     <li
                       key={t.id}
@@ -745,7 +761,7 @@ function BudgetBreakdownDialog({
                         <span className="capitalize">{g.label}</span>
                         <span className="tabular-nums">{fmtMoney(g.subtotal)} planned</span>
                       </div>
-                      <ul className="divide-y divide-border rounded-md border border-border/60 bg-muted/20">
+                      <ul className="zen-surface-nested divide-y divide-border">
                         {g.items.map((item) => (
                           <li
                             key={item.id}
@@ -846,7 +862,7 @@ function BudgetSettingsEditor({
       </div>
 
       {cadence !== "none" && (
-        <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+        <div className="zen-surface-nested space-y-3 p-3">
           {(cadence === "weekly" || cadence === "biweekly") && (
             <div className="space-y-1.5">
               <Label htmlFor="anchor-date" className="text-xs font-medium">
@@ -995,7 +1011,7 @@ function ExpenseSorter({
           <>
             <div className="grid gap-2 sm:grid-cols-3">
               {SORTER_BUCKETS.map(({ key, label }) => (
-                <div key={key} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                <div key={key} className="zen-surface-nested px-3 py-2">
                   <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
                   <div className="text-sm font-semibold tabular-nums">
                     {fmtMoney(bucketSum(bucketTxns[key]))}
@@ -1028,7 +1044,7 @@ function ExpenseSorter({
                 {monthLabel}.
               </div>
             ) : (
-              <ul className="divide-y divide-border rounded-lg border border-border/60 bg-muted/20">
+              <ul className="zen-surface-nested divide-y divide-border">
                 {rows.map(({ t, bucket }) => (
                   <ExpenseCard
                     key={t.id}
