@@ -34,7 +34,8 @@ export interface FinanceHubPayload {
   /** Soft-deleted ledger rows, kept separate so totals remain unaffected. */
   deletedTransactions: Transaction[];
   recurringInsights: RecurringInsight[];
-  /** Current-month 50/30/20 insight — shared by Overview and safe-to-spend. */
+  /** Full-month 50/30/20 insight for Overview and the emergency fund. Safe-to-spend
+   * computes its own day-capped insight separately (guardrail = spent so far). */
   budgetInsight: BudgetInsight;
   safeToSpend: SafeToSpendResult;
   cashFlowCalendar: CashFlowCalendar;

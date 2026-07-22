@@ -213,7 +213,7 @@ export function OverviewTab({
     priorTxns,
     currentMonth,
   );
-  // Server computes current-month insight once on the hub (shared with safe-to-spend).
+  // Full-month insight computed once on the hub (also feeds the emergency fund).
   const money = hub.budgetInsight;
   const usePlannedIncome = money.usingTakeHome;
   const moneyIn = money.moneyIn;

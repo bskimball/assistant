@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AccountBalance, Transaction } from "@/lib/domain";
-import { activeTransactions, cashBalance, classifyAccount, isActive } from "@/lib/finance-accounts";
+import {
+  activeTransactions,
+  cashBalance,
+  cashFlowBalance,
+  classifyAccount,
+  isActive,
+} from "@/lib/finance-accounts";
 
 describe("classifyAccount", () => {
   it("classifies cash accounts (checking, savings, cash, bank)", () => {
@@ -75,6 +81,25 @@ describe("cashBalance", () => {
     // Unification: hub used to exclude loans via a negative regex; classifyAccount
     // puts loans in credit so they never contribute to cashBalance.
     expect(cashBalance(accounts([["Truist Auto Loan", 12000]]))).toBe(0);
+  });
+});
+
+describe("cashFlowBalance", () => {
+  const accounts = (rows: Array<[string, number]>): AccountBalance[] =>
+    rows.map(([account, amount]) => ({ account, amount, currency: "USD" }));
+
+  it("includes overdrafts so the calendar start reflects negative cash", () => {
+    // Unlike cashBalance, the calendar seed keeps overdrawn cash accounts and
+    // still excludes credit/investment liabilities.
+    expect(
+      cashFlowBalance(
+        accounts([
+          ["Checking", 100],
+          ["Savings", -25],
+          ["Capital One Credit Card", -500],
+        ]),
+      ),
+    ).toBe(75);
   });
 });
 
