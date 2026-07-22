@@ -29,6 +29,7 @@ import {
   type FinanceAdviceItem,
 } from "@/lib/domain";
 import { transactionsForMonth } from "@/lib/finance-math";
+import { cashBalance } from "@/lib/finance-accounts";
 import {
   CollapsibleCard,
   InfoHint,
@@ -143,7 +144,7 @@ export function GrowTab({
 
   return (
     <div className="space-y-4">
-      <CashFlowProjectionCard hub={hub} today={today} />
+      <CashFlowProjectionCard hub={hub} />
       <RevenueGrowthCard hub={hub} today={today} />
 
       <div className="zen-card flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -259,10 +260,11 @@ export function GrowTab({
   );
 }
 
-function CashFlowProjectionCard({ hub }: { hub: FinanceHubPayload; today: string }) {
+function CashFlowProjectionCard({ hub }: { hub: FinanceHubPayload }) {
   const projection = hub.cashFlowProjection;
-  // Starting cash is the projection seed (months[0].startingCash); fall back for empty runs.
-  const cashOnHand = projection.months[0]?.startingCash ?? projection.endingCash;
+  // Unrounded liquid cash for display + the low-point seed (the projection seeds
+  // its internal running balance from the same value, rounded to cents).
+  const cashOnHand = cashBalance(hub.snapshot.accounts);
   const averageNet = projection.months.length
     ? projection.totalNetCashFlow / projection.months.length
     : 0;

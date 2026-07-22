@@ -14,7 +14,6 @@ import {
   rollupMonth,
   transactionsBeforeMonth,
   transactionsForMonth,
-  type BudgetInsight,
 } from "./budget";
 import { recurringAdditionsForMonth } from "./recurring";
 
@@ -183,8 +182,6 @@ export function calculateSafeToSpend(input: {
   transactions: Transaction[];
   subscriptions: Subscription[];
   date: string;
-  /** When provided (e.g. by the hub), reuse instead of recomputing. */
-  insight?: BudgetInsight;
 }): SafeToSpendResult {
   const [year, monthIndex, day] = input.date.split("-").map(Number);
   const requestedAt = Date.UTC(year, monthIndex - 1, day);
@@ -210,26 +207,23 @@ export function calculateSafeToSpend(input: {
     };
   }
 
-  // Prefer a precomputed insight from the hub so Overview / safe-to-spend share one pass.
-  // Callers must match the filter + prior + now construction below for identical results.
-  const insight =
-    input.insight ??
-    (() => {
-      const transactions = input.transactions.filter(
-        (transaction) => toISODate(transaction.timestamp) <= input.date,
-      );
-      // Same prior-month weekly anchors as the Budget tab so guardrail recurring
-      // matches plan bars / Overview cash-out composition.
-      return buildBudgetInsight({
-        transactions,
-        subscriptions: input.subscriptions,
-        month: monthKeyForDate,
-        takeHome: input.budget.monthlyTakeHome,
-        targets: input.budget.targets,
-        now: requestedAt,
-        priorTransactions: transactionsBeforeMonth(transactions, monthKeyForDate),
-      });
-    })();
+  // Guardrail is "spent so far": only transactions dated on/before the requested
+  // day count, so a future-dated current-month charge doesn't pre-spend the plan.
+  // (Overview uses the full-month insight instead — a deliberately different view.)
+  const transactions = input.transactions.filter(
+    (transaction) => toISODate(transaction.timestamp) <= input.date,
+  );
+  // Same prior-month weekly anchors as the Budget tab so guardrail recurring
+  // matches plan bars / Overview cash-out composition.
+  const insight = buildBudgetInsight({
+    transactions,
+    subscriptions: input.subscriptions,
+    month: monthKeyForDate,
+    takeHome: input.budget.monthlyTakeHome,
+    targets: input.budget.targets,
+    now: requestedAt,
+    priorTransactions: transactionsBeforeMonth(transactions, monthKeyForDate),
+  });
   const monthlyTakeHome = dollars(input.budget.monthlyTakeHome);
   const savingsTarget = dollars(monthlyTakeHome * input.budget.targets.savings);
   const savingsCommitted = dollars(Math.max(0, savingsTarget - insight.bucketDeltas.savings));

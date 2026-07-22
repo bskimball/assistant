@@ -22,10 +22,21 @@ export function classifyAccount(name: string): AccountType {
   return "other";
 }
 
-/** Sum of positive balances on accounts classified as cash. */
+/** Sum of positive balances on accounts classified as cash (liquid savings). */
 export function cashBalance(accounts: AccountBalance[]): number {
   return accounts
     .filter((account) => classifyAccount(account.account) === "cash" && account.amount > 0)
+    .reduce((sum, account) => sum + account.amount, 0);
+}
+
+/**
+ * Signed sum of all cash-classified accounts, including overdrafts (negative
+ * balances). Used by the cash-flow calendar so an overdrawn checking account
+ * still lowers the projected starting balance instead of silently vanishing.
+ */
+export function cashFlowBalance(accounts: AccountBalance[]): number {
+  return accounts
+    .filter((account) => classifyAccount(account.account) === "cash")
     .reduce((sum, account) => sum + account.amount, 0);
 }
 

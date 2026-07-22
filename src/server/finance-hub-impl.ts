@@ -6,9 +6,8 @@ import {
   spendAmountOf,
   spendBucketOf,
   subscriptionMonthlyCost,
-  toISODate,
 } from "@/lib/domain";
-import { activeTransactions, cashBalance, isActive } from "@/lib/finance-accounts";
+import { activeTransactions, cashBalance, cashFlowBalance, isActive } from "@/lib/finance-accounts";
 import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
@@ -92,22 +91,19 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
   const transactions = activeTransactions(previewed);
   const deletedTransactions = previewed.filter((t) => !isActive(t));
 
-  // Single current-month budget insight for Overview + safe-to-spend (must match
-  // calculateSafeToSpend's internal construction when insight is omitted).
-  const [year, monthIndex, dayNum] = day.split("-").map(Number);
-  const requestedAt = Date.UTC(year, monthIndex - 1, dayNum);
-  const insightTransactions = transactions.filter(
-    (transaction) => toISODate(transaction.timestamp) <= day,
-  );
+  // Full-month budget insight shared by Overview and the emergency fund. This is
+  // the whole month's activity (no as-of-day cap) — exactly what Overview computed
+  // client-side before. Computing it once here keeps Overview and the emergency
+  // fund from drifting. Safe-to-spend intentionally does NOT reuse this: its
+  // guardrail is "spent so far", so it recomputes a day-capped insight internally.
   const targets = budget?.targets ?? DEFAULT_BUDGET_TARGETS;
   const budgetInsight = buildBudgetInsight({
-    transactions: insightTransactions,
+    transactions,
     subscriptions,
     month,
     takeHome: budget?.monthlyTakeHome ?? 0,
     targets,
-    now: requestedAt,
-    priorTransactions: transactionsBeforeMonth(insightTransactions, month),
+    priorTransactions: transactionsBeforeMonth(transactions, month),
   });
 
   // Cash-flow projection input assembly — mirrored from former CashFlowProjectionCard.
@@ -185,13 +181,12 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
       subscriptions,
       transactions,
       date: day,
-      insight: budgetInsight,
     }),
     cashFlowCalendar: calculateCashFlowCalendar({
       todayISO: day,
-      // Unified with client cashBalance: cash accounts only, positive balances.
-      // Formerly an inline dual-regex filter; classifyAccount owns the keywords now.
-      currentCashBalance: cashOnHand,
+      // Signed cash (overdrafts included) so an overdrawn checking account still
+      // lowers the projected starting balance, matching the former inline filter.
+      currentCashBalance: cashFlowBalance(snapshotInfo.snapshot.accounts),
       monthlyTakeHome: budget?.monthlyTakeHome,
       paySchedule: budget?.paySchedule,
       subscriptions,

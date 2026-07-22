@@ -107,13 +107,30 @@ describe("loadFinanceHubImpl read-path invariants", () => {
     expect(tagged.safeToSpend.postedPlanSpend).toBe(withRules.safeToSpend.postedPlanSpend);
   });
 
-  it("exposes budgetInsight that matches safe-to-spend plan spend", async () => {
+  it("exposes a full-month budgetInsight computed once for Overview", async () => {
     const payload = await loadFinanceHubImpl("2026-01-15");
     expect(payload.budgetInsight).toBeDefined();
-    // safeToSpend.postedPlanSpend is insight.planSpend when insight is shared.
-    expect(payload.safeToSpend.postedPlanSpend).toBe(payload.budgetInsight.planSpend);
     // Fixture: -$200 needs + -$60 wants → planSpend 260 (no savings txns).
     expect(payload.budgetInsight.bucketTotals.needs).toBeGreaterThanOrEqual(200);
     expect(payload.budgetInsight.bucketTotals.wants).toBeGreaterThanOrEqual(60);
+  });
+
+  it("counts future-dated current-month spend in budgetInsight but not safe-to-spend", async () => {
+    // A charge dated later this month (Jan 20) while we ask as of Jan 15.
+    mockState.transactions = [
+      txn({ id: "n1", category: "Kroger", amount: -200, categoryGroup: "needs" }),
+      txn({
+        id: "future",
+        category: "Prepaid Rent",
+        amount: -300,
+        categoryGroup: "needs",
+        timestamp: Date.UTC(2026, 0, 20),
+      }),
+    ];
+    const payload = await loadFinanceHubImpl("2026-01-15");
+    // Overview view (full month) includes the future-dated charge.
+    expect(payload.budgetInsight.bucketTotals.needs).toBeGreaterThanOrEqual(500);
+    // Guardrail view (spent so far) excludes it — only the Jan 15 charge counts.
+    expect(payload.safeToSpend.postedPlanSpend).toBe(200);
   });
 });
