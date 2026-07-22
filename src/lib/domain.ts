@@ -340,15 +340,82 @@ export type TransactionType =
  */
 export type CategoryGroup = "needs" | "wants" | "savings" | "income" | "transfer";
 
+/**
+ * Problem-area spend labels for the Overview Spending Watchlist (not 50/30/20).
+ * Only a short fixed list — curbs a few leakage points, not a full pie chart.
+ */
+export type WatchlistId = "groceries" | "dining" | "shopping" | "subscriptions" | "coffee_snacks";
+
+export const WATCHLIST_IDS = [
+  "groceries",
+  "dining",
+  "shopping",
+  "subscriptions",
+  "coffee_snacks",
+] as const satisfies readonly WatchlistId[];
+
+export const WATCHLIST_META: Record<
+  WatchlistId,
+  { label: string; shortLabel: string; hint: string }
+> = {
+  groceries: {
+    label: "Groceries & household",
+    shortLabel: "Groceries",
+    hint: "Supermarkets and big-box food runs",
+  },
+  dining: {
+    label: "Restaurants & takeout",
+    shortLabel: "Dining",
+    hint: "Eating out, delivery, and meal kits",
+  },
+  shopping: {
+    label: "Amazon & retail",
+    shortLabel: "Shopping",
+    hint: "Online and store shopping",
+  },
+  subscriptions: {
+    label: "Subscriptions",
+    shortLabel: "Subs",
+    hint: "Streaming, software, gyms, memberships",
+  },
+  coffee_snacks: {
+    label: "Coffee & snacks",
+    shortLabel: "Coffee",
+    hint: "Coffee shops and convenience snacks",
+  },
+};
+
+export function isWatchlistId(value: string | null | undefined): value is WatchlistId {
+  return !!value && (WATCHLIST_IDS as readonly string[]).includes(value);
+}
+
 export interface Transaction extends BaseEntity {
   timestamp: Timestamp;
   type: TransactionType;
   amount: number;
   currency: string;
   account?: string;
+  /**
+   * Clean free-text merchant / bank description. Preferred over legacy
+   * `category` for new writes.
+   */
+  merchant?: string;
+  /**
+   * @deprecated Legacy free-text merchant/description. Prefer `merchant`.
+   * Still written on import/sync for older readers; reads should use
+   * `transactionMerchant()`.
+   */
   category?: string;
   /** 50/30/20 bucket; assigned on import by the categorizer, user-overridable. */
   categoryGroup?: CategoryGroup;
+  /**
+   * Spending Watchlist problem-area label (Overview analysis). Orthogonal to
+   * `categoryGroup`. Undefined = not assigned; auto may fill. User "None"
+   * clears the id and sets `watchlistSource: "user"` so auto will not reclaim.
+   */
+  watchlistId?: WatchlistId;
+  /** Who last decided the watchlist label. "user" locks out auto-assign. */
+  watchlistSource?: "rule" | "keyword" | "user";
   asset?: string;
   quantity?: number;
   notes?: string;
@@ -575,6 +642,16 @@ export function cleanMerchantName(raw: string): string {
 }
 
 /** Which 50/30/20 bucket a category group counts toward, or null if excluded. */
+/**
+ * Merchant / bank description for a ledger row. Prefers `merchant`; falls back
+ * to legacy `category` (historically overloaded as the free-text descriptor).
+ */
+export function transactionMerchant(
+  transaction: Pick<Transaction, "merchant" | "category" | "notes">,
+): string {
+  return (transaction.merchant || transaction.category || transaction.notes || "").trim();
+}
+
 export function spendBucketOf(
   group: CategoryGroup | undefined,
 ): "needs" | "wants" | "savings" | null {

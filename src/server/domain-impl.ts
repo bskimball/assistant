@@ -256,12 +256,15 @@ export type { DailyNutritionPayload } from "@/server/nutrition-impl";
 
 export {
   appendTransactionImpl,
+  categoryGroupRulesOf,
+  learnMerchantRuleImpl,
   loadBudgetImpl,
   loadCategoryRulesImpl,
   loadDailyFinanceImpl,
   loadLatestDailyFinanceImpl,
   loadSubscriptionsImpl,
   loadTransactionsImpl,
+  normalizeCategoryRules,
   saveBudgetImpl,
   saveDailyFinanceImpl,
   saveSubscriptionsImpl,
@@ -270,6 +273,7 @@ export {
 } from "@/server/finance-data-impl";
 export type {
   BudgetPayload,
+  CategoryRuleEntry,
   CategoryRulesStore,
   DailyFinancePayload,
   SubscriptionsStore,

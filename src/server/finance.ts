@@ -6,7 +6,13 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import type { CategoryGroup, FinanceAdviceItem, ISODate, Subscription } from "@/lib/domain";
+import type {
+  CategoryGroup,
+  FinanceAdviceItem,
+  ISODate,
+  Subscription,
+  WatchlistId,
+} from "@/lib/domain";
 import { todayISO } from "@/lib/domain";
 import { requireAuthSession } from "@/lib/auth";
 import { fetchQuotes } from "@/server/adapters/quotes";
@@ -52,6 +58,7 @@ import {
   restoreTransactionImpl,
   explainRecurringChargeImpl,
   setTransactionExcludedImpl,
+  setTransactionWatchlistImpl,
   unlinkRecurringChargeImpl,
   unmarkRecurringPaidImpl,
   type ImportResult,
@@ -208,6 +215,13 @@ export const recategorizeTransaction = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAuthSession();
     return recategorizeTransactionImpl(data);
+  });
+
+export const setTransactionWatchlist = createServerFn({ method: "POST" })
+  .validator((data: { id: string; watchlistId: WatchlistId | null; remember?: boolean }) => data)
+  .handler(async ({ data }) => {
+    await requireAuthSession();
+    return setTransactionWatchlistImpl(data);
   });
 
 export const setTransactionExcluded = createServerFn({ method: "POST" })

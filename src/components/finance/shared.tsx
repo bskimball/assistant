@@ -17,13 +17,16 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   cleanMerchantName,
+  transactionMerchant,
+  WATCHLIST_META,
   type CategoryGroup,
   type RecurringKind,
   type Subscription,
   type Transaction,
-  type AccountBalance,
+  type WatchlistId,
 } from "@/lib/domain";
 import { type BudgetBucket, type BudgetRecurringItem } from "@/lib/finance-math";
+import type { AccountType } from "@/lib/finance-accounts";
 
 import type { FinanceHubPayload } from "@/lib/finance-types";
 
@@ -345,19 +348,19 @@ export function MiniStat({
 }) {
   const body = (
     <>
-      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
     </>
   );
   if (!onClick) {
-    return <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">{body}</div>;
+    return <div className="zen-surface-nested px-3 py-2">{body}</div>;
   }
   return (
     <button
       type="button"
       onClick={onClick}
       aria-haspopup="dialog"
-      className="relative cursor-pointer rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="zen-surface-nested relative cursor-pointer px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <CaretRightIcon
         className="absolute top-1.5 right-1.5 size-3 text-muted-foreground/50"
@@ -371,7 +374,7 @@ export function MiniStat({
 
 /* ---------------- Shared bits ---------------- */
 
-export type AccountType = "cash" | "credit" | "investments" | "other";
+export type { AccountType } from "@/lib/finance-accounts";
 
 export const ACCOUNT_GROUP_META: {
   type: AccountType;
@@ -383,21 +386,6 @@ export const ACCOUNT_GROUP_META: {
   { type: "investments", label: "Investments", Icon: ChartLineIcon },
   { type: "other", label: "Other", Icon: MoneyIcon },
 ];
-
-// Bucket an account by a case-insensitive keyword match on its name/alias.
-export function inferAccountType(name: string): AccountType {
-  const s = name.toLowerCase();
-  if (/(checking|savings|bank)/.test(s)) return "cash";
-  if (/(credit|card|platinum)/.test(s)) return "credit";
-  if (/(robinhood|stock|crypto|bitcoin|401k|brokerage|ira)/.test(s)) return "investments";
-  return "other";
-}
-
-export function cashLikeBalance(accounts: AccountBalance[]): number {
-  return accounts
-    .filter((account) => inferAccountType(account.account) === "cash" && account.amount > 0)
-    .reduce((sum, account) => sum + account.amount, 0);
-}
 
 export const SOURCE_BADGE_META: Record<
   NonNullable<Transaction["source"]>,
@@ -448,6 +436,21 @@ export function GroupChip({ group }: { group: CategoryGroup }) {
   );
 }
 
+/** Problem-area chip for the Spending Watchlist (orthogonal to 50/30/20). */
+export function WatchlistChip({ id }: { id: WatchlistId }) {
+  return (
+    <span className="inline-flex h-4 items-center rounded border border-warning/30 bg-warning/10 px-1 text-[9px] font-medium uppercase leading-none tracking-wide text-warning">
+      {WATCHLIST_META[id].shortLabel}
+    </span>
+  );
+}
+
+/** Prefer `merchant`, fall back to legacy `category`. */
+export function displayMerchant(t: Pick<Transaction, "merchant" | "category" | "notes">): string {
+  const raw = transactionMerchant(t);
+  return raw ? cleanMerchantName(raw) : "—";
+}
+
 // Shared "date · account · source" sub-line so every transaction row identifies
 // where it came from.
 export function TxnSubline({
@@ -480,31 +483,49 @@ export function Stat({
   value,
   tone,
   hero,
+  icon: Icon,
 }: {
   label: string;
   value: string;
   tone?: "up" | "down" | "warn";
   hero?: boolean;
+  icon?: PhosphorIcon;
 }) {
+  const valueTone =
+    tone === "up"
+      ? "text-success"
+      : tone === "down"
+        ? "text-destructive"
+        : tone === "warn"
+          ? "text-warning"
+          : "text-foreground";
+  const iconTone =
+    tone === "up"
+      ? "bg-success/10 text-success"
+      : tone === "down"
+        ? "bg-destructive/10 text-destructive"
+        : tone === "warn"
+          ? "bg-warning/10 text-warning"
+          : "bg-primary/10 text-primary";
   return (
-    <Card className={hero ? "border-primary/40 bg-primary/3" : undefined}>
-      <CardContent className="pt-4">
-        <div className="text-[11px] text-muted-foreground">{label}</div>
+    <div className="zen-surface-nested flex items-center justify-between gap-3 px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
         <div
-          className={`mt-1 font-semibold tabular-nums ${hero ? "text-3xl" : "text-2xl"} ${
-            tone === "up"
-              ? "text-success"
-              : tone === "down"
-                ? "text-destructive"
-                : tone === "warn"
-                  ? "text-warning"
-                  : "text-foreground"
-          }`}
+          className={`mt-1 font-semibold tabular-nums ${hero ? "text-2xl" : "text-xl"} ${valueTone}`}
         >
           {value}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+      {Icon && (
+        <span
+          className={`flex size-9 shrink-0 items-center justify-center rounded-full ${iconTone}`}
+          aria-hidden
+        >
+          <Icon className="size-4" weight="duotone" />
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -557,11 +578,12 @@ export function BudgetBar({
     state === "bad" ? "bg-destructive" : state === "warn" ? "bg-warning" : "bg-success";
 
   // Plain-language status so the eye lands on the number that matters.
+  // Savings is framed as contributions toward a target, not "spend".
   const note =
     goal === "save"
       ? remaining > 0
-        ? `${fmtMoney(remaining)} to goal`
-        : "goal met"
+        ? `${fmtMoney(remaining)} more to contribute`
+        : "contribution goal met"
       : remaining >= 0
         ? `${fmtMoney(remaining)} left`
         : `${fmtMoney(-remaining)} over`;
@@ -660,9 +682,7 @@ export function BudgetBar({
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate">
-                      {t.category ? cleanMerchantName(t.category) : "—"}
-                    </span>
+                    <span className="truncate">{displayMerchant(t)}</span>
                     {excluded && (
                       <Badge
                         variant="outline"

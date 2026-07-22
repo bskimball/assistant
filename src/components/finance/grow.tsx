@@ -28,17 +28,12 @@ import {
   DEFAULT_BUDGET_TARGETS,
   type FinanceAdviceItem,
 } from "@/lib/domain";
-import {
-  buildCashFlowProjection,
-  recurringAdditionsForMonth,
-  transactionsForMonth,
-  type BudgetBucket,
-} from "@/lib/finance-math";
+import { transactionsForMonth } from "@/lib/finance-math";
+import { cashBalance } from "@/lib/finance-accounts";
 import {
   CollapsibleCard,
   InfoHint,
   MiniStat,
-  cashLikeBalance,
   formatMonthLabel,
   isPaycheckLike,
 } from "@/components/finance/shared";
@@ -149,10 +144,10 @@ export function GrowTab({
 
   return (
     <div className="space-y-4">
-      <CashFlowProjectionCard hub={hub} today={today} />
+      <CashFlowProjectionCard hub={hub} />
       <RevenueGrowthCard hub={hub} today={today} />
 
-      <div className="flex flex-col gap-3 rounded-xl bg-card/70 backdrop-blur-xl backdrop-saturate-150 px-4 py-3 ring-1 ring-foreground/10 dark:ring-primary/15 sm:flex-row sm:items-center sm:justify-between">
+      <div className="zen-card flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-pretty text-sm text-muted-foreground">
           Personalized budget fixes, a subscription audit, and investing moves — grounded in your
           real numbers.
@@ -265,50 +260,11 @@ export function GrowTab({
   );
 }
 
-function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today: string }) {
-  const startMonth = today.slice(0, 7);
-  const accounts = hub.snapshot.accounts || [];
-  const cashOnHand = cashLikeBalance(accounts);
-  const monthTxns = transactionsForMonth(hub.transactions, startMonth);
-  const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
-  const takeHome =
-    hub.budget?.monthlyTakeHome ??
-    monthTxns
-      .filter((t) => t.amount > 0 && t.categoryGroup === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
-  const buckets: Record<BudgetBucket, number> = {
-    needs: 0,
-    wants: 0,
-    savings: 0,
-  };
-  for (const t of monthTxns) {
-    if (t.excludeFromBudget) continue;
-    const bucket = spendBucketOf(t.categoryGroup);
-    if (bucket) buckets[bucket] += spendAmountOf(t);
-  }
-  const recurring = recurringAdditionsForMonth(hub.subscriptions, monthTxns, startMonth);
-  const monthlyBuckets =
-    takeHome > 0
-      ? {
-          needs: Math.max(buckets.needs + recurring.needs, takeHome * targets.needs),
-          wants: Math.max(buckets.wants + recurring.wants, takeHome * targets.wants),
-          savings: Math.max(buckets.savings + recurring.savings, takeHome * targets.savings),
-        }
-      : {
-          needs: buckets.needs + recurring.needs,
-          wants: buckets.wants + recurring.wants,
-          savings: buckets.savings + recurring.savings,
-        };
-  const projection = buildCashFlowProjection({
-    startMonth,
-    months: 12,
-    transactions: hub.transactions,
-    subscriptions: hub.subscriptions,
-    startingCash: cashOnHand,
-    monthlyIncome: takeHome,
-    monthlyBuckets,
-    includeRecurringCommitments: false,
-  });
+function CashFlowProjectionCard({ hub }: { hub: FinanceHubPayload }) {
+  const projection = hub.cashFlowProjection;
+  // Unrounded liquid cash for display + the low-point seed (the projection seeds
+  // its internal running balance from the same value, rounded to cents).
+  const cashOnHand = cashBalance(hub.snapshot.accounts);
   const averageNet = projection.months.length
     ? projection.totalNetCashFlow / projection.months.length
     : 0;
@@ -333,7 +289,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="zen-surface-nested flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-xs font-medium text-muted-foreground">Projected ending cash</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
@@ -349,7 +305,7 @@ function CashFlowProjectionCard({ hub, today }: { hub: FinanceHubPayload; today:
           <MiniStat label="Starting cash" value={fmtMoney(cashOnHand)} />
           <MiniStat label="Lowest projected cash" value={fmtMoney(lowPoint)} />
         </div>
-        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+        <div className="zen-surface-nested px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               Average monthly net{" "}

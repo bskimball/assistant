@@ -1,8 +1,9 @@
 import type { CategoryGroup, Subscription, Transaction } from "@/lib/domain";
-import { recurringBudgetBucket, recurringKindOf } from "@/lib/domain";
+import { recurringBudgetBucket, recurringKindOf, transactionMerchant } from "@/lib/domain";
 import { recurringMatchesTransaction } from "@/lib/finance-math";
 import { completeJSON, getGrokApiKey, getGrokJsonModel } from "@/server/adapters/ai";
 import {
+  categoryGroupRulesOf,
   loadCategoryRulesImpl,
   loadSubscriptionsImpl,
   loadTransactionsImpl,
@@ -87,11 +88,11 @@ function isCategoryGroup(value: unknown): value is CategoryGroup {
   return typeof value === "string" && CATEGORY_GROUPS.has(value as CategoryGroup);
 }
 
-function descriptorFor(t: Pick<Transaction, "category" | "notes">): string {
-  return t.category || t.notes || "";
+function descriptorFor(t: Pick<Transaction, "merchant" | "category" | "notes">): string {
+  return transactionMerchant(t);
 }
 
-export function cacheKeyFor(t: Pick<Transaction, "category" | "notes">): string {
+export function cacheKeyFor(t: Pick<Transaction, "merchant" | "category" | "notes">): string {
   return normalizeMerchant(descriptorFor(t));
 }
 
@@ -405,12 +406,13 @@ export async function rescanUnmatchedCharges(opts: EnrichOptions): Promise<Resca
   const stats = emptyRescanStats();
 
   try {
-    const [{ transactions }, { subscriptions }, { rules }, cache] = await Promise.all([
+    const [{ transactions }, { subscriptions }, rulesStore, cache] = await Promise.all([
       loadTransactionsImpl(),
       loadSubscriptionsImpl(),
       loadCategoryRulesImpl(),
       loadAiMatchCache(),
     ]);
+    const rules = categoryGroupRulesOf(rulesStore.rules);
     const activeSubs = subscriptions.filter((s) => !s.deletedAt && s.status === "active");
     const subsById = activeSubscriptionMap(activeSubs);
     const candidateGroups = new Map<string, Transaction[]>();
@@ -559,11 +561,12 @@ export async function enrichNewTransactions(
     const charges = newTxns.filter((t) => !t.deletedAt && t.amount < 0);
     if (!charges.length) return stats;
 
-    const [{ subscriptions }, { rules }, cache] = await Promise.all([
+    const [{ subscriptions }, rulesStore, cache] = await Promise.all([
       loadSubscriptionsImpl(),
       loadCategoryRulesImpl(),
       loadAiMatchCache(),
     ]);
+    const rules = categoryGroupRulesOf(rulesStore.rules);
     const activeSubs = subscriptions.filter((s) => !s.deletedAt && s.status === "active");
     const subsById = activeSubscriptionMap(activeSubs);
     const updates = new Map<string, Transaction>();

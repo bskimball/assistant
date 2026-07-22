@@ -1,60 +1,71 @@
 import { fmtMoney } from "@/components/finance/shared";
 import { SimplefinConnectionsCard } from "@/components/finance/simplefin-connections";
 import type { FinanceTabProps } from "@/components/finance/shared";
-import { useState, useEffect } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  type SyntheticEvent,
+} from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, simplefinStatusQuery } from "@/lib/queries";
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
   CaretRightIcon,
+  ChartLineIcon,
   CheckIcon,
+  EyeIcon,
   GearIcon,
   PencilSimpleIcon,
   PiggyBankIcon,
   PlusIcon,
   ReceiptIcon,
+  ShieldCheckIcon,
   SparkleIcon,
   TrashIcon,
+  TrendDownIcon,
+  TrendUpIcon,
   WalletIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { saveDailyFinance } from "@/server/domain";
-import { acceptFinanceActions } from "@/server/finance";
+import { acceptFinanceActions, setTransactionWatchlist } from "@/server/finance";
 import type { FinanceHubPayload } from "@/lib/finance-types";
 import {
-  subscriptionMonthlyCost,
-  spendAmountOf,
-  spendBucketOf,
-  recurringBudgetBucket,
-  cleanMerchantName,
-  summarizeCashFlow,
-  DEFAULT_BUDGET_TARGETS,
+  WATCHLIST_IDS,
+  WATCHLIST_META,
   type Transaction,
   type AccountBalance,
   type FinanceAdviceItem,
+  type WatchlistId,
 } from "@/lib/domain";
 import {
-  calculateEmergencyFund,
-  recurringAdditionsForMonth,
   recurringItemsForMonth,
+  rollupWatchlistMonth,
+  transactionsBeforeMonth,
   transactionsForMonth,
+  type EmergencyFundResult,
 } from "@/lib/finance-math";
 import {
   ACCOUNT_GROUP_META,
-  CollapsibleCard,
-  GroupChip,
-  MiniStat,
   Stat,
   TxnSubline,
-  cashLikeBalance,
+  displayMerchant,
   fmtDate,
   fmtISODate,
-  inferAccountType,
   summarizeImportedAccounts,
 } from "@/components/finance/shared";
+import { type AccountType, classifyAccount } from "@/lib/finance-accounts";
 
 export function OverviewTab({
   hub,
@@ -191,41 +202,30 @@ export function OverviewTab({
     }
   }
 
-  const monthTxns = transactionsForMonth(hub.transactions, today.slice(0, 7));
-  // Imported income only captures deposits to the accounts you've imported, so a
-  // second paycheck landing in another account is missed. Prefer the monthly
-  // take-home you set on the Budget tab (your full after-tax pay) when available.
-  const takeHome = hub.budget?.monthlyTakeHome ?? 0;
-  const usePlannedIncome = takeHome > 0;
-  // Shared definition so Today / Finance / Analytics agree (transfers excluded).
-  const { income, spend } = summarizeCashFlow(monthTxns, takeHome);
-  const recurringAdditions = recurringAdditionsForMonth(
+  const currentMonth = today.slice(0, 7);
+  const monthTxns = transactionsForMonth(hub.transactions, currentMonth);
+  // Same plan math as the Budget tab (including prior-month weekly recurring
+  // anchors). Overview never re-derives moneyOut — only displays `money.*`.
+  const priorTxns = transactionsBeforeMonth(hub.transactions, currentMonth);
+  const monthBillBuckets = recurringItemsForMonth(
     hub.subscriptions,
     monthTxns,
-    today.slice(0, 7),
+    priorTxns,
+    currentMonth,
   );
-  const plannedRecurring =
-    recurringAdditions.needs + recurringAdditions.wants + recurringAdditions.savings;
-  const knownOutflow = spend + plannedRecurring;
-  const cashFlow = income - knownOutflow;
-  const targets = hub.budget?.targets ?? DEFAULT_BUDGET_TARGETS;
-  const monthlyNeedsFromStatements = monthTxns
-    .filter((t) => spendBucketOf(t.categoryGroup) === "needs" && !t.excludeFromBudget)
-    .reduce((sum, t) => sum + spendAmountOf(t), 0);
-  const monthlyEssentialExpenses = Math.max(
-    monthlyNeedsFromStatements + recurringAdditions.needs,
-    takeHome > 0 ? takeHome * targets.needs : 0,
-  );
-  const cashOnHand = cashLikeBalance(accounts);
-  const recurringSavingsMonthly = hub.subscriptions
-    .filter((s) => s.status === "active" && recurringBudgetBucket(s) === "savings")
-    .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
-  const emergencyContribution = Math.max(0, cashFlow, recurringSavingsMonthly);
-  const emergencyFund = calculateEmergencyFund({
-    monthlyEssentialExpenses,
-    currentSavings: cashOnHand,
-    monthlyContribution: emergencyContribution,
-  });
+  // Full-month insight computed once on the hub (also feeds the emergency fund).
+  const money = hub.budgetInsight;
+  const usePlannedIncome = money.usingTakeHome;
+  const moneyIn = money.moneyIn;
+  const knownOutflow = money.moneyOut;
+  const cashFlow = money.leftAfterOut;
+  const oneTimeInCashOut = money.oneTimeSpend;
+  const savingsTarget = money.savingsTarget;
+  const savingsPosted = money.statementBuckets.savings;
+  const savingsRemainingTarget = money.savingsTargetRemaining;
+  const planBuckets = money.statementBuckets;
+  const recurringByBucket = money.unpaidRecurring;
+  const emergencyFund = hub.emergencyFund;
 
   // An account is "synced" when its saved name matches a SimpleFIN display name
   // or a saved alias. Status may be loading/absent — then everything reads manual.
@@ -244,20 +244,13 @@ export function OverviewTab({
 
   // Group saved balances by inferred type for the single-source-of-truth card.
   const accountGroups = ACCOUNT_GROUP_META.map((meta) => {
-    const rows = accounts.filter((a) => inferAccountType(a.account) === meta.type);
+    const rows = accounts.filter((a) => classifyAccount(a.account) === meta.type);
     return { ...meta, rows, subtotal: rows.reduce((s, a) => s + a.amount, 0) };
   }).filter((g) => g.rows.length > 0);
   const accountsTotal = accounts.reduce((s, a) => s + a.amount, 0);
 
   // Same paid/unpaid semantics as the Bills tab: active non-annual items expected
   // this month, matched via recurringMatchesTransaction inside recurringItemsForMonth.
-  const currentMonth = today.slice(0, 7);
-  const monthBillBuckets = recurringItemsForMonth(
-    hub.subscriptions,
-    monthTxns,
-    undefined,
-    currentMonth,
-  );
   const billMonthItems = (["needs", "wants", "savings"] as const)
     .flatMap((bucket) => monthBillBuckets[bucket])
     .filter((item) => item.cadence !== "annual" && item.expectedThisMonth > 0);
@@ -392,65 +385,546 @@ export function OverviewTab({
 
   return (
     <div className="space-y-4">
-      {/* a. Net worth + this month's cash flow */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Net worth" value={fmtMoney(hub.snapshot.netWorth)} hero />
-        <Stat
-          label="Cash flow (mo)"
-          value={`${cashFlow < 0 ? "-" : "+"}${fmtMoney(Math.abs(cashFlow))}`}
-          tone={cashFlow >= 0 ? "up" : "down"}
-          hero
+      {/* Truth board: KPIs + ledger + guardrail */}
+      <div className="zen-card space-y-4 p-4 sm:p-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat
+            label="Net worth"
+            value={fmtMoney(hub.snapshot.netWorth)}
+            hero
+            icon={ChartLineIcon}
+          />
+          <Stat
+            label="Left after out"
+            value={`${cashFlow < 0 ? "-" : "+"}${fmtMoney(Math.abs(cashFlow))}`}
+            tone={cashFlow >= 0 ? "up" : "down"}
+            hero
+            icon={cashFlow >= 0 ? TrendUpIcon : TrendDownIcon}
+          />
+          <Stat
+            label={usePlannedIncome ? "Money in (mo)" : "Money in (MTD)"}
+            value={fmtMoney(moneyIn)}
+            tone="up"
+            icon={ArrowDownIcon}
+          />
+          <Stat label="Money out (mo)" value={fmtMoney(knownOutflow)} icon={ArrowUpIcon} />
+        </div>
+
+        <MonthMoneyLedger
+          month={currentMonth}
+          moneyIn={moneyIn}
+          usePlannedIncome={usePlannedIncome}
+          importedIncome={money.importedIncome}
+          needs={planBuckets.needs}
+          wants={planBuckets.wants}
+          savings={savingsPosted}
+          oneTime={oneTimeInCashOut}
+          oneTimeCount={money.oneTimeCount}
+          recurringNeeds={recurringByBucket.needs}
+          recurringWants={recurringByBucket.wants}
+          recurringSavings={recurringByBucket.savings}
+          moneyOut={knownOutflow}
+          left={cashFlow}
+          savingsTarget={savingsTarget}
+          savingsRemainingTarget={savingsRemainingTarget}
         />
-        <Stat
-          label={usePlannedIncome ? "Money in (mo)" : "Money in (MTD)"}
-          value={fmtMoney(income)}
-          tone="up"
-        />
-        <Stat label="Money out (mo)" value={fmtMoney(knownOutflow)} />
+
+        <SafeToSpendGuardrail result={hub.safeToSpend} />
       </div>
-
-      {plannedRecurring > 0 && (
-        <p className="-mt-2 text-xs text-muted-foreground">
-          Money out includes {fmtMoney(plannedRecurring)} of active recurring commitments not seen
-          in imported statements yet.
-        </p>
-      )}
-
-      {/* b. Bills health strip */}
-      <BillsHealthStrip
-        paid={billsPaid}
-        total={billsTotal}
-        needsAttention={billsNeedingAttention}
-      />
-
-      {/* c. Alerts / insights */}
-      <SafeToSpendGuardrail result={hub.safeToSpend} />
-
-      <CashFlowCalendarCard result={hub.cashFlowCalendar} />
-
-      <CoachSuggestions items={adviceItems} today={today} flash={flash} loading={adviceLoading} />
 
       <DataQualityCard hub={hub} today={today} />
 
-      {/* d. Recent transactions */}
-      <TransactionsCard transactions={hub.transactions} />
+      {/* Compact status chips — not a second full grid of cards */}
+      <div className="grid gap-2 sm:grid-cols-3">
+        <BillsHealthStrip
+          paid={billsPaid}
+          total={billsTotal}
+          needsAttention={billsNeedingAttention}
+        />
+        <CashFlowStatusChip result={hub.cashFlowCalendar} />
+        <EmergencyFundChip fund={emergencyFund} />
+      </div>
 
-      {/* e. Accounts (manage toggle) + emergency fund + bank connections at bottom */}
-      <CollapsibleCard
-        id="overview-accounts"
-        title="Accounts"
-        icon={WalletIcon}
-        defaultOpen
-        summary={fmtMoney(accountsTotal)}
+      <CoachSuggestions items={adviceItems} today={today} flash={flash} loading={adviceLoading} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SpendingWatchlistCard
+          transactions={hub.transactions}
+          month={today.slice(0, 7)}
+          onChange={onChange}
+          flash={flash}
+        />
+        <AccountsCard
+          groups={accountGroups}
+          total={accountsTotal}
+          netWorth={hub.snapshot.netWorth}
+          balanceSourceDate={balanceSourceDate}
+          importedWithoutBalance={importedWithoutBalance}
+          importedAccounts={importedAccounts}
+          manageAccounts={manageAccounts}
+          setManageAccounts={setManageAccounts}
+          showAddAccount={showAddAccount}
+          setShowAddAccount={setShowAddAccount}
+          name={name}
+          setName={setName}
+          amount={amount}
+          setAmount={setAmount}
+          busy={busy}
+          addAccount={addAccount}
+          renderAccountRow={renderAccountRow}
+          setEditingAccount={setEditingAccount}
+          simplefinStatus={simplefinQuery.data}
+          simplefinLoading={simplefinQuery.isLoading}
+          onSimplefinChange={refreshFinanceData}
+          flash={flash}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MonthMoneyLedger({
+  month,
+  moneyIn,
+  usePlannedIncome,
+  importedIncome,
+  needs,
+  wants,
+  savings,
+  oneTime,
+  oneTimeCount,
+  recurringNeeds,
+  recurringWants,
+  recurringSavings,
+  moneyOut,
+  left,
+  savingsTarget,
+  savingsRemainingTarget,
+}: {
+  month: string;
+  moneyIn: number;
+  usePlannedIncome: boolean;
+  importedIncome: number;
+  needs: number;
+  wants: number;
+  savings: number;
+  oneTime: number;
+  oneTimeCount: number;
+  recurringNeeds: number;
+  recurringWants: number;
+  recurringSavings: number;
+  moneyOut: number;
+  left: number;
+  savingsTarget: number;
+  savingsRemainingTarget: number;
+}) {
+  const [y, m] = month.split("-").map(Number);
+  const monthLabel = new Date(y, m - 1, 1).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  // Same bucket totals as Budget bars: statements + remaining unpaid recurring.
+  const needsTotal = needs + recurringNeeds;
+  const wantsTotal = wants + recurringWants;
+  const savingsTotal = savings + recurringSavings;
+  const planWithRecurring = needsTotal + wantsTotal + savingsTotal;
+
+  return (
+    <div className="zen-surface-nested space-y-3 px-4 py-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            This month's money
+          </div>
+          <div className="text-sm font-medium">{monthLabel}</div>
+        </div>
+        <div className="text-right text-[11px] text-muted-foreground">
+          In − out = left. Transfers between your accounts are not counted.
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-success">Money in</div>
+          <LedgerLine
+            label={usePlannedIncome ? "Take-home (Budget setting)" : "Imported income"}
+            value={moneyIn}
+            tone="in"
+            strong
+          />
+          {usePlannedIncome && importedIncome > 0 && (
+            <LedgerLine
+              label="Imported deposits (not used as total)"
+              value={importedIncome}
+              muted
+            />
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Money out</div>
+          <LedgerLine
+            label="Needs"
+            value={needsTotal}
+            note={
+              recurringNeeds > 0
+                ? `${fmtMoney(needs)} statements + ${fmtMoney(recurringNeeds)} unpaid`
+                : undefined
+            }
+          />
+          <LedgerLine
+            label="Wants"
+            value={wantsTotal}
+            note={
+              recurringWants > 0
+                ? `${fmtMoney(wants)} statements + ${fmtMoney(recurringWants)} unpaid`
+                : undefined
+            }
+          />
+          <LedgerLine
+            label="Savings contributions"
+            value={savingsTotal}
+            note={
+              savingsTotal === 0
+                ? "none tagged or scheduled yet"
+                : recurringSavings > 0
+                  ? `${fmtMoney(savings)} statements + ${fmtMoney(recurringSavings)} unpaid`
+                  : undefined
+            }
+          />
+          {oneTime > 0 && (
+            <LedgerLine label={`One-time / out of plan (${oneTimeCount})`} value={oneTime} />
+          )}
+          <LedgerLine label="Money out total" value={moneyOut} strong />
+        </div>
+      </div>
+
+      <div className="border-t border-border/50 pt-2">
+        <LedgerLine
+          label="Left after money out"
+          value={left}
+          tone={left >= 0 ? "in" : "out"}
+          strong
+          signed
+        />
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Needs / wants / savings totals match Budget bars (statements + unpaid recurring ={" "}
+          {fmtMoney(planWithRecurring)}). Money out also adds one-time charges ({fmtMoney(oneTime)}
+          ), which Budget bars leave out of the plan.
+          {savingsTarget > 0 && (
+            <>
+              {" "}
+              Savings target is {fmtMoney(savingsTarget)}/mo; posted + scheduled savings are{" "}
+              {fmtMoney(savingsTotal)}
+              {savingsRemainingTarget > 0
+                ? ` — ${fmtMoney(savingsRemainingTarget)} of the target is not in money out (only safe-to-spend reserves it).`
+                : "."}
+            </>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LedgerLine({
+  label,
+  value,
+  tone,
+  strong,
+  muted,
+  signed,
+  note,
+}: {
+  label: string;
+  value: number;
+  tone?: "in" | "out";
+  strong?: boolean;
+  muted?: boolean;
+  signed?: boolean;
+  note?: string;
+}) {
+  if (muted && value === 0) return null;
+  const display = signed ? `${value < 0 ? "-" : "+"}${fmtMoney(Math.abs(value))}` : fmtMoney(value);
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 text-sm ${
+        strong ? "font-medium text-foreground" : "text-muted-foreground"
+      }`}
+    >
+      <span className="min-w-0">
+        {label}
+        {note ? <span className="text-muted-foreground"> · {note}</span> : null}
+      </span>
+      <span
+        className={`shrink-0 tabular-nums ${
+          tone === "in"
+            ? "text-success"
+            : tone === "out"
+              ? "text-destructive"
+              : strong
+                ? "text-foreground"
+                : ""
+        }`}
       >
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">Net-worth balances</span>
-            {balanceSourceDate && (
-              <span className="text-xs font-normal text-muted-foreground">
-                Balances from {fmtISODate(balanceSourceDate)}
-              </span>
-            )}
+        {display}
+      </span>
+    </div>
+  );
+}
+
+function BillsHealthStrip({
+  paid,
+  total,
+  needsAttention,
+}: {
+  paid: number;
+  total: number;
+  needsAttention: number;
+}) {
+  if (total === 0) {
+    return (
+      <Link
+        to="/finance/recurring"
+        className="zen-surface-nested flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-muted/30"
+      >
+        <ReceiptIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Bills</div>
+          <div className="text-sm text-muted-foreground">Add bills</div>
+        </div>
+        <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+      </Link>
+    );
+  }
+
+  const warning = needsAttention > 0;
+  return (
+    <Link
+      to="/finance/recurring"
+      className="zen-surface-nested flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-muted/30"
+    >
+      <ReceiptIcon
+        className={`size-4 shrink-0 ${warning ? "text-warning" : "text-success"}`}
+        weight="duotone"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Bills</div>
+        <div className="text-sm">
+          <span className="font-medium tabular-nums">
+            {paid}/{total}
+          </span>{" "}
+          paid
+          {needsAttention > 0 && (
+            <span className="text-warning-foreground">
+              {" · "}
+              {needsAttention} alert{needsAttention === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+      </div>
+      <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+    </Link>
+  );
+}
+
+function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpend"] }) {
+  const statusMeta: Record<
+    typeof result.status,
+    { label: string; variant: "success" | "warning" | "destructive" | "secondary" }
+  > = {
+    unavailable: { label: "Setup", variant: "secondary" },
+    "on-track": { label: "On track", variant: "success" },
+    tight: { label: "Tight", variant: "warning" },
+    "over-plan": { label: "Over plan", variant: "destructive" },
+  };
+  const meta = statusMeta[result.status];
+
+  return (
+    <div className="zen-surface-nested flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+        <ShieldCheckIcon className="size-4" weight="duotone" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Safe to spend
+          </span>
+          <Badge variant={meta.variant} className="uppercase">
+            {meta.label}
+          </Badge>
+        </div>
+        {result.status === "unavailable" ? (
+          <p className="mt-0.5 text-xs text-muted-foreground">{result.explanation}</p>
+        ) : (
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <span className="text-xl font-semibold tabular-nums">
+              {fmtMoney(result.safeToSpendThisMonth)}
+            </span>
+            <span className="text-sm tabular-nums text-muted-foreground">
+              {fmtMoney(result.safeToSpendPerDay)}/day · {result.remainingDays}d left
+            </span>
+          </div>
+        )}
+      </div>
+      {result.status !== "unavailable" && result.savingsReserve > 0 && (
+        <p className="w-full text-[11px] text-muted-foreground sm:w-auto sm:max-w-xs sm:text-right">
+          Reserves {fmtMoney(result.savingsReserve)} for remaining savings target — lower than “left
+          after out.”
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CashFlowStatusChip({ result }: { result: FinanceHubPayload["cashFlowCalendar"] }) {
+  const statusMeta: Record<
+    typeof result.status,
+    { label: string; variant: "success" | "warning" | "destructive"; className: string }
+  > = {
+    healthy: { label: "Healthy", variant: "success", className: "text-success" },
+    tight: { label: "Tight", variant: "warning", className: "text-warning" },
+    negative: { label: "Below zero", variant: "destructive", className: "text-destructive" },
+  };
+  const meta = statusMeta[result.status];
+
+  return (
+    <Link
+      to="/finance/recurring"
+      className="zen-surface-nested flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-muted/30"
+    >
+      <ChartLineIcon className={`size-4 shrink-0 ${meta.className}`} weight="duotone" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            30-day floor
+          </span>
+          <Badge variant={meta.variant} className="h-4 px-1.5 text-[9px] uppercase">
+            {meta.label}
+          </Badge>
+        </div>
+        <div className="text-sm">
+          <span className="font-medium tabular-nums">{fmtMoney(result.projectedFloor)}</span>
+          <span className="text-muted-foreground"> · {fmtISODate(result.projectedFloorDate)}</span>
+        </div>
+      </div>
+      <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+    </Link>
+  );
+}
+
+function EmergencyFundChip({ fund }: { fund: EmergencyFundResult }) {
+  const statusMeta: Record<
+    typeof fund.status,
+    { label: string; variant: "success" | "warning" | "secondary"; className: string }
+  > = {
+    "not-started": { label: "Build", variant: "secondary", className: "text-muted-foreground" },
+    building: { label: "Building", variant: "warning", className: "text-warning" },
+    funded: { label: "Funded", variant: "success", className: "text-success" },
+    surplus: { label: "Surplus", variant: "success", className: "text-success" },
+  };
+  const meta = statusMeta[fund.status];
+
+  return (
+    <Link
+      to="/finance/grow"
+      className="zen-surface-nested flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-muted/30"
+    >
+      <PiggyBankIcon className={`size-4 shrink-0 ${meta.className}`} weight="duotone" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Emergency fund
+          </span>
+          <Badge variant={meta.variant} className="h-4 px-1.5 text-[9px] uppercase">
+            {meta.label}
+          </Badge>
+        </div>
+        <div className="text-sm">
+          <span className="font-medium tabular-nums">{fund.monthsCovered.toFixed(1)} mo</span>
+          <span className="text-muted-foreground"> covered</span>
+        </div>
+      </div>
+      <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
+    </Link>
+  );
+}
+
+function AccountsCard({
+  groups,
+  total,
+  netWorth,
+  balanceSourceDate,
+  importedWithoutBalance,
+  importedAccounts,
+  manageAccounts,
+  setManageAccounts,
+  showAddAccount,
+  setShowAddAccount,
+  name,
+  setName,
+  amount,
+  setAmount,
+  busy,
+  addAccount,
+  renderAccountRow,
+  setEditingAccount,
+  simplefinStatus,
+  simplefinLoading,
+  onSimplefinChange,
+  flash,
+}: {
+  groups: {
+    type: AccountType;
+    label: string;
+    Icon: typeof WalletIcon;
+    rows: AccountBalance[];
+    subtotal: number;
+  }[];
+  total: number;
+  netWorth: number;
+  balanceSourceDate: string | null;
+  importedWithoutBalance: { account: string; count: number; lastSeen: number }[];
+  importedAccounts: { account: string; count: number; lastSeen: number }[];
+  manageAccounts: boolean;
+  setManageAccounts: Dispatch<SetStateAction<boolean>>;
+  showAddAccount: boolean;
+  setShowAddAccount: Dispatch<SetStateAction<boolean>>;
+  name: string;
+  setName: Dispatch<SetStateAction<string>>;
+  amount: string;
+  setAmount: Dispatch<SetStateAction<string>>;
+  busy: boolean;
+  addAccount: (e: SyntheticEvent) => Promise<void>;
+  renderAccountRow: (a: AccountBalance) => ReactNode;
+  setEditingAccount: Dispatch<SetStateAction<string | null>>;
+  simplefinStatus: Parameters<typeof SimplefinConnectionsCard>[0]["status"];
+  simplefinLoading: boolean;
+  onSimplefinChange: () => Promise<void>;
+  flash: (msg: string, ms?: number) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-3 pb-2">
+        <div>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            <WalletIcon className="size-4 text-muted-foreground" weight="duotone" />
+            Accounts
+          </CardTitle>
+          {balanceSourceDate && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Balances from {fmtISODate(balanceSourceDate)}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <div
+              className={`text-lg font-semibold tabular-nums ${total < 0 ? "text-destructive" : ""}`}
+            >
+              {fmtMoney(total)}
+            </div>
+            <div className="text-[11px] text-muted-foreground">accounts total</div>
           </div>
           <Button
             type="button"
@@ -472,63 +946,81 @@ export function OverviewTab({
             {manageAccounts ? "Done" : "Manage"}
           </Button>
         </div>
-        {accounts.length ? (
-          <>
-            <div className="mb-3 space-y-3 text-sm">
-              {accountGroups.map(({ type, label, Icon, rows, subtotal }) => (
-                <section key={type}>
-                  <div className="mb-0.5 flex items-center justify-between gap-2 border-b border-border/60 pb-1">
-                    <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                      <Icon className="size-3.5" weight="duotone" />
-                      {label}
-                    </h3>
-                    <span
-                      className={`text-xs tabular-nums ${subtotal < 0 ? "text-destructive" : "text-muted-foreground"}`}
-                    >
-                      {fmtMoney(subtotal)}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {groups.length === 0 ? (
+          importedAccounts.length ? (
+            <div className="zen-surface-nested px-3 py-2 text-xs text-muted-foreground">
+              <div className="text-sm font-medium text-foreground">Imported statement accounts</div>
+              <ul className="mt-1 space-y-1">
+                {importedAccounts.map((a) => (
+                  <li key={a.account} className="flex items-center justify-between gap-2">
+                    <span>{a.account}</span>
+                    <span className="shrink-0 tabular-nums">
+                      {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
                     </span>
-                  </div>
-                  <ul className="space-y-1">{rows.map(renderAccountRow)}</ul>
-                </section>
-              ))}
-              <div className="flex items-center justify-between gap-2 border-t pt-2 text-sm font-medium">
-                <span>Accounts total</span>
-                <span className={`tabular-nums ${accountsTotal < 0 ? "text-destructive" : ""}`}>
-                  {fmtMoney(accountsTotal)}
-                </span>
-              </div>
-              {Math.round(hub.snapshot.netWorth) !== Math.round(accountsTotal) && (
-                <p className="mt-1! text-[11px] text-muted-foreground">
-                  Net worth {fmtMoney(hub.snapshot.netWorth)} also counts{" "}
-                  {fmtMoney(hub.snapshot.netWorth - accountsTotal)} of manual holdings tracked on
-                  the Investments tab. Synced holdings are already included in their account
-                  balances.
-                </p>
-              )}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px]">
+                Use Manage to add current balances and build a net-worth baseline.
+              </p>
             </div>
-            {importedWithoutBalance.length > 0 && (
-              <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                <div className="text-xs font-medium text-foreground">
-                  Imported statements without balances
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No account balances yet. Tap Manage to add them.
+            </p>
+          )
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-3">
+            {groups.map(({ type, label, Icon, rows, subtotal }) => (
+              <div key={type} className="zen-surface-nested px-3 py-2.5">
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <Icon className="size-3.5" weight="duotone" />
+                  {label}
                 </div>
-                <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-                  {importedWithoutBalance.map((a) => (
-                    <li key={a.account} className="flex items-center justify-between gap-2">
-                      <span>{a.account}</span>
-                      <span className="shrink-0 tabular-nums">
-                        {a.count} txn{a.count === 1 ? "" : "s"} · last {fmtDate(a.lastSeen)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <div
+                  className={`text-lg font-semibold tabular-nums ${
+                    subtotal < 0 ? "text-destructive" : "text-success"
+                  }`}
+                >
+                  {fmtMoney(subtotal)}
+                </div>
+                {manageAccounts ? (
+                  <ul className="mt-1.5 space-y-1 text-xs">{rows.map(renderAccountRow)}</ul>
+                ) : (
+                  <ul className="mt-1.5 space-y-1 text-xs">
+                    {rows.map((a) => (
+                      <li key={a.account} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-muted-foreground">{a.account}</span>
+                        <span
+                          className={`shrink-0 tabular-nums ${
+                            a.amount < 0 ? "text-destructive" : ""
+                          }`}
+                        >
+                          {fmtMoney(a.amount)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-            )}
-          </>
-        ) : importedAccounts.length ? (
-          <div className="mb-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-            <div className="text-sm font-medium text-foreground">Imported statement accounts</div>
-            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-              {importedAccounts.map((a) => (
+            ))}
+          </div>
+        )}
+
+        {Math.round(netWorth) !== Math.round(total) && groups.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            Net worth {fmtMoney(netWorth)} also counts {fmtMoney(netWorth - total)} of manual
+            holdings on Investments. Synced holdings are already in account balances.
+          </p>
+        )}
+
+        {importedWithoutBalance.length > 0 && (
+          <div className="zen-surface-nested px-3 py-2 text-xs text-muted-foreground">
+            <div className="font-medium text-foreground">Imported without balances</div>
+            <ul className="mt-1 space-y-1">
+              {importedWithoutBalance.map((a) => (
                 <li key={a.account} className="flex items-center justify-between gap-2">
                   <span>{a.account}</span>
                   <span className="shrink-0 tabular-nums">
@@ -537,16 +1029,9 @@ export function OverviewTab({
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Add current balances below to turn imported statement accounts into a net-worth
-              baseline.
-            </p>
-          </div>
-        ) : (
-          <div className="mb-3 text-sm text-muted-foreground">
-            No accounts yet. Add your BoA, M&T, Capital One, Robinhood, and ADP 401k balances.
           </div>
         )}
+
         {manageAccounts && (
           <>
             <div className="flex justify-end">
@@ -562,7 +1047,7 @@ export function OverviewTab({
               </Button>
             </div>
             {showAddAccount && (
-              <form onSubmit={addAccount} className="mt-2 flex items-center gap-2">
+              <form onSubmit={addAccount} className="flex items-center gap-2">
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -589,256 +1074,21 @@ export function OverviewTab({
                 </Button>
               </form>
             )}
-            {showAddAccount && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Add new balances below, or edit a saved row to rename an account, update its
-                balance, or change its currency.
-              </p>
-            )}
           </>
         )}
-      </CollapsibleCard>
 
-      <EmergencyFundProgressCard fund={emergencyFund} monthlyContribution={emergencyContribution} />
-
-      <SimplefinConnectionsCard
-        status={simplefinQuery.data}
-        loading={simplefinQuery.isLoading}
-        onChange={refreshFinanceData}
-        flash={flash}
-        defaultOpen={false}
-      />
-    </div>
-  );
-}
-
-function BillsHealthStrip({
-  paid,
-  total,
-  needsAttention,
-}: {
-  paid: number;
-  total: number;
-  needsAttention: number;
-}) {
-  if (total === 0) {
-    return (
-      <Link
-        to="/finance/recurring"
-        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5 transition-colors hover:bg-muted/30"
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <ReceiptIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
-          <div>
-            <div className="text-xs font-medium">Bills this month</div>
-            <div className="text-[11px] text-muted-foreground">
-              No active bills tracked yet — open Bills to add them
-            </div>
-          </div>
-        </div>
-        <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
-      </Link>
-    );
-  }
-
-  const warning = needsAttention > 0;
-  const tone = warning
-    ? "border-warning/30 bg-warning/10 hover:bg-warning/15"
-    : "border-success/25 bg-success/5 hover:bg-success/10";
-
-  return (
-    <Link
-      to="/finance/recurring"
-      className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors ${tone}`}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <ReceiptIcon
-          className={`size-4 shrink-0 ${warning ? "text-warning" : "text-success"}`}
-          weight="duotone"
+        <SimplefinConnectionsCard
+          status={simplefinStatus}
+          loading={simplefinLoading}
+          onChange={onSimplefinChange}
+          flash={flash}
+          defaultOpen={false}
         />
-        <div className="min-w-0">
-          <div className="text-xs font-medium">Bills this month</div>
-          <div className="text-sm text-pretty">
-            <span className="font-medium tabular-nums">
-              {paid} of {total}
-            </span>{" "}
-            bill{total === 1 ? "" : "s"} paid
-            {needsAttention > 0 && (
-              <span className="text-warning-foreground">
-                {" · "}
-                {needsAttention} need{needsAttention === 1 ? "s" : ""} attention
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-      <CaretRightIcon className="size-4 shrink-0 text-muted-foreground" weight="duotone" />
-    </Link>
+      </CardContent>
+    </Card>
   );
 }
 
-function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpend"] }) {
-  const tone =
-    result.status === "on-track"
-      ? "border-success/25 bg-success/5"
-      : result.status === "over-plan"
-        ? "border-destructive/30 bg-destructive/5"
-        : result.status === "tight"
-          ? "border-warning/30 bg-warning/5"
-          : "border-border bg-muted/20";
-  const statusLabel: Record<typeof result.status, string> = {
-    unavailable: "Setup needed",
-    "on-track": "On track",
-    tight: "Tight",
-    "over-plan": "Over plan",
-  };
-
-  return (
-    <div className={`rounded-lg border px-3 py-2.5 ${tone}`}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-medium">Monthly budget guardrail</div>
-          <div className="text-[11px] text-muted-foreground">Not available cash or net worth</div>
-        </div>
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {statusLabel[result.status]}
-        </span>
-      </div>
-      {result.status === "unavailable" ? (
-        <p className="mt-2 text-xs text-muted-foreground">{result.explanation}</p>
-      ) : (
-        <>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <div>
-              <div className="text-lg font-semibold tabular-nums">
-                {fmtMoney(result.safeToSpendThisMonth)}
-              </div>
-              <div className="text-[11px] text-muted-foreground">safe to spend this month</div>
-            </div>
-            <div className="text-right">
-              <div className="font-medium tabular-nums">
-                {fmtMoney(result.safeToSpendPerDay)}/day
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                {result.remainingDays} day{result.remainingDays === 1 ? "" : "s"} left
-              </div>
-            </div>
-          </div>
-          <details className="mt-2 border-t border-current/10 pt-2 text-[11px] text-muted-foreground">
-            <summary className="cursor-pointer font-medium text-foreground">
-              Show calculation
-            </summary>
-            <div className="mt-2 space-y-1 tabular-nums">
-              <GuardrailLine label="Monthly take-home" value={result.monthlyTakeHome} />
-              <GuardrailLine label="Posted plan spending" value={-result.postedPlanSpend} />
-              <GuardrailLine label="Upcoming recurring" value={-result.upcomingRecurring} />
-              <GuardrailLine label="One-time spending" value={-result.oneTimeSpend} />
-              <GuardrailLine
-                label="Left before savings"
-                value={result.remainingAfterCommitted}
-                strong
-              />
-              <GuardrailLine label="Savings target" value={result.savingsTarget} />
-              <GuardrailLine label="Savings committed" value={result.savingsCommitted} />
-              <GuardrailLine label="Still needed for savings" value={-result.savingsReserve} />
-              <GuardrailLine label="Safe to spend" value={result.safeToSpendThisMonth} strong />
-            </div>
-            <p className="mt-2 text-pretty">{result.explanation}</p>
-          </details>
-        </>
-      )}
-    </div>
-  );
-}
-
-function GuardrailLine({
-  label,
-  value,
-  strong = false,
-}: {
-  label: string;
-  value: number;
-  strong?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between gap-3 ${strong ? "font-medium text-foreground" : ""}`}
-    >
-      <span>{label}</span>
-      <span>
-        {value < 0 ? "−" : value > 0 ? "+" : ""}
-        {fmtMoney(Math.abs(value))}
-      </span>
-    </div>
-  );
-}
-
-function CashFlowCalendarCard({ result }: { result: FinanceHubPayload["cashFlowCalendar"] }) {
-  const tone =
-    result.status === "healthy"
-      ? "border-success/25 bg-success/5"
-      : result.status === "negative"
-        ? "border-destructive/30 bg-destructive/5"
-        : "border-warning/30 bg-warning/5";
-  const statusLabel: Record<typeof result.status, string> = {
-    healthy: "Healthy",
-    tight: "Tight",
-    negative: "Below zero",
-  };
-  const upcoming = result.events.slice(0, 4);
-
-  return (
-    <div className={`rounded-lg border px-3 py-2.5 ${tone}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-medium">30-day cash-flow outlook</div>
-          <div className="text-[11px] text-muted-foreground">Cash, checking, and savings only</div>
-        </div>
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {statusLabel[result.status]}
-        </span>
-      </div>
-      <div className="mt-2 flex items-end justify-between gap-3">
-        <div>
-          <div className="text-lg font-semibold tabular-nums">
-            {fmtMoney(result.projectedFloor)}
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            projected floor · {fmtISODate(result.projectedFloorDate)}
-          </div>
-        </div>
-        <span className="text-right text-[11px] text-muted-foreground">
-          {result.horizonDays}-day view
-        </span>
-      </div>
-      {upcoming.length > 0 && (
-        <ul className="mt-2 divide-y divide-border/50 text-xs">
-          {upcoming.map((event, index) => (
-            <li
-              key={`${event.date}-${event.type}-${event.label}-${index}`}
-              className="flex items-center justify-between gap-2 py-1.5"
-            >
-              <span className="min-w-0 truncate">
-                <span className="mr-1.5 text-muted-foreground">{fmtISODate(event.date)}</span>
-                {event.label}
-              </span>
-              <span
-                className={`shrink-0 tabular-nums ${event.amount < 0 ? "text-destructive" : "text-info"}`}
-              >
-                {event.amount < 0 ? "-" : "+"}
-                {fmtMoney(Math.abs(event.amount))}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-// Coach's "next moves" — always visible when suggestions exist (never
-// collapsed), compact and scannable. This is the single home for finance coach
-// suggestions; the Budget tab intentionally has none. Shows the top 3.
 const ADVICE_META: Record<
   FinanceAdviceItem["category"],
   { label: string; Icon: typeof SparkleIcon }
@@ -849,7 +1099,7 @@ const ADVICE_META: Record<
   earn: { label: "Earn more", Icon: SparkleIcon },
 };
 
-const FINANCE_HIGHLIGHT_RE = /(\$[\d,]+(?:\.\d+)?|\d+(?:\.\d+)?%?)/;
+const FINANCE_HIGHLIGHT_RE = /(\$[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%?\b)/;
 
 function renderHighlightedAdvice(text: string) {
   return text.split(FINANCE_HIGHLIGHT_RE).map((part, index) =>
@@ -902,7 +1152,7 @@ function CoachSuggestions({
   if (!topItems.length) {
     if (!loading) return null;
     return (
-      <Card role="status" aria-busy="true" className="overflow-hidden border-primary/25 shadow-sm">
+      <Card role="status" aria-busy="true" className="coach-accent overflow-hidden">
         <span className="sr-only">Loading coach suggestions…</span>
         {header}
         <CardContent className="pt-0">
@@ -939,7 +1189,7 @@ function CoachSuggestions({
   }
 
   return (
-    <Card className="overflow-hidden border-primary/25 shadow-sm">
+    <Card className="coach-accent overflow-hidden">
       {header}
       <CardContent className="pt-0">
         <ul className="divide-y divide-border/50">
@@ -981,144 +1231,206 @@ function CoachSuggestions({
   );
 }
 
-function EmergencyFundProgressCard({
-  fund,
-  monthlyContribution,
+function SpendingWatchlistCard({
+  transactions,
+  month,
+  onChange,
+  flash,
 }: {
-  fund: ReturnType<typeof calculateEmergencyFund>;
-  monthlyContribution: number;
+  transactions: Transaction[];
+  month: string;
+  onChange: () => Promise<void>;
+  flash: (msg: string, ms?: number) => void;
 }) {
-  const progress = fund.target > 0 ? Math.min(100, (fund.currentSavings / fund.target) * 100) : 0;
-  const minimumProgress =
-    fund.target > 0 ? Math.min(100, (fund.minimumTarget / fund.target) * 100) : 0;
-  const statusLabel: Record<typeof fund.status, string> = {
-    "not-started": "Build first month",
-    building: "Core buffer funded",
-    funded: "Fully funded",
-    surplus: "Surplus cash",
-  };
-  const statusClass =
-    fund.status === "funded" || fund.status === "surplus"
-      ? "bg-success/10 text-success ring-success/20"
-      : fund.status === "building"
-        ? "bg-warning/10 text-warning-foreground ring-warning/20"
-        : "bg-muted/40 text-muted-foreground ring-foreground/10";
+  const rows = useMemo(() => rollupWatchlistMonth(transactions, month), [transactions, month]);
+  const total = rows.reduce((sum, row) => sum + row.spent, 0);
+  const [openId, setOpenId] = useState<WatchlistId | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const openRow = rows.find((row) => row.id === openId);
+  const openTxns = useMemo(() => {
+    if (!openId) return [];
+    return transactionsForMonth(transactions, month)
+      .filter((t) => !t.deletedAt && t.watchlistId === openId && t.amount < 0)
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+      .slice(0, 12);
+  }, [openId, transactions, month]);
+
+  async function reassign(txnId: string, watchlistId: WatchlistId | null) {
+    setBusy(true);
+    try {
+      await setTransactionWatchlist({ data: { id: txnId, watchlistId, remember: true } });
+      await onChange();
+      flash(
+        watchlistId
+          ? `Moved to ${WATCHLIST_META[watchlistId].shortLabel}.`
+          : "Removed from watchlist.",
+      );
+    } catch (err) {
+      console.error(err);
+      flash("Couldn’t update watchlist.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <Card className="overflow-hidden border-success/20 bg-linear-to-br from-success/6 to-card">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-          <span className="flex items-center gap-2">
-            <PiggyBankIcon className="size-4 text-success" weight="duotone" />
-            Emergency fund
-          </span>
-          <span
-            className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ring-1 ${statusClass}`}
-          >
-            {statusLabel[fund.status]}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-3 pb-2">
         <div>
-          <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-            <span className="text-muted-foreground">
-              {fund.monthsCovered.toFixed(1)} months covered
-            </span>
-            <span className="tabular-nums text-muted-foreground">
-              {fmtMoney(fund.currentSavings)} / {fmtMoney(fund.target)}
-            </span>
-          </div>
-          <div className="relative h-3 overflow-hidden rounded-full bg-muted">
-            <span
-              className="absolute inset-y-0 left-0 w-px bg-foreground/35"
-              style={{ left: `${minimumProgress}%` }}
-              aria-hidden
-            />
-            <span
-              className="absolute inset-y-0 left-0 rounded-full bg-success transition-[width] duration-300 ease-out"
-              style={{ width: `${progress}%` }}
-              aria-hidden
-            />
-          </div>
-          <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-            <span>3-month floor {fmtMoney(fund.minimumTarget)}</span>
-            <span>6-month target</span>
-          </div>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            <EyeIcon className="size-4 text-muted-foreground" weight="duotone" />
+            Spending watchlist
+          </CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            This month’s problem areas only — not your full 50/30/20 plan. Auto-tagged from
+            merchants; tap a row to correct.
+          </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <MiniStat label="Monthly essentials" value={fmtMoney(fund.monthlyEssentialExpenses)} />
-          <MiniStat
-            label={fund.shortfall > 0 ? "Shortfall" : "Surplus"}
-            value={fmtMoney(fund.shortfall > 0 ? fund.shortfall : fund.surplus)}
-          />
-          <MiniStat
-            label="Time to target"
-            value={
-              fund.monthsToTarget === null
-                ? "Set transfer"
-                : fund.monthsToTarget === 0
-                  ? "Ready"
-                  : `${fund.monthsToTarget} mo`
-            }
-          />
-        </div>
-        <p className="text-pretty text-xs text-muted-foreground">
-          Cash-like balances are compared with essential monthly expenses.{" "}
-          {monthlyContribution > 0
-            ? `${fmtMoney(monthlyContribution)}/mo of surplus or recurring savings is available to close the gap.`
-            : "Add a recurring savings transfer or create monthly surplus to estimate the finish date."}
-        </p>
+        {total > 0 && (
+          <div className="text-right">
+            <div className="text-lg font-semibold tabular-nums">{fmtMoney(total)}</div>
+            <div className="text-[11px] text-muted-foreground">tracked spend</div>
+          </div>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No watchlist spend yet this month. Groceries, dining, shopping, subscriptions, and
+            coffee get tagged automatically as transactions land.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {rows.map((row, index) => {
+              const share = total > 0 ? Math.round((row.spent / total) * 100) : 0;
+              const active = openId === row.id;
+              return (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(active ? null : row.id)}
+                    className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+                      active ? "bg-muted/40" : "hover:bg-muted/25"
+                    }`}
+                  >
+                    <span className="w-4 shrink-0 text-center text-[11px] tabular-nums text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-medium">{row.label}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {share > 0 ? `${share}%` : ""}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="block h-full rounded-full bg-primary/70"
+                          style={{ width: `${Math.max(share, 2)}%` }}
+                          aria-hidden
+                        />
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {row.count} charge{row.count === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <span className="shrink-0 self-start font-medium tabular-nums">
+                      {fmtMoney(row.spent)}
+                    </span>
+                  </button>
+                  {active && openRow && (
+                    <ul className="mt-1 space-y-1 border-l-2 border-warning/30 pl-2.5">
+                      {openTxns.map((t) => (
+                        <li
+                          key={t.id}
+                          className="flex items-center justify-between gap-2 py-1 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{displayMerchant(t)}</div>
+                            <TxnSubline t={t} className="text-[10px]" />
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className="tabular-nums text-destructive">
+                              −{fmtMoney(Math.abs(t.amount))}
+                            </span>
+                            <WatchlistPicker
+                              value={t.watchlistId}
+                              disabled={busy}
+                              onSelect={(id) => reassign(t.id, id)}
+                            />
+                          </div>
+                        </li>
+                      ))}
+                      {openTxns.length === 0 && (
+                        <li className="py-1 text-muted-foreground">No charges listed.</li>
+                      )}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function TransactionsCard({ transactions }: { transactions: Transaction[] }) {
-  const recent = [...transactions].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10);
-
+function WatchlistPicker({
+  value,
+  disabled,
+  onSelect,
+}: {
+  value?: WatchlistId;
+  disabled?: boolean;
+  onSelect: (id: WatchlistId | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-3 pb-2">
-        <CardTitle className="text-base">Recent transactions</CardTitle>
-        <Button asChild variant="ghost" size="sm" className="shrink-0 text-muted-foreground">
-          <Link to="/finance/transactions">View all →</Link>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          className="h-6 px-1.5 text-[10px] text-muted-foreground"
+        >
+          {value ? WATCHLIST_META[value].shortLabel : "Tag"}
         </Button>
-      </CardHeader>
-      <CardContent>
-        {recent.length ? (
-          <ul className="divide-y divide-border">
-            {recent.map((transaction) => (
-              <li
-                key={transaction.id}
-                className="flex items-center justify-between gap-3 py-2 text-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate">
-                      {transaction.category ? cleanMerchantName(transaction.category) : "—"}
-                    </span>
-                    {transaction.categoryGroup && <GroupChip group={transaction.categoryGroup} />}
-                  </div>
-                  <TxnSubline t={transaction} className="text-xs" />
-                </div>
-                <span
-                  className={`shrink-0 tabular-nums ${transaction.amount < 0 ? "text-destructive" : "text-success"}`}
-                >
-                  {transaction.amount < 0 ? "−" : "+"}
-                  {fmtMoney(Math.abs(transaction.amount))}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No transactions yet. Connect your bank below or import a CSV statement on the Budget
-            tab.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-48 p-1">
+        <div className="space-y-0.5">
+          {WATCHLIST_IDS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted ${
+                value === id ? "bg-muted font-medium" : ""
+              }`}
+              onClick={() => {
+                setOpen(false);
+                onSelect(id);
+              }}
+            >
+              <span>{WATCHLIST_META[id].shortLabel}</span>
+              {value === id && <CheckIcon className="size-3.5" weight="bold" />}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
+            onClick={() => {
+              setOpen(false);
+              onSelect(null);
+            }}
+          >
+            None
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

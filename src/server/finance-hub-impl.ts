@@ -1,16 +1,34 @@
-import type { ISODate } from "@/lib/domain";
-import { isCuttableSubscription, subscriptionMonthlyCost } from "@/lib/domain";
+import type { CategoryGroup, ISODate, Transaction, WatchlistId } from "@/lib/domain";
+import {
+  DEFAULT_BUDGET_TARGETS,
+  isCuttableSubscription,
+  recurringBudgetBucket,
+  spendAmountOf,
+  spendBucketOf,
+  subscriptionMonthlyCost,
+} from "@/lib/domain";
+import { activeTransactions, cashBalance, cashFlowBalance, isActive } from "@/lib/finance-accounts";
 import {
   addUnseenRecurringToBuckets,
   analyzeRecurringHealth,
+  buildBudgetInsight,
+  buildCashFlowProjection,
   calculateCashFlowCalendar,
+  calculateEmergencyFund,
   calculateSafeToSpend,
   monthKey,
+  recurringAdditionsForMonth,
   rollupMonth,
+  transactionsBeforeMonth,
+  transactionsForMonth,
+  withAutoWatchlist,
+  type BudgetBucket,
   type MonthBuckets,
+  type WatchlistRuleValue,
 } from "@/lib/finance-math";
 import {
   loadBudgetImpl,
+  loadCategoryRulesImpl,
   loadLatestDailyFinanceImpl,
   loadSubscriptionsImpl,
   loadTransactionsImpl,
@@ -28,17 +46,127 @@ export async function loadFinanceSnapshotForHubImpl(
   return loadLatestDailyFinanceImpl(day);
 }
 
+/**
+ * Preview watchlist labels for the current month without writing the ledger.
+ * Persistence only happens on import/sync or explicit user correction — hub reads
+ * must never rewrite transactions.json (that can race and thrash budget views).
+ */
+function withWatchlistPreview(
+  transactions: Transaction[],
+  month: string,
+  rules: Record<string, WatchlistRuleValue | CategoryGroup>,
+): Transaction[] {
+  return transactions.map((t) => {
+    if (t.deletedAt || monthKey(t.timestamp) !== month) return t;
+    const next = withAutoWatchlist(t, rules);
+    // Guard: watchlist preview may only touch watchlist fields.
+    if (
+      next.categoryGroup !== t.categoryGroup ||
+      next.amount !== t.amount ||
+      next.excludeFromBudget !== t.excludeFromBudget
+    ) {
+      return {
+        ...t,
+        watchlistId: next.watchlistId as WatchlistId | undefined,
+        watchlistSource: next.watchlistSource,
+      };
+    }
+    return next;
+  });
+}
+
 /** Assemble the Finance Hub's single read payload. */
 export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayload> {
-  const [snapshotInfo, budget, subs, txns] = await Promise.all([
+  const [snapshotInfo, budget, subs, txns, rulesStore] = await Promise.all([
     loadFinanceSnapshotForHubImpl(day),
     loadBudgetImpl(),
     loadSubscriptionsImpl(),
     loadTransactionsImpl(),
+    loadCategoryRulesImpl(),
   ]);
-  const subscriptions = subs.subscriptions.filter((s) => !s.deletedAt);
-  const transactions = txns.transactions.filter((t) => !t.deletedAt);
-  const deletedTransactions = txns.transactions.filter((t) => !!t.deletedAt);
+  const month = day.slice(0, 7);
+  // In-memory only: never CAS-write the ledger on a read path.
+  const previewed = withWatchlistPreview(txns.transactions, month, rulesStore.rules);
+  const subscriptions = subs.subscriptions.filter(isActive);
+  const transactions = activeTransactions(previewed);
+  const deletedTransactions = previewed.filter((t) => !isActive(t));
+
+  // Full-month budget insight shared by Overview and the emergency fund. This is
+  // the whole month's activity (no as-of-day cap) — exactly what Overview computed
+  // client-side before. Computing it once here keeps Overview and the emergency
+  // fund from drifting. Safe-to-spend intentionally does NOT reuse this: its
+  // guardrail is "spent so far", so it recomputes a day-capped insight internally.
+  const targets = budget?.targets ?? DEFAULT_BUDGET_TARGETS;
+  const budgetInsight = buildBudgetInsight({
+    transactions,
+    subscriptions,
+    month,
+    takeHome: budget?.monthlyTakeHome ?? 0,
+    targets,
+    priorTransactions: transactionsBeforeMonth(transactions, month),
+  });
+
+  // Cash-flow projection input assembly — mirrored from former CashFlowProjectionCard.
+  const startMonth = day.slice(0, 7);
+  const cashOnHand = cashBalance(snapshotInfo.snapshot.accounts);
+  const monthTxns = transactionsForMonth(transactions, startMonth);
+  const takeHome =
+    budget?.monthlyTakeHome ??
+    monthTxns
+      .filter((t) => t.amount > 0 && t.categoryGroup === "income")
+      .reduce((sum, t) => sum + t.amount, 0);
+  const buckets: Record<BudgetBucket, number> = {
+    needs: 0,
+    wants: 0,
+    savings: 0,
+  };
+  for (const t of monthTxns) {
+    if (t.excludeFromBudget) continue;
+    const bucket = spendBucketOf(t.categoryGroup);
+    if (bucket) buckets[bucket] += spendAmountOf(t);
+  }
+  const recurring = recurringAdditionsForMonth(subscriptions, monthTxns, startMonth);
+  const monthlyBuckets =
+    takeHome > 0
+      ? {
+          needs: Math.max(buckets.needs + recurring.needs, takeHome * targets.needs),
+          wants: Math.max(buckets.wants + recurring.wants, takeHome * targets.wants),
+          savings: Math.max(buckets.savings + recurring.savings, takeHome * targets.savings),
+        }
+      : {
+          needs: buckets.needs + recurring.needs,
+          wants: buckets.wants + recurring.wants,
+          savings: buckets.savings + recurring.savings,
+        };
+  const cashFlowProjection = buildCashFlowProjection({
+    startMonth,
+    months: 12,
+    transactions,
+    subscriptions,
+    startingCash: cashOnHand,
+    monthlyIncome: takeHome,
+    monthlyBuckets,
+    includeRecurringCommitments: false,
+  });
+
+  // Emergency fund — mirrored from former OverviewTab assembly.
+  // Prefer budget take-home (0 when unset), matching overview.tsx not the projection path.
+  const emergencyTakeHome = budget?.monthlyTakeHome ?? 0;
+  const monthlyEssentialExpenses = Math.max(
+    budgetInsight.bucketTotals.needs,
+    emergencyTakeHome > 0 ? emergencyTakeHome * targets.needs : 0,
+  );
+  const cashFlow = budgetInsight.leftAfterOut;
+  const recurringSavingsMonthly = subscriptions
+    .filter((s) => s.status === "active" && recurringBudgetBucket(s) === "savings")
+    .reduce((sum, s) => sum + subscriptionMonthlyCost(s), 0);
+  const emergencyContribution = Math.max(0, cashFlow, recurringSavingsMonthly);
+  const emergencyFund = calculateEmergencyFund({
+    monthlyEssentialExpenses,
+    currentSavings: cashOnHand,
+    monthlyContribution: emergencyContribution,
+  });
+
   return {
     snapshot: snapshotInfo.snapshot,
     snapshotSourceDate: snapshotInfo.sourceDate,
@@ -47,6 +175,7 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
     transactions,
     deletedTransactions,
     recurringInsights: analyzeRecurringHealth({ subscriptions, transactions: txns.transactions }),
+    budgetInsight,
     safeToSpend: calculateSafeToSpend({
       budget,
       subscriptions,
@@ -55,19 +184,15 @@ export async function loadFinanceHubImpl(day: ISODate): Promise<FinanceHubPayloa
     }),
     cashFlowCalendar: calculateCashFlowCalendar({
       todayISO: day,
-      currentCashBalance: snapshotInfo.snapshot.accounts
-        .filter((account) => /(?:checking|savings|cash|bank)/i.test(account.account))
-        .filter(
-          (account) =>
-            !/(?:loan|credit|card|401k|ira|brokerage|investment|stock|crypto)/i.test(
-              account.account,
-            ),
-        )
-        .reduce((sum, account) => sum + account.amount, 0),
+      // Signed cash (overdrafts included) so an overdrawn checking account still
+      // lowers the projected starting balance, matching the former inline filter.
+      currentCashBalance: cashFlowBalance(snapshotInfo.snapshot.accounts),
       monthlyTakeHome: budget?.monthlyTakeHome,
       paySchedule: budget?.paySchedule,
       subscriptions,
     }),
+    cashFlowProjection,
+    emergencyFund,
   };
 }
 
@@ -86,7 +211,7 @@ export async function applyRecurringInsightImpl(data: {
     loadSubscriptionsImpl(),
     loadTransactionsImpl(),
   ]);
-  const subscriptions = subsStore.subscriptions.filter((s) => !s.deletedAt);
+  const subscriptions = subsStore.subscriptions.filter(isActive);
   const insight = analyzeRecurringHealth({
     subscriptions,
     transactions: txnStore.transactions,
@@ -127,10 +252,10 @@ export async function loadFinanceContextImpl(date: ISODate): Promise<FinanceCont
     loadSubscriptionsImpl(),
     loadTransactionsImpl(),
   ]);
-  const transactions = txns.transactions.filter((t) => !t.deletedAt);
+  const transactions = activeTransactions(txns.transactions);
   const month = date.slice(0, 7);
   const thisMonth = rollupMonth(transactions, month);
-  const active = subs.subscriptions.filter((s) => !s.deletedAt && s.status === "active");
+  const active = subs.subscriptions.filter((s) => isActive(s) && s.status === "active");
   const monthTxns = transactions.filter((t) => monthKey(t.timestamp) === month);
   addUnseenRecurringToBuckets(thisMonth, active, monthTxns);
   const cuttableSubscriptions = active.filter(isCuttableSubscription);

@@ -1,5 +1,11 @@
-import type { CategoryGroup, Subscription, Transaction } from "@/lib/domain";
-import { cleanMerchantName, newId, recurringBudgetBucket, todayISO } from "@/lib/domain";
+import type { CategoryGroup, Subscription, Transaction, WatchlistId } from "@/lib/domain";
+import {
+  cleanMerchantName,
+  newId,
+  recurringBudgetBucket,
+  todayISO,
+  transactionMerchant,
+} from "@/lib/domain";
 import {
   categorize,
   dedupeKeyFor,
@@ -16,6 +22,7 @@ import {
   detectRecurringCandidates,
   explainRecurringHealth,
   monthKey,
+  withAutoWatchlist,
   type RecurringHealthTrace,
 } from "@/lib/finance-math";
 import {
@@ -29,11 +36,12 @@ import {
 } from "@/server/finance-ai-match";
 import {
   appendTransactionImpl,
+  categoryGroupRulesOf,
+  learnMerchantRuleImpl,
   loadCategoryRulesImpl,
   loadSubscriptionsImpl,
   loadTransactionsImpl,
   saveSubscriptionsImpl,
-  updateCategoryRulesImpl,
   updateTransactionsImpl,
 } from "@/server/domain-impl";
 
@@ -57,7 +65,8 @@ export async function importTransactionsImpl(data: {
 
   const headerIdx = findHeaderIndex(rows);
   const columns = detectColumns(rows[headerIdx]);
-  const rules = (await loadCategoryRulesImpl()).rules;
+  const storedRules = (await loadCategoryRulesImpl()).rules;
+  const groupRules = categoryGroupRulesOf(storedRules);
   const now = Date.now();
   let parsed: Transaction[] = [];
   let sample: ImportResult["sample"] = [];
@@ -104,21 +113,26 @@ export async function importTransactionsImpl(data: {
         skipped++;
         continue;
       }
-      const group = categorize(description, amount, rules);
-      const transaction: Transaction = {
-        id: newId("txn"),
-        createdAt: now,
-        timestamp,
-        type: amount > 0 ? "deposit" : "withdrawal",
-        amount,
-        currency: "USD",
-        account: acct,
-        category: description.slice(0, 60),
-        categoryGroup: group,
-        notes: undefined,
-        dedupeKey,
-        source: "import",
-      };
+      const group = categorize(description, amount, groupRules);
+      const merchant = description.slice(0, 60);
+      const transaction = withAutoWatchlist(
+        {
+          id: newId("txn"),
+          createdAt: now,
+          timestamp,
+          type: (amount > 0 ? "deposit" : "withdrawal") as Transaction["type"],
+          amount,
+          currency: "USD",
+          account: acct,
+          merchant,
+          category: merchant,
+          categoryGroup: group,
+          notes: undefined,
+          dedupeKey,
+          source: "import" as const,
+        },
+        storedRules,
+      );
       if (transactions.some((existing) => crossSourceTransactionMatches(transaction, existing))) {
         skipped++;
         continue;
@@ -166,13 +180,46 @@ export async function recategorizeTransactionImpl(data: {
   await updateTransactionsImpl((transactions) =>
     transactions.map((transaction) => {
       if (transaction.id !== data.id) return transaction;
-      learnedKey = normalizeMerchant(transaction.category || "");
+      learnedKey = normalizeMerchant(transactionMerchant(transaction));
       return { ...transaction, categoryGroup: data.group, updatedAt: now };
     }),
   );
   if (learnedKey) {
-    const key: string = learnedKey;
-    await updateCategoryRulesImpl((rules) => ({ ...rules, [key]: data.group }));
+    await learnMerchantRuleImpl({ merchantKey: learnedKey, group: data.group });
+  }
+  return { ok: true };
+}
+
+/** Set or clear a Spending Watchlist label; optionally learn for this merchant. */
+export async function setTransactionWatchlistImpl(data: {
+  id: string;
+  watchlistId: WatchlistId | null;
+  remember?: boolean;
+}): Promise<{ ok: true }> {
+  const now = Date.now();
+  let learnedKey: string | null = null;
+  await updateTransactionsImpl((transactions) =>
+    transactions.map((transaction) => {
+      if (transaction.id !== data.id) return transaction;
+      learnedKey = normalizeMerchant(transactionMerchant(transaction));
+      if (data.watchlistId === null) {
+        const { watchlistId: _drop, ...rest } = transaction;
+        return { ...rest, watchlistSource: "user" as const, updatedAt: now };
+      }
+      return {
+        ...transaction,
+        watchlistId: data.watchlistId,
+        watchlistSource: "user" as const,
+        updatedAt: now,
+      };
+    }),
+  );
+  if (data.remember !== false && learnedKey) {
+    await learnMerchantRuleImpl({
+      merchantKey: learnedKey,
+      watchlistId: data.watchlistId,
+      clearWatchlist: data.watchlistId === null,
+    });
   }
   return { ok: true };
 }
@@ -324,13 +371,15 @@ export async function markRecurringPaidImpl(data: {
   const subscription = subscriptions.find((item) => item.id === data.subId && !item.deletedAt);
   if (!subscription) throw new Error("Recurring item not found.");
   const amount = data.amount && data.amount > 0 ? data.amount : subscription.amount;
+  const merchant = subscription.name;
   await appendTransactionImpl({
     timestamp: markPaidTimestamp(data.month),
     type: "withdrawal",
     amount: -Math.abs(amount),
     currency: "USD",
     account: subscription.account || "Cash / Venmo",
-    category: subscription.name,
+    merchant,
+    category: merchant,
     categoryGroup: recurringBudgetBucket(subscription),
     notes: "Marked paid manually",
     source: "manual",
@@ -372,7 +421,11 @@ export async function recategorizeAllTransactionsImpl(): Promise<{
   changed: number;
   total: number;
 }> {
-  const [{ rules }, aiCache] = await Promise.all([loadCategoryRulesImpl(), loadAiMatchCache()]);
+  const [{ rules: storedRules }, aiCache] = await Promise.all([
+    loadCategoryRulesImpl(),
+    loadAiMatchCache(),
+  ]);
+  const groupRules = categoryGroupRulesOf(storedRules);
   const now = Date.now();
   let changed = 0;
   let total = 0;
@@ -381,14 +434,31 @@ export async function recategorizeAllTransactionsImpl(): Promise<{
     total = transactions.length;
     return transactions.map((transaction) => {
       if (transaction.deletedAt) return transaction;
-      const description = transaction.category || "";
+      // Merchant/description only — never `notes`. Notes carry user prose
+      // ("Marked paid manually") and re-deriving groups from them makes
+      // Recategorize All shift 50/30/20 buckets with no transaction edits.
+      const description = (transaction.merchant || transaction.category || "").trim();
       const group =
-        ruleGroupFor(description, rules) ??
+        ruleGroupFor(description, groupRules) ??
         cachedGroupFor(description, aiCache) ??
-        categorize(description, transaction.amount, rules);
-      if (group === transaction.categoryGroup) return transaction;
+        categorize(description, transaction.amount, groupRules);
+      let next = transaction;
+      if (group !== transaction.categoryGroup) {
+        next = { ...next, categoryGroup: group, updatedAt: now };
+      }
+      if (!next.merchant && description) {
+        next = { ...next, merchant: description.slice(0, 60), updatedAt: now };
+      }
+      next = withAutoWatchlist(next, storedRules);
+      if (
+        next.categoryGroup === transaction.categoryGroup &&
+        next.watchlistId === transaction.watchlistId &&
+        next.merchant === transaction.merchant
+      ) {
+        return transaction;
+      }
       changed++;
-      return { ...transaction, categoryGroup: group, updatedAt: now };
+      return { ...next, updatedAt: now };
     });
   });
   return { changed, total };

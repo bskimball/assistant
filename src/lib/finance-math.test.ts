@@ -18,13 +18,17 @@ import {
   explainRecurringHealth,
   fallbackFinanceAdvice,
   inferCadence,
+  keywordWatchlistFor,
   normalizeMerchant,
+  recurringAdditionsFromItems,
   recurringItemsForMonth,
   recurringMatchesTransaction,
   rollupMonth,
+  rollupWatchlistMonth,
   simulateDebtPayoff,
   transactionsBeforeMonth,
   transactionsForMonth,
+  withAutoWatchlist,
 } from "@/lib/finance-math";
 
 const jan = Date.UTC(2026, 0, 15);
@@ -38,8 +42,11 @@ function txn(partial: Partial<Transaction>): Transaction {
     type: partial.type ?? (partial.amount && partial.amount > 0 ? "deposit" : "withdrawal"),
     amount: partial.amount ?? -10,
     currency: partial.currency ?? "USD",
+    merchant: partial.merchant,
     category: partial.category ?? "Vendor",
     categoryGroup: partial.categoryGroup ?? "wants",
+    watchlistId: partial.watchlistId,
+    watchlistSource: partial.watchlistSource,
     account: partial.account,
     notes: partial.notes,
     excludeFromBudget: partial.excludeFromBudget,
@@ -731,10 +738,86 @@ describe("finance math", () => {
     expect(insight.bucketDeltas.wants).toBe(-850);
     expect(insight.bucketDeltas.savings).toBe(500);
     expect(insight.projectedPlanSpend).toBeCloseTo(6456.67, 2);
-    expect(insight.lines[0]).toContain("Committed so far");
-    expect(insight.lines[0]).toContain("$3,100 plan + $50 remaining recurring = $3,150");
+    expect(insight.lines[0]).toContain("Plan so far");
+    expect(insight.lines[0]).toContain(
+      "$3,100 (needs + wants + savings contributions) + $50 remaining recurring = $3,150",
+    );
     expect(insight.lines.length).toBeLessThanOrEqual(4);
     expect(insight.lines.join(" ")).toContain("Biggest one-time: Legal Aid, $400");
+  });
+
+  it("month money identities match Overview and Budget (single source of truth)", () => {
+    const insight = buildBudgetInsight({
+      now: Date.UTC(2026, 0, 15),
+      month: "2026-01",
+      takeHome: 5000,
+      targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      subscriptions: [sub({ id: "gym", name: "Gym", amount: 50, group: "wants" })],
+      transactions: [
+        txn({ id: "rent", amount: -2000, category: "Rent", categoryGroup: "needs" }),
+        txn({ id: "dining", amount: -600, category: "Dining", categoryGroup: "wants" }),
+        txn({
+          id: "legal",
+          amount: -400,
+          category: "Legal Aid",
+          categoryGroup: "needs",
+          excludeFromBudget: true,
+        }),
+        txn({ id: "save", amount: -500, category: "Savings", categoryGroup: "savings" }),
+        txn({ id: "pay", amount: 4800, category: "Payroll", categoryGroup: "income" }),
+      ],
+    });
+
+    // Bucket identities (Budget bars)
+    expect(insight.statementBuckets).toEqual({ needs: 2000, wants: 600, savings: 500 });
+    expect(insight.unpaidRecurring).toEqual({ needs: 0, wants: 50, savings: 0 });
+    expect(insight.bucketTotals).toEqual({ needs: 2000, wants: 650, savings: 500 });
+    expect(insight.bucketTotals.needs).toBe(
+      insight.statementBuckets.needs + insight.unpaidRecurring.needs,
+    );
+    expect(insight.bucketTotals.wants).toBe(
+      insight.statementBuckets.wants + insight.unpaidRecurring.wants,
+    );
+    expect(insight.bucketTotals.savings).toBe(
+      insight.statementBuckets.savings + insight.unpaidRecurring.savings,
+    );
+
+    // Plan / out identities
+    expect(insight.planSpend).toBe(3100);
+    expect(insight.plannedRecurring).toBe(50);
+    expect(insight.oneTimeSpend).toBe(400);
+    expect(insight.committedPlan).toBe(3150);
+    expect(insight.committedPlan).toBe(
+      insight.bucketTotals.needs + insight.bucketTotals.wants + insight.bucketTotals.savings,
+    );
+    expect(insight.moneyOut).toBe(3550);
+    expect(insight.moneyOut).toBe(
+      insight.planSpend + insight.oneTimeSpend + insight.plannedRecurring,
+    );
+    expect(insight.moneyOut).toBe(
+      insight.bucketTotals.needs +
+        insight.bucketTotals.wants +
+        insight.bucketTotals.savings +
+        insight.oneTimeSpend,
+    );
+
+    // In / left identities
+    expect(insight.usingTakeHome).toBe(true);
+    expect(insight.moneyIn).toBe(5000);
+    expect(insight.importedIncome).toBe(4800);
+    expect(insight.leftAfterOut).toBe(1450);
+    expect(insight.leftAfterOut).toBe(insight.moneyIn - insight.moneyOut);
+    expect(insight.remainingAfterCommitted).toBe(insight.leftAfterOut);
+
+    // Savings target is NOT in moneyOut
+    expect(insight.savingsTarget).toBe(1000);
+    expect(insight.savingsTargetRemaining).toBe(500);
+    expect(insight.moneyOut).not.toBe(
+      insight.planSpend +
+        insight.oneTimeSpend +
+        insight.plannedRecurring +
+        insight.savingsTargetRemaining,
+    );
   });
 
   it("calculates safe-to-spend after commitments, savings reserve, and remaining days", () => {
@@ -815,7 +898,7 @@ describe("finance math", () => {
       safeToSpendPerDay: 0,
     });
     expect(result.explanation).toContain("$1,000 remains");
-    expect(result.explanation).toContain("$1,000 is still needed for the savings target");
+    expect(result.explanation).toContain("$1,000 is reserved for the remaining savings target");
   });
 
   it("marks a negative safe-to-spend plan as over-plan and never returns negative headroom", () => {
@@ -944,7 +1027,7 @@ describe("finance math", () => {
     expect(insight.variablePlanSpend).toBe(25);
     expect(insight.projectedPlanSpend).toBeCloseTo(5533.33, 2);
     expect(insight.projectedPlanSpend).toBeLessThan(11000 * 1.5);
-    expect(insight.lines[0]).toContain("Committed so far");
+    expect(insight.lines[0]).toContain("Plan so far");
     expect(insight.lines.join(" ")).not.toContain("At this pace");
   });
 
@@ -1847,5 +1930,207 @@ describe("finance math", () => {
     const earnItem = items.find((i) => i.category === "earn");
     expect(earnItem?.text).toContain("IT infrastructure");
     expect(earnItem?.action).toBe("Sell IT infrastructure");
+  });
+});
+
+describe("spending watchlist", () => {
+  it("maps common merchants to problem-area labels", () => {
+    expect(keywordWatchlistFor("COSTCO WHOLESALE #123")).toBe("groceries");
+    expect(keywordWatchlistFor("AMAZON.COM *AB12")).toBe("shopping");
+    expect(keywordWatchlistFor("DOORDASH *CHIPOTLE")).toBe("dining");
+    expect(keywordWatchlistFor("STARBUCKS STORE 442")).toBe("coffee_snacks");
+    expect(keywordWatchlistFor("NETFLIX.COM")).toBe("subscriptions");
+    expect(keywordWatchlistFor("SHELL OIL 123")).toBeNull();
+  });
+
+  it("auto-assigns watchlist labels without overriding user locks", () => {
+    const auto = withAutoWatchlist(
+      txn({ category: "TRADER JOE'S", amount: -42, categoryGroup: "needs" }),
+      {},
+    );
+    expect(auto.watchlistId).toBe("groceries");
+    expect(auto.watchlistSource).toBe("keyword");
+    // Watchlist must never move 50/30/20 buckets.
+    expect(auto.categoryGroup).toBe("needs");
+    expect(auto.amount).toBe(-42);
+
+    const locked = withAutoWatchlist(
+      txn({
+        category: "TRADER JOE'S",
+        amount: -42,
+        categoryGroup: "needs",
+        watchlistId: "dining",
+        watchlistSource: "user",
+      }),
+      {},
+    );
+    expect(locked.watchlistId).toBe("dining");
+    expect(locked.watchlistSource).toBe("user");
+    expect(locked.categoryGroup).toBe("needs");
+
+    const fromRule = withAutoWatchlist(
+      txn({ category: "WEIRD LOCAL CAFE", amount: -8, categoryGroup: "wants" }),
+      { "weird local": { watchlistId: "coffee_snacks" } },
+    );
+    expect(fromRule.watchlistId).toBe("coffee_snacks");
+    expect(fromRule.watchlistSource).toBe("rule");
+    expect(fromRule.categoryGroup).toBe("wants");
+  });
+
+  it("keeps budget insight remaining recurring aligned with prior-history bars", () => {
+    const weekly = sub({
+      id: "gym",
+      name: "Planet Fitness",
+      amount: 25,
+      cadence: "weekly",
+      kind: "subscription",
+      group: "wants",
+      nextChargeDate: "2026-01-06",
+    });
+    const monthTxns = [
+      txn({
+        id: "pf1",
+        category: "PLANET FITNESS",
+        amount: -25,
+        categoryGroup: "wants",
+        timestamp: Date.UTC(2026, 0, 6),
+      }),
+    ];
+    const prior = [
+      txn({
+        id: "pf0",
+        category: "PLANET FITNESS",
+        amount: -25,
+        categoryGroup: "wants",
+        timestamp: Date.UTC(2025, 11, 30),
+      }),
+    ];
+    const items = recurringItemsForMonth([weekly], monthTxns, prior, "2026-01");
+    const barRecurring = recurringAdditionsFromItems(items);
+    const insight = buildBudgetInsight({
+      transactions: monthTxns,
+      subscriptions: [weekly],
+      month: "2026-01",
+      takeHome: 5000,
+      targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      priorTransactions: prior,
+    });
+    expect(insight.plannedRecurring).toBe(
+      barRecurring.needs + barRecurring.wants + barRecurring.savings,
+    );
+  });
+
+  it("rolls up this-month watchlist spend descending", () => {
+    const rows = rollupWatchlistMonth(
+      [
+        txn({
+          id: "g1",
+          category: "Kroger",
+          amount: -80,
+          categoryGroup: "needs",
+          watchlistId: "groceries",
+        }),
+        txn({
+          id: "d1",
+          category: "DoorDash",
+          amount: -40,
+          categoryGroup: "wants",
+          watchlistId: "dining",
+        }),
+        txn({
+          id: "d2",
+          category: "Chipotle",
+          amount: -20,
+          categoryGroup: "wants",
+          watchlistId: "dining",
+        }),
+        txn({
+          id: "old",
+          timestamp: feb,
+          category: "Kroger",
+          amount: -100,
+          categoryGroup: "needs",
+          watchlistId: "groceries",
+        }),
+      ],
+      "2026-01",
+    );
+    expect(rows.map((r) => r.id)).toEqual(["groceries", "dining"]);
+    expect(rows[0].spent).toBe(80);
+    expect(rows[1].spent).toBe(60);
+    expect(rows[1].count).toBe(2);
+  });
+});
+
+// Regression guard for the "needs/wants bars moved but no transactions changed"
+// bug. The 50/30/20 rollup must depend ONLY on categoryGroup / amount / excluded
+// state — never on watchlist labels, merchant field shape, or auto-tagging.
+describe("50/30/20 rollup invariants", () => {
+  const ledger = [
+    txn({ id: "n1", category: "Kroger", amount: -200, categoryGroup: "needs" }),
+    txn({ id: "w1", category: "DoorDash", amount: -60, categoryGroup: "wants" }),
+    txn({ id: "s1", category: "Vanguard", amount: -300, categoryGroup: "savings" }),
+    txn({ id: "i1", category: "Payroll", amount: 5000, categoryGroup: "income" }),
+    txn({
+      id: "x1",
+      category: "Legal",
+      amount: -400,
+      categoryGroup: "needs",
+      excludeFromBudget: true,
+    }),
+  ];
+
+  it("is unchanged when watchlist labels are applied to every row", () => {
+    const before = rollupMonth(ledger, "2026-01");
+    const tagged = ledger.map((t) =>
+      withAutoWatchlist(t, {
+        kroger: { watchlistId: "groceries" },
+        doordash: { watchlistId: "dining" },
+      }),
+    );
+    const after = rollupMonth(tagged, "2026-01");
+    expect(after).toEqual(before);
+    // Concrete expected values so a silent formula change is caught too.
+    expect(after.needs).toBe(200);
+    expect(after.wants).toBe(60);
+    expect(after.savings).toBe(300);
+    expect(after.income).toBe(5000);
+  });
+
+  it("excludes one-time (excludeFromBudget) charges from the plan buckets", () => {
+    const buckets = rollupMonth(ledger, "2026-01");
+    // The $400 excluded legal charge must not inflate needs.
+    expect(buckets.needs).toBe(200);
+  });
+
+  it("reads merchant from `merchant`, `category`, or `notes` identically", () => {
+    const viaMerchant = withAutoWatchlist(
+      txn({ merchant: "AMAZON.COM", category: undefined, amount: -30, categoryGroup: "wants" }),
+      {},
+    );
+    const viaCategory = withAutoWatchlist(
+      txn({ category: "AMAZON.COM", amount: -30, categoryGroup: "wants" }),
+      {},
+    );
+    expect(viaMerchant.watchlistId).toBe("shopping");
+    expect(viaCategory.watchlistId).toBe("shopping");
+    // Neither shape may alter the 50/30/20 bucket.
+    expect(viaMerchant.categoryGroup).toBe("wants");
+    expect(viaCategory.categoryGroup).toBe("wants");
+  });
+
+  it("never assigns a watchlist label to income, transfers, savings, or deposits", () => {
+    for (const group of ["income", "transfer", "savings"] as const) {
+      const tagged = withAutoWatchlist(
+        txn({ category: "AMAZON.COM", amount: -30, categoryGroup: group }),
+        {},
+      );
+      expect(tagged.watchlistId).toBeUndefined();
+    }
+    const deposit = withAutoWatchlist(
+      txn({ category: "AMAZON.COM", amount: 30, categoryGroup: "wants" }),
+      {},
+    );
+    expect(deposit.watchlistId).toBeUndefined();
   });
 });

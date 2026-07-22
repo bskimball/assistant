@@ -306,7 +306,7 @@ function RecurringWhyPanel({
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+    <div className="zen-surface-nested mt-2 p-3 text-xs">
       <div className="flex flex-col gap-3">
         {deletedMatches.map((candidate) => {
           const transaction = byId.get(candidate.transactionId);
@@ -811,7 +811,7 @@ function RecurringRow({
       </button>
 
       <Collapse open={open}>
-        <div className="mb-2 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+        <div className="zen-surface-nested mb-2 space-y-3 p-3">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span>
               {s.cadence !== "monthly"
@@ -1459,7 +1459,7 @@ function DebtPayoffComparisonCard({ loans }: { loans: Subscription[] }) {
               {snowball && <DebtStrategySummary label="Snowball" simulation={snowball} />}
               {avalanche && <DebtStrategySummary label="Avalanche" simulation={avalanche} />}
             </div>
-            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="zen-surface-nested px-3 py-2 text-xs text-muted-foreground">
               {snowball?.feasible && avalanche?.feasible ? (
                 <>
                   Avalanche saves{" "}
@@ -1508,7 +1508,7 @@ function DebtStrategySummary({
   simulation: ReturnType<typeof simulateDebtPayoff>;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+    <div className="zen-surface-nested p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-medium">{label}</div>
         <Badge variant={simulation.feasible ? "secondary" : "outline"} className="text-[10px]">
