@@ -116,13 +116,18 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
   const activeTxns = activeTransactions(hub.transactions);
   const monthTxns = transactionsForMonth(activeTxns, selectedMonth);
   // Per-bucket totals + the transactions behind each bar. One-time charges the
-  // user has marked (excludeFromBudget) are kept in the lists and tracked as real
-  // money, but left out of plan totals so a single big bill doesn't blow the
-  // monthly 50/30/20 comparison. Bars are driven only by categoryGroup + remaining
-  // recurring — never by watchlist labels.
-  // Statement-only buckets (for optimistic recategorize UI). Unpaid recurring and
-  // final bar totals always come from buildBudgetInsight so Overview/Budget cannot drift.
+  // user has marked (excludeFromBudget) are counted this month against their
+  // category target and shown as a distinct one-time segment. Bars are driven
+  // only by categoryGroup + remaining recurring — never by watchlist labels.
+  // Statement-only + one-time locals feed the optimistic recategorize UI. Unpaid
+  // recurring and final bar totals always come from buildBudgetInsight so
+  // Overview/Budget cannot drift.
   const statementBucketsLocal: Record<BudgetBucket, number> = {
+    needs: 0,
+    wants: 0,
+    savings: 0,
+  };
+  const oneTimeBucketsLocal: Record<BudgetBucket, number> = {
     needs: 0,
     wants: 0,
     savings: 0,
@@ -136,7 +141,13 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     const b = moveOverrides[t.id] ?? spendBucketOf(t.categoryGroup);
     if (!b) continue;
     bucketTxns[b].push(t);
-    if (!t.excludeFromBudget) statementBucketsLocal[b] += spendAmountOf(t);
+    // Match buildBudgetInsight: only real charges (amount < 0) count as posted
+    // one-time, so a refund tagged one-time can't create a negative segment.
+    if (t.excludeFromBudget) {
+      if (t.amount < 0) oneTimeBucketsLocal[b] += spendAmountOf(t);
+    } else {
+      statementBucketsLocal[b] += spendAmountOf(t);
+    }
   }
   for (const b of ["needs", "wants", "savings"] as const) {
     bucketTxns[b].sort((a, c) => Math.abs(c.amount) - Math.abs(a.amount));
@@ -144,7 +155,11 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
   async function toggleExclude(id: string, excluded: boolean) {
     await setTransactionExcluded({ data: { id, excluded } });
     await onChange();
-    flash(excluded ? "Marked as one-time — left out of the plan." : "Back in the plan.");
+    flash(
+      excluded
+        ? "Marked as one-time — still counted this month, shown as one-time."
+        : "Marked as regular spending.",
+    );
   }
 
   async function dismissOneTime(id: string) {
@@ -195,16 +210,22 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
     priorTransactions: priorTxns,
   });
   const recurringAdditions = budgetInsight.unpaidRecurring;
+  const oneTimeBuckets = budgetInsight.oneTimeBuckets;
   const plannedRecurring = budgetInsight.plannedRecurring;
   // Prefer insight totals; only layer local statement overrides while a move is in-flight.
+  // All-in bars = posted regular + posted one-time + upcoming recurring.
   const hasMoveOverrides = Object.keys(moveOverrides).length > 0;
   const buckets: Record<BudgetBucket, number> = hasMoveOverrides
     ? {
-        needs: statementBucketsLocal.needs + recurringAdditions.needs,
-        wants: statementBucketsLocal.wants + recurringAdditions.wants,
-        savings: statementBucketsLocal.savings + recurringAdditions.savings,
+        needs: statementBucketsLocal.needs + oneTimeBucketsLocal.needs + recurringAdditions.needs,
+        wants: statementBucketsLocal.wants + oneTimeBucketsLocal.wants + recurringAdditions.wants,
+        savings:
+          statementBucketsLocal.savings + oneTimeBucketsLocal.savings + recurringAdditions.savings,
       }
-    : { ...budgetInsight.bucketTotals };
+    : { ...budgetInsight.allInBuckets };
+  const oneTimeByBucket: Record<BudgetBucket, number> = hasMoveOverrides
+    ? oneTimeBucketsLocal
+    : oneTimeBuckets;
   const oneTimeCandidates = isCurrentMonth
     ? detectOneTimeCandidates({
         transactions: activeTxns,
@@ -342,7 +363,7 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
                 take-home
               </span>
             </span>
-            <div className="flex flex-col gap-2 sm:items-end">
+            <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:justify-end">
               <MonthNav
                 month={selectedMonth}
                 onPrev={() => setSelectedMonth((m) => shiftMonth(m, -1))}
@@ -406,88 +427,131 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
             <span>Plan pacing for {formatMonthLabel(selectedMonth)} (not bank cash flow).</span>
             <InfoHint>
               Budget answers “how am I tracking the 50/30/20 plan?” Overview answers “what left the
-              account and what is still safe to spend?” Bars include needs, wants, and savings
-              contributions from imported/synced transactions, plus unmatched recurring. One-time
-              charges are tracked separately and left out of the plan. Remaining monthly budget =
-              take-home − plan so far − upcoming recurring (one-time excluded). Overview’s safe-to-
-              spend also reserves any still-unmet savings target, so it is usually lower.
+              account and what is still safe to spend?” Each bar is all-in: posted regular + posted
+              one-time + upcoming recurring from imported/synced transactions and active recurring.
+              One-time charges are still counted this month against monthly income and their
+              category target — they are only visually classified as one-time. Upcoming recurring
+              counts only amounts not matched to a posted transaction, so posted recurring is not
+              double-counted. Left of monthly income = income basis − known month outflow.
+              Overview’s safe-to-spend also reserves any still-unmet savings target, so it is
+              usually lower.
             </InfoHint>
           </div>
-          {th > 0 ? (
+          {budgetInsight.moneyIn > 0 ? (
             <>
-              {/* Hero: plan residual + secondary tiles. Cash liquidity lives on Overview. */}
-              <div className="zen-surface-nested p-3">
-                <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Remaining monthly budget
-                    </div>
-                    <div className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">
-                      {fmtMoney(budgetInsight.remainingAfterCommitted + budgetInsight.oneTimeSpend)}
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      Take-home − plan so far − upcoming recurring (one-time excluded)
-                    </div>
+              {/* Hero: income vs known month outflow. Left over (or over income)
+                  is the primary result. Renders on take-home or imported income.
+                  Cash liquidity lives on Overview. */}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="zen-surface-nested px-4 py-3.5">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {budgetInsight.leftAfterOut < 0
+                      ? "Over monthly income"
+                      : "Left of monthly income"}
                   </div>
-                  <div className="border-l border-border/60 pl-6">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      After one-time cash out
-                    </div>
-                    <div className="mt-1 text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">
-                      {fmtMoney(budgetInsight.remainingAfterCommitted)}
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      Same residual as Overview “left after commitments” — no savings reserve yet
-                    </div>
+                  <div
+                    className={`mt-1 text-3xl font-semibold tabular-nums sm:text-4xl ${
+                      budgetInsight.leftAfterOut < 0 ? "text-destructive" : ""
+                    }`}
+                  >
+                    {fmtMoney(Math.abs(budgetInsight.leftAfterOut))}
+                  </div>
+                  <div className="mt-1 text-[10px] text-muted-foreground text-pretty">
+                    {budgetInsight.usingTakeHome ? "Take-home" : "Imported income"} − known month
+                    outflow (posted + upcoming recurring)
                   </div>
                 </div>
-                <div className="mt-2 text-[10px] text-muted-foreground">
-                  Includes: needs, wants, savings contributions, upcoming recurring. Excludes:
-                  one-time charges ({fmtMoney(budgetInsight.oneTimeSpend)}) and unmet savings
-                  reserve (Overview only).
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <MiniStat
-                    label="Plan so far"
-                    value={fmtMoney(budgetInsight.planSpend)}
-                    onClick={spentGroups.length > 0 ? () => setBreakdown("spent") : undefined}
-                  />
-                  <MiniStat
-                    label="One-time (out of plan)"
-                    value={`${fmtMoney(budgetInsight.oneTimeSpend)} · ${budgetInsight.oneTimeCount}`}
-                    onClick={oneTimeTxns.length > 0 ? () => setBreakdown("onetime") : undefined}
-                  />
-                  <MiniStat
-                    label="Upcoming recurring"
-                    value={fmtMoney(budgetInsight.plannedRecurring)}
-                    onClick={
-                      recurringGroups.length > 0 ? () => setBreakdown("recurring") : undefined
-                    }
-                  />
+                <div className="zen-surface-nested px-4 py-3.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {budgetInsight.usingTakeHome ? "Take-home" : "Imported income"}
+                      </div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">
+                        {fmtMoney(budgetInsight.moneyIn)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Known month outflow
+                      </div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums text-muted-foreground sm:text-2xl">
+                        {fmtMoney(budgetInsight.moneyOut)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-1 text-[10px] text-muted-foreground text-pretty">
+                    Income basis:{" "}
+                    {budgetInsight.usingTakeHome ? "configured take-home" : "imported income"}.
+                    Outflow = posted regular + one-time + upcoming recurring.
+                  </div>
                 </div>
               </div>
 
-              {/* The story: 50/30/20 immediately under the hero. */}
-              <div className="space-y-3">
-                {(["needs", "wants", "savings"] as const).map((b) => (
-                  <BudgetBar
-                    key={b}
-                    label={b === "savings" ? "Savings contributions" : b}
-                    actual={buckets[b]}
-                    recurringPlanned={recurringAdditions[b]}
-                    target={th * targets[b]}
-                    targetPct={Math.round(targets[b] * 100)}
-                    goal={b === "savings" ? "save" : "spend"}
-                    txns={bucketTxns[b]}
-                    recurringItems={recurringItems[b]}
-                    onToggleExclude={toggleExclude}
-                  />
-                ))}
+              {/* Supporting metrics: compact, aligned, with click-through breakdowns. */}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <MiniStat
+                  label="Posted regular"
+                  value={fmtMoney(budgetInsight.planSpend)}
+                  onClick={spentGroups.length > 0 ? () => setBreakdown("spent") : undefined}
+                />
+                <MiniStat
+                  label="Posted one-time"
+                  value={`${fmtMoney(budgetInsight.oneTimeSpend)} · ${budgetInsight.oneTimeCount}`}
+                  onClick={oneTimeTxns.length > 0 ? () => setBreakdown("onetime") : undefined}
+                />
+                <MiniStat
+                  label="Upcoming recurring"
+                  value={fmtMoney(budgetInsight.plannedRecurring)}
+                  onClick={recurringGroups.length > 0 ? () => setBreakdown("recurring") : undefined}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground text-pretty">
+                Known month outflow sums all three: posted regular, posted one-time (
+                {fmtMoney(budgetInsight.oneTimeSpend)}), and upcoming recurring. Upcoming recurring
+                counts only amounts not yet matched to a posted transaction, so nothing is
+                double-counted. The unmet savings reserve is reflected on Overview only.
+              </p>
+
+              {/* The story: 50/30/20 allocation, framed as its own section. */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    50 / 30 / 20 allocation
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground">
+                    {formatMonthLabel(selectedMonth)}
+                  </span>
+                </div>
+                {th > 0 ? (
+                  <div className="space-y-4">
+                    {(["needs", "wants", "savings"] as const).map((b) => (
+                      <BudgetBar
+                        key={b}
+                        label={b === "savings" ? "Savings contributions" : b}
+                        actual={buckets[b]}
+                        recurringPlanned={recurringAdditions[b]}
+                        oneTimePlanned={oneTimeByBucket[b]}
+                        target={th * targets[b]}
+                        targetPct={Math.round(targets[b] * 100)}
+                        goal={b === "savings" ? "save" : "spend"}
+                        txns={bucketTxns[b]}
+                        recurringItems={recurringItems[b]}
+                        onToggleExclude={toggleExclude}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
+                    Set your take-home pay above to compare this month against the 50/30/20 target
+                    bars. Income and outflow above use your imported income for now.
+                  </div>
+                )}
               </div>
 
-              {/* Insight: first line, expand for the rest. */}
+              {/* Insight + recurring note: quiet, low-prominence disclosures. */}
               {budgetInsight.lines.length > 0 && (
-                <ul className="space-y-1 zen-surface-nested px-3 py-2 text-xs text-muted-foreground">
+                <ul className="space-y-1 border-t border-border/50 pt-3 text-xs text-muted-foreground">
                   {(showAllInsightLines
                     ? budgetInsight.lines
                     : budgetInsight.lines.slice(0, 1)
@@ -525,7 +589,8 @@ export function BudgetTab({ hub, month, onChange, flash }: FinanceTabProps & { m
             </>
           ) : (
             <div className="text-sm text-muted-foreground">
-              Set your take-home pay above to see your 50/30/20 breakdown.
+              Set your take-home pay above, or import income for this month, to see your income vs
+              outflow and 50/30/20 breakdown.
             </div>
           )}
         </CardContent>
@@ -652,18 +717,18 @@ function BudgetBreakdownDialog({
 }) {
   const meta = {
     spent: {
-      title: "Plan so far",
+      title: "Posted regular",
       total: planSpend,
       count: spentGroups.reduce((n, g) => n + g.txns.length, 0),
       description:
-        "Posted needs, wants, and savings contributions counted against your 50/30/20 plan. One-time charges are not included here.",
+        "Posted needs, wants, and savings contributions counted against your 50/30/20 plan. Posted one-time charges are listed separately but still count this month.",
     },
     onetime: {
-      title: "One-time (out of plan)",
+      title: "Posted one-time",
       total: oneTimeSpend,
       count: oneTimeCount,
       description:
-        "Charges marked one-time — still real cash out on Overview, but left out of Budget plan bars.",
+        "Charges marked one-time — still counted this month against monthly income and their category target. Marking one-time only classifies them visually.",
     },
     recurring: {
       title: "Upcoming recurring",
@@ -948,10 +1013,11 @@ const SORTER_BUCKETS: { key: BudgetBucket; label: string; accent: string }[] = [
   },
 ];
 
-// Sum imported transactions only. Budget bars may also include recurring
-// commitments that are not visible in statement data yet.
+// Sum posted charges (regular + one-time) for the bucket. One-time charges are
+// still counted this month, so the sorter totals include them. Budget bars may
+// additionally include recurring commitments not yet visible in statement data.
 function bucketSum(txns: Transaction[]): number {
-  return txns.reduce((s, t) => (t.excludeFromBudget ? s : s + spendAmountOf(t)), 0);
+  return txns.reduce((s, t) => s + spendAmountOf(t), 0);
 }
 
 function ExpenseSorter({
@@ -1001,7 +1067,8 @@ function ExpenseSorter({
     >
       <div className="space-y-3">
         <p className="-mt-2 text-sm text-muted-foreground">
-          Tap Need / Want / Save — mark one-time charges that shouldn’t count toward the plan.
+          Tap Need / Want / Save — mark irregular charges as one-time to classify them (still
+          counted this month).
         </p>
         {total === 0 ? (
           <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
@@ -1105,9 +1172,13 @@ function ExpenseCard({
             size="sm"
             onClick={() => onToggleExclude(t.id, !excluded)}
             className="h-7 shrink-0 px-2 text-[11px] text-muted-foreground"
-            title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
+            title={
+              excluded
+                ? "Classify as regular spending"
+                : "Classify as one-time (still counted this month)"
+            }
           >
-            {excluded ? "Include in plan" : "Mark one-time"}
+            {excluded ? "Mark regular" : "Mark one-time"}
           </Button>
         </div>
       </div>

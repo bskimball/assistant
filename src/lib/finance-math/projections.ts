@@ -226,7 +226,10 @@ export function calculateSafeToSpend(input: {
   });
   const monthlyTakeHome = dollars(input.budget.monthlyTakeHome);
   const savingsTarget = dollars(monthlyTakeHome * input.budget.targets.savings);
-  const savingsCommitted = dollars(Math.max(0, savingsTarget - insight.bucketDeltas.savings));
+  // All-in posted savings (regular + one-time) plus scheduled recurring count as
+  // committed, matching Budget bars — a one-time savings transfer is not reserved
+  // twice by the safe-to-spend guardrail.
+  const savingsCommitted = dollars(Math.max(0, savingsTarget - insight.allInBucketDeltas.savings));
   const savingsReserve = dollars(Math.max(0, savingsTarget - savingsCommitted));
   const safeToSpendThisMonth = dollars(
     Math.max(0, insight.remainingAfterCommitted - savingsReserve),

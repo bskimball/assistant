@@ -426,6 +426,7 @@ export function OverviewTab({
           moneyOut={knownOutflow}
           left={cashFlow}
           savingsTarget={savingsTarget}
+          savingsAllIn={money.allInBuckets.savings}
           savingsRemainingTarget={savingsRemainingTarget}
         />
 
@@ -499,6 +500,7 @@ function MonthMoneyLedger({
   moneyOut,
   left,
   savingsTarget,
+  savingsAllIn,
   savingsRemainingTarget,
 }: {
   month: string;
@@ -516,6 +518,7 @@ function MonthMoneyLedger({
   moneyOut: number;
   left: number;
   savingsTarget: number;
+  savingsAllIn: number;
   savingsRemainingTarget: number;
 }) {
   const [y, m] = month.split("-").map(Number);
@@ -527,7 +530,7 @@ function MonthMoneyLedger({
   const needsTotal = needs + recurringNeeds;
   const wantsTotal = wants + recurringWants;
   const savingsTotal = savings + recurringSavings;
-  const planWithRecurring = needsTotal + wantsTotal + savingsTotal;
+  const allInWithRecurring = needsTotal + wantsTotal + savingsAllIn;
 
   return (
     <div className="zen-surface-nested space-y-3 px-4 py-3">
@@ -583,18 +586,22 @@ function MonthMoneyLedger({
           />
           <LedgerLine
             label="Savings contributions"
-            value={savingsTotal}
+            value={savingsAllIn}
             note={
-              savingsTotal === 0
+              savingsAllIn === 0
                 ? "none tagged or scheduled yet"
-                : recurringSavings > 0
-                  ? `${fmtMoney(savings)} statements + ${fmtMoney(recurringSavings)} unpaid`
+                : savingsTotal > savings || savingsAllIn > savingsTotal
+                  ? `${fmtMoney(savings)} statements${
+                      savingsTotal > savings ? ` + ${fmtMoney(savingsTotal - savings)} unpaid` : ""
+                    }${
+                      savingsAllIn > savingsTotal
+                        ? ` + ${fmtMoney(savingsAllIn - savingsTotal)} one-time`
+                        : ""
+                    }`
                   : undefined
             }
           />
-          {oneTime > 0 && (
-            <LedgerLine label={`One-time / out of plan (${oneTimeCount})`} value={oneTime} />
-          )}
+          {oneTime > 0 && <LedgerLine label={`One-time (${oneTimeCount})`} value={oneTime} />}
           <LedgerLine label="Money out total" value={moneyOut} strong />
         </div>
       </div>
@@ -608,14 +615,14 @@ function MonthMoneyLedger({
           signed
         />
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Needs / wants / savings totals match Budget bars (statements + unpaid recurring ={" "}
-          {fmtMoney(planWithRecurring)}). Money out also adds one-time charges ({fmtMoney(oneTime)}
-          ), which Budget bars leave out of the plan.
+          Needs / wants / savings show posted regular + unpaid recurring (
+          {fmtMoney(allInWithRecurring)}). Budget bars add posted one-time on top (
+          {fmtMoney(oneTime)}) so both pages count the same money this month.
           {savingsTarget > 0 && (
             <>
               {" "}
               Savings target is {fmtMoney(savingsTarget)}/mo; posted + scheduled savings are{" "}
-              {fmtMoney(savingsTotal)}
+              {fmtMoney(savingsAllIn)}
               {savingsRemainingTarget > 0
                 ? ` — ${fmtMoney(savingsRemainingTarget)} of the target is not in money out (only safe-to-spend reserves it).`
                 : "."}
@@ -731,7 +738,10 @@ function BillsHealthStrip({
 function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpend"] }) {
   const statusMeta: Record<
     typeof result.status,
-    { label: string; variant: "success" | "warning" | "destructive" | "secondary" }
+    {
+      label: string;
+      variant: "success" | "warning" | "destructive" | "secondary";
+    }
   > = {
     unavailable: { label: "Setup", variant: "secondary" },
     "on-track": { label: "On track", variant: "success" },
@@ -780,11 +790,23 @@ function SafeToSpendGuardrail({ result }: { result: FinanceHubPayload["safeToSpe
 function CashFlowStatusChip({ result }: { result: FinanceHubPayload["cashFlowCalendar"] }) {
   const statusMeta: Record<
     typeof result.status,
-    { label: string; variant: "success" | "warning" | "destructive"; className: string }
+    {
+      label: string;
+      variant: "success" | "warning" | "destructive";
+      className: string;
+    }
   > = {
-    healthy: { label: "Healthy", variant: "success", className: "text-success" },
+    healthy: {
+      label: "Healthy",
+      variant: "success",
+      className: "text-success",
+    },
     tight: { label: "Tight", variant: "warning", className: "text-warning" },
-    negative: { label: "Below zero", variant: "destructive", className: "text-destructive" },
+    negative: {
+      label: "Below zero",
+      variant: "destructive",
+      className: "text-destructive",
+    },
   };
   const meta = statusMeta[result.status];
 
@@ -816,12 +838,28 @@ function CashFlowStatusChip({ result }: { result: FinanceHubPayload["cashFlowCal
 function EmergencyFundChip({ fund }: { fund: EmergencyFundResult }) {
   const statusMeta: Record<
     typeof fund.status,
-    { label: string; variant: "success" | "warning" | "secondary"; className: string }
+    {
+      label: string;
+      variant: "success" | "warning" | "secondary";
+      className: string;
+    }
   > = {
-    "not-started": { label: "Build", variant: "secondary", className: "text-muted-foreground" },
-    building: { label: "Building", variant: "warning", className: "text-warning" },
+    "not-started": {
+      label: "Build",
+      variant: "secondary",
+      className: "text-muted-foreground",
+    },
+    building: {
+      label: "Building",
+      variant: "warning",
+      className: "text-warning",
+    },
     funded: { label: "Funded", variant: "success", className: "text-success" },
-    surplus: { label: "Surplus", variant: "success", className: "text-success" },
+    surplus: {
+      label: "Surplus",
+      variant: "success",
+      className: "text-success",
+    },
   };
   const meta = statusMeta[fund.status];
 
@@ -884,7 +922,11 @@ function AccountsCard({
   total: number;
   netWorth: number;
   balanceSourceDate: string | null;
-  importedWithoutBalance: { account: string; count: number; lastSeen: number }[];
+  importedWithoutBalance: {
+    account: string;
+    count: number;
+    lastSeen: number;
+  }[];
   importedAccounts: { account: string; count: number; lastSeen: number }[];
   manageAccounts: boolean;
   setManageAccounts: Dispatch<SetStateAction<boolean>>;
@@ -1259,7 +1301,9 @@ function SpendingWatchlistCard({
   async function reassign(txnId: string, watchlistId: WatchlistId | null) {
     setBusy(true);
     try {
-      await setTransactionWatchlist({ data: { id: txnId, watchlistId, remember: true } });
+      await setTransactionWatchlist({
+        data: { id: txnId, watchlistId, remember: true },
+      });
       await onChange();
       flash(
         watchlistId

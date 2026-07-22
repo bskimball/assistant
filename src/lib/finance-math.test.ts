@@ -105,7 +105,12 @@ describe("finance math", () => {
 
   it("explains ADT matches, deleted matches, amount misses, and name misses", () => {
     const now = Date.UTC(2026, 7, 18, 12);
-    const adt = sub({ id: "adt", name: "ADT Security", amount: 64.38, kind: "bill" });
+    const adt = sub({
+      id: "adt",
+      name: "ADT Security",
+      amount: 64.38,
+      kind: "bill",
+    });
     const trace = explainRecurringHealth({
       sub: adt,
       now,
@@ -160,7 +165,10 @@ describe("finance math", () => {
           reason: "amount-out-of-tolerance",
           amountDelta: 30,
         }),
-        expect.objectContaining({ transactionId: "wrong-name", reason: "name-token-mismatch" }),
+        expect.objectContaining({
+          transactionId: "wrong-name",
+          reason: "name-token-mismatch",
+        }),
       ]),
     );
   });
@@ -192,7 +200,10 @@ describe("finance math", () => {
       ],
     });
 
-    expect(insights[0]).toMatchObject({ subscriptionId: "adt", kind: "likely-canceled" });
+    expect(insights[0]).toMatchObject({
+      subscriptionId: "adt",
+      kind: "likely-canceled",
+    });
     expect(insights[0].reason).toContain("was deleted (sync-undo)");
   });
 
@@ -744,6 +755,114 @@ describe("finance math", () => {
     );
     expect(insight.lines.length).toBeLessThanOrEqual(4);
     expect(insight.lines.join(" ")).toContain("Biggest one-time: Legal Aid, $400");
+    expect(insight.lines.join(" ")).not.toContain("left out of Budget plan bars");
+  });
+
+  it("keeps one-time in all-in bars and segments without double-counting", () => {
+    const insight = buildBudgetInsight({
+      now: Date.UTC(2026, 0, 15),
+      month: "2026-01",
+      takeHome: 5000,
+      targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      subscriptions: [sub({ id: "gym", name: "Gym", amount: 50, group: "wants" })],
+      transactions: [
+        txn({
+          id: "rent",
+          amount: -2000,
+          category: "Rent",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "dining",
+          amount: -600,
+          category: "Dining",
+          categoryGroup: "wants",
+        }),
+        txn({
+          id: "legal",
+          amount: -400,
+          category: "Legal Aid",
+          categoryGroup: "needs",
+          excludeFromBudget: true,
+        }),
+        txn({
+          id: "save",
+          amount: -500,
+          category: "Savings",
+          categoryGroup: "savings",
+        }),
+      ],
+    });
+
+    // Posted one-time is attributed to its bucket and kept out of plan-only totals.
+    expect(insight.oneTimeBuckets).toEqual({
+      needs: 400,
+      wants: 0,
+      savings: 0,
+    });
+    expect(insight.bucketTotals).toEqual({
+      needs: 2000,
+      wants: 650,
+      savings: 500,
+    });
+
+    // All-in bar = posted regular + posted one-time + upcoming recurring.
+    expect(insight.allInBuckets).toEqual({
+      needs: 2400,
+      wants: 650,
+      savings: 500,
+    });
+    for (const b of ["needs", "wants", "savings"] as const) {
+      expect(insight.allInBuckets[b]).toBe(insight.bucketTotals[b] + insight.oneTimeBuckets[b]);
+    }
+
+    // Segments sum to the all-in bar (statement regular + one-time + unpaid recurring).
+    const regularNeeds =
+      insight.allInBuckets.needs - insight.oneTimeBuckets.needs - insight.unpaidRecurring.needs;
+    expect(regularNeeds).toBe(insight.statementBuckets.needs);
+
+    // Recurring reconciliation is not double-counted: upcoming is unmatched-only.
+    expect(insight.oneTimeSpend).toBe(
+      insight.oneTimeBuckets.needs + insight.oneTimeBuckets.wants + insight.oneTimeBuckets.savings,
+    );
+    expect(
+      insight.allInBuckets.needs + insight.allInBuckets.wants + insight.allInBuckets.savings,
+    ).toBe(insight.moneyOut);
+
+    // All-in deltas reflect one-time load against the target.
+    expect(insight.allInBucketDeltas.needs).toBe(2400 - 2500);
+    expect(insight.bucketDeltas.needs).toBe(2000 - 2500);
+  });
+
+  it("renders negative leftAfterOut as over monthly income and falls back to imported income", () => {
+    const insight = buildBudgetInsight({
+      now: Date.UTC(2026, 0, 15),
+      month: "2026-01",
+      takeHome: 0,
+      targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      subscriptions: [],
+      transactions: [
+        txn({
+          id: "pay",
+          amount: 2000,
+          category: "Payroll",
+          categoryGroup: "income",
+        }),
+        txn({
+          id: "rent",
+          amount: -2500,
+          category: "Rent",
+          categoryGroup: "needs",
+        }),
+      ],
+    });
+
+    expect(insight.usingTakeHome).toBe(false);
+    expect(insight.moneyIn).toBe(2000);
+    expect(insight.importedIncome).toBe(2000);
+    expect(insight.moneyOut).toBe(2500);
+    expect(insight.leftAfterOut).toBe(-500);
+    expect(insight.leftAfterOut).toBe(insight.moneyIn - insight.moneyOut);
   });
 
   it("month money identities match Overview and Budget (single source of truth)", () => {
@@ -754,8 +873,18 @@ describe("finance math", () => {
       targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
       subscriptions: [sub({ id: "gym", name: "Gym", amount: 50, group: "wants" })],
       transactions: [
-        txn({ id: "rent", amount: -2000, category: "Rent", categoryGroup: "needs" }),
-        txn({ id: "dining", amount: -600, category: "Dining", categoryGroup: "wants" }),
+        txn({
+          id: "rent",
+          amount: -2000,
+          category: "Rent",
+          categoryGroup: "needs",
+        }),
+        txn({
+          id: "dining",
+          amount: -600,
+          category: "Dining",
+          categoryGroup: "wants",
+        }),
         txn({
           id: "legal",
           amount: -400,
@@ -763,15 +892,37 @@ describe("finance math", () => {
           categoryGroup: "needs",
           excludeFromBudget: true,
         }),
-        txn({ id: "save", amount: -500, category: "Savings", categoryGroup: "savings" }),
-        txn({ id: "pay", amount: 4800, category: "Payroll", categoryGroup: "income" }),
+        txn({
+          id: "save",
+          amount: -500,
+          category: "Savings",
+          categoryGroup: "savings",
+        }),
+        txn({
+          id: "pay",
+          amount: 4800,
+          category: "Payroll",
+          categoryGroup: "income",
+        }),
       ],
     });
 
     // Bucket identities (Budget bars)
-    expect(insight.statementBuckets).toEqual({ needs: 2000, wants: 600, savings: 500 });
-    expect(insight.unpaidRecurring).toEqual({ needs: 0, wants: 50, savings: 0 });
-    expect(insight.bucketTotals).toEqual({ needs: 2000, wants: 650, savings: 500 });
+    expect(insight.statementBuckets).toEqual({
+      needs: 2000,
+      wants: 600,
+      savings: 500,
+    });
+    expect(insight.unpaidRecurring).toEqual({
+      needs: 0,
+      wants: 50,
+      savings: 0,
+    });
+    expect(insight.bucketTotals).toEqual({
+      needs: 2000,
+      wants: 650,
+      savings: 500,
+    });
     expect(insight.bucketTotals.needs).toBe(
       insight.statementBuckets.needs + insight.unpaidRecurring.needs,
     );
@@ -800,6 +951,19 @@ describe("finance math", () => {
         insight.bucketTotals.savings +
         insight.oneTimeSpend,
     );
+    expect(insight.moneyOut).toBe(
+      insight.allInBuckets.needs + insight.allInBuckets.wants + insight.allInBuckets.savings,
+    );
+    expect(insight.oneTimeBuckets).toEqual({
+      needs: 400,
+      wants: 0,
+      savings: 0,
+    });
+    expect(insight.allInBuckets).toEqual({
+      needs: 2400,
+      wants: 650,
+      savings: 500,
+    });
 
     // In / left identities
     expect(insight.usingTakeHome).toBe(true);
@@ -871,6 +1035,37 @@ describe("finance math", () => {
       safeToSpendPerDay: 35.29,
       remainingDays: 17,
     });
+  });
+
+  it("counts one-time savings toward the target so safe-to-spend does not re-reserve it", () => {
+    const result = calculateSafeToSpend({
+      date: "2026-01-15",
+      budget: {
+        monthlyTakeHome: 5000,
+        targets: { needs: 0.5, wants: 0.3, savings: 0.2 },
+      },
+      subscriptions: [],
+      transactions: [
+        txn({ id: "rent", amount: -2000, categoryGroup: "needs" }),
+        // A one-time savings transfer (e.g. a windfall deposit into savings).
+        txn({
+          id: "lump-savings",
+          amount: -1000,
+          category: "Savings",
+          categoryGroup: "savings",
+          excludeFromBudget: true,
+        }),
+      ],
+    });
+
+    // savingsTarget is 1000; the one-time savings fully commits it, so nothing is
+    // reserved and it is not double-counted against safe-to-spend.
+    expect(result.savingsTarget).toBe(1000);
+    expect(result.savingsCommitted).toBe(1000);
+    expect(result.savingsReserve).toBe(0);
+    // remainingAfterCommitted = takeHome - plan(2000) - oneTime(1000) = 2000.
+    expect(result.remainingAfterCommitted).toBe(2000);
+    expect(result.safeToSpendThisMonth).toBe(2000);
   });
 
   it("shows why no discretionary money remains when the savings target is uncommitted", () => {
@@ -1308,8 +1503,18 @@ describe("finance math", () => {
       }),
     ];
     const txns = [
-      txn({ id: "week-1", timestamp: Date.UTC(2026, 0, 2, 12), amount: -100, category: "Cleaner" }),
-      txn({ id: "week-2", timestamp: Date.UTC(2026, 0, 9, 12), amount: -100, category: "Cleaner" }),
+      txn({
+        id: "week-1",
+        timestamp: Date.UTC(2026, 0, 2, 12),
+        amount: -100,
+        category: "Cleaner",
+      }),
+      txn({
+        id: "week-2",
+        timestamp: Date.UTC(2026, 0, 9, 12),
+        amount: -100,
+        category: "Cleaner",
+      }),
       txn({
         id: "week-3",
         timestamp: Date.UTC(2026, 0, 16, 12),
@@ -1527,7 +1732,10 @@ describe("finance math", () => {
       transactionsForMonth(
         [
           txn({ id: "jan", timestamp: jan }),
-          txn({ id: "local-jan", timestamp: new Date(2026, 0, 31, 23).getTime() }),
+          txn({
+            id: "local-jan",
+            timestamp: new Date(2026, 0, 31, 23).getTime(),
+          }),
           txn({ id: "feb", timestamp: feb }),
         ],
         "2026-01",
@@ -1562,7 +1770,10 @@ describe("finance math", () => {
       monthlyTakeHome: 1200,
     };
     expect(
-      calculateCashFlowCalendar({ ...common, paySchedule: { cadence: "monthly", payDays: [15] } })
+      calculateCashFlowCalendar({
+        ...common,
+        paySchedule: { cadence: "monthly", payDays: [15] },
+      })
         .events.filter((event) => event.type === "income")
         .map((event) => [event.date, event.amount]),
     ).toEqual([["2026-01-15", 1200]]);
@@ -1611,8 +1822,18 @@ describe("finance math", () => {
       status: "tight",
     });
     expect(result.events).toMatchObject([
-      { date: "2026-01-12", label: "Rent", amount: -800, projectedBalance: 200 },
-      { date: "2026-01-20", label: "Payday", amount: 2000, projectedBalance: 2200 },
+      {
+        date: "2026-01-12",
+        label: "Rent",
+        amount: -800,
+        projectedBalance: 200,
+      },
+      {
+        date: "2026-01-20",
+        label: "Payday",
+        amount: 2000,
+        projectedBalance: 2200,
+      },
     ]);
   });
 
@@ -1625,7 +1846,11 @@ describe("finance math", () => {
         paySchedule: { cadence: "monthly", payDays: [25] },
         subscriptions: [sub({ name: "Loan", amount: 250, nextChargeDate: "2026-01-12" })],
       }),
-    ).toMatchObject({ projectedFloor: -150, projectedFloorDate: "2026-01-12", status: "negative" });
+    ).toMatchObject({
+      projectedFloor: -150,
+      projectedFloorDate: "2026-01-12",
+      status: "negative",
+    });
   });
 
   it("falls back to income on the first when no payday schedule is configured", () => {
@@ -1637,7 +1862,13 @@ describe("finance math", () => {
     });
 
     expect(result.events).toEqual([
-      { date: "2026-02-01", type: "income", label: "Payday", amount: 3000, projectedBalance: 3500 },
+      {
+        date: "2026-02-01",
+        type: "income",
+        label: "Payday",
+        amount: 3000,
+        projectedBalance: 3500,
+      },
     ]);
   });
 
@@ -2068,9 +2299,24 @@ describe("spending watchlist", () => {
 describe("50/30/20 rollup invariants", () => {
   const ledger = [
     txn({ id: "n1", category: "Kroger", amount: -200, categoryGroup: "needs" }),
-    txn({ id: "w1", category: "DoorDash", amount: -60, categoryGroup: "wants" }),
-    txn({ id: "s1", category: "Vanguard", amount: -300, categoryGroup: "savings" }),
-    txn({ id: "i1", category: "Payroll", amount: 5000, categoryGroup: "income" }),
+    txn({
+      id: "w1",
+      category: "DoorDash",
+      amount: -60,
+      categoryGroup: "wants",
+    }),
+    txn({
+      id: "s1",
+      category: "Vanguard",
+      amount: -300,
+      categoryGroup: "savings",
+    }),
+    txn({
+      id: "i1",
+      category: "Payroll",
+      amount: 5000,
+      categoryGroup: "income",
+    }),
     txn({
       id: "x1",
       category: "Legal",
@@ -2105,7 +2351,12 @@ describe("50/30/20 rollup invariants", () => {
 
   it("reads merchant from `merchant`, `category`, or `notes` identically", () => {
     const viaMerchant = withAutoWatchlist(
-      txn({ merchant: "AMAZON.COM", category: undefined, amount: -30, categoryGroup: "wants" }),
+      txn({
+        merchant: "AMAZON.COM",
+        category: undefined,
+        amount: -30,
+        categoryGroup: "wants",
+      }),
       {},
     );
     const viaCategory = withAutoWatchlist(

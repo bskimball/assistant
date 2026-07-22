@@ -43,8 +43,19 @@ export type BudgetInsight = {
   statementBuckets: { needs: number; wants: number; savings: number };
   /** Unpaid remaining recurring by bucket. */
   unpaidRecurring: { needs: number; wants: number; savings: number };
-  /** Statement + unpaid recurring — same totals Budget bars show. */
+  /** Posted one-time (excludeFromBudget) charges by bucket. */
+  oneTimeBuckets: { needs: number; wants: number; savings: number };
+  /** Posted regular + unpaid recurring (excludes one-time). Plan-only totals. */
   bucketTotals: { needs: number; wants: number; savings: number };
+  /**
+   * All-in per-bucket totals Budget bars now show:
+   * posted regular + posted one-time + unpaid recurring.
+   * allInBuckets.X = bucketTotals.X + oneTimeBuckets.X
+   * sum(allInBuckets) = moneyOut.
+   */
+  allInBuckets: { needs: number; wants: number; savings: number };
+  /** All-in bucket totals vs 50/30/20 target (savings sign matches bucketDeltas). */
+  allInBucketDeltas: { needs: number; wants: number; savings: number };
   /** moneyIn − moneyOut. moneyOut = planSpend + oneTime + plannedRecurring. */
   moneyIn: number;
   moneyOut: number;
@@ -52,7 +63,7 @@ export type BudgetInsight = {
   importedIncome: number;
   usingTakeHome: boolean;
   savingsTarget: number;
-  /** Max(0, savingsTarget − posted savings − unpaid savings recurring). */
+  /** Max(0, savingsTarget − all-in posted savings − unpaid savings recurring). */
   savingsTargetRemaining: number;
 };
 
@@ -60,11 +71,13 @@ export type BudgetInsight = {
  * Single source of truth for “this month’s money” on Overview and Budget.
  * Identities (always):
  *   bucketTotals.X = statementBuckets.X + unpaidRecurring.X
+ *   allInBuckets.X = bucketTotals.X + oneTimeBuckets.X
+ *   oneTimeSpend = sum(oneTimeBuckets)
  *   planSpend = sum(statementBuckets)
  *   plannedRecurring = sum(unpaidRecurring)
  *   committedPlan = planSpend + plannedRecurring = sum(bucketTotals)
  *   moneyOut = planSpend + oneTimeSpend + plannedRecurring
- *            = sum(bucketTotals) + oneTimeSpend
+ *            = sum(bucketTotals) + oneTimeSpend = sum(allInBuckets)
  *   leftAfterOut = moneyIn − moneyOut
  *   remainingAfterCommitted = moneyIn − moneyOut  (when moneyIn uses take-home)
  * Savings *target* is NOT in moneyOut — only posted/scheduled savings transfers are.
@@ -210,7 +223,23 @@ export function buildBudgetInsight(input: {
   const oneTimeTxns = monthTxns.filter(
     (t) => t.amount < 0 && t.excludeFromBudget && !!spendBucketOf(t.categoryGroup),
   );
+  const oneTimeBucketsRaw = { needs: 0, wants: 0, savings: 0 };
+  for (const t of oneTimeTxns) {
+    const bucket = spendBucketOf(t.categoryGroup);
+    if (bucket) oneTimeBucketsRaw[bucket] += spendAmountOf(t);
+  }
+  const oneTimeBuckets = {
+    needs: dollars(oneTimeBucketsRaw.needs),
+    wants: dollars(oneTimeBucketsRaw.wants),
+    savings: dollars(oneTimeBucketsRaw.savings),
+  };
   const oneTimeSpend = dollars(oneTimeTxns.reduce((sum, t) => sum + spendAmountOf(t), 0));
+  // All-in bars: posted regular + posted one-time + unpaid recurring.
+  const allInBuckets = {
+    needs: dollars(bucketTotals.needs + oneTimeBuckets.needs),
+    wants: dollars(bucketTotals.wants + oneTimeBuckets.wants),
+    savings: dollars(bucketTotals.savings + oneTimeBuckets.savings),
+  };
   const totalSpent = dollars(planSpend + oneTimeSpend);
   const takeHome = positive(input.takeHome);
   const actualNeeds = bucketTotals.needs;
@@ -220,6 +249,11 @@ export function buildBudgetInsight(input: {
     needs: dollars(actualNeeds - takeHome * input.targets.needs),
     wants: dollars(actualWants - takeHome * input.targets.wants),
     savings: dollars(takeHome * input.targets.savings - actualSavings),
+  };
+  const allInBucketDeltas = {
+    needs: dollars(allInBuckets.needs - takeHome * input.targets.needs),
+    wants: dollars(allInBuckets.wants - takeHome * input.targets.wants),
+    savings: dollars(takeHome * input.targets.savings - allInBuckets.savings),
   };
   const importedIncome = dollars(
     monthTxns.filter((t) => t.categoryGroup === "income").reduce((sum, t) => sum + t.amount, 0),
@@ -231,9 +265,10 @@ export function buildBudgetInsight(input: {
   const moneyOut = dollars(planSpend + oneTimeSpend + plannedRecurring);
   const leftAfterOut = dollars(moneyIn - moneyOut);
   const savingsTarget = dollars(takeHome * input.targets.savings);
-  const savingsTargetRemaining = dollars(
-    Math.max(0, savingsTarget - statementBuckets.savings - unpaidRecurring.savings),
-  );
+  // All-in posted savings (regular + one-time) plus unpaid recurring satisfy the
+  // target. This mirrors allInBuckets.savings, so Overview does not re-reserve a
+  // one-time savings transfer that already landed.
+  const savingsTargetRemaining = dollars(Math.max(0, savingsTarget - allInBuckets.savings));
   const currentMonth = monthKey(now);
   const dayOfMonth = Math.max(1, new Date(now).getUTCDate());
   const daysInMonth = daysInMonthUTC(now);
@@ -264,17 +299,18 @@ export function buildBudgetInsight(input: {
     );
   }
   if (takeHome > 0) {
+    // Use all-in deltas so pressure/on-plan messaging matches the all-in bars.
     const pressure = [
-      { key: "needs", value: bucketDeltas.needs },
-      { key: "wants", value: bucketDeltas.wants },
-      { key: "savings", value: bucketDeltas.savings },
+      { key: "needs", value: allInBucketDeltas.needs },
+      { key: "wants", value: allInBucketDeltas.wants },
+      { key: "savings", value: allInBucketDeltas.savings },
     ].sort((a, b) => b.value - a.value)[0];
     if (pressure.value > 0) {
       lines.push(
         pressure.key === "needs"
           ? `Needs are $${dollars(pressure.value).toLocaleString()} over plan. Verify bills, loan payments, and one-time charges first.`
           : pressure.key === "wants"
-            ? `Wants are $${dollars(pressure.value).toLocaleString()} over plan. Move essentials or mark true one-time charges.`
+            ? `Wants are $${dollars(pressure.value).toLocaleString()} over plan. Review and reduce remaining discretionary spending, or reallocate targets.`
             : `Savings contributions are $${dollars(pressure.value).toLocaleString()} short of the monthly target. Add or verify an automatic transfer.`,
       );
     } else {
@@ -284,12 +320,12 @@ export function buildBudgetInsight(input: {
   const biggestOneTime = oneTimeTxns.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))[0];
   if (biggestOneTime) {
     lines.push(
-      `Biggest one-time: ${cleanMerchantName(biggestOneTime.category || biggestOneTime.notes || "Unknown merchant")}, $${dollars(Math.abs(biggestOneTime.amount)).toLocaleString()} — real cash out on Overview, left out of Budget plan bars.`,
+      `Biggest one-time: ${cleanMerchantName(biggestOneTime.category || biggestOneTime.notes || "Unknown merchant")}, $${dollars(Math.abs(biggestOneTime.amount)).toLocaleString()} — counted this month against monthly income and its category target.`,
     );
   }
-  if (bucketDeltas.savings > 0) {
+  if (allInBucketDeltas.savings > 0) {
     lines.push(
-      `Savings contributions shortfall: $${dollars(bucketDeltas.savings).toLocaleString()} left to hit this month’s target (Overview reserves this; Budget does not).`,
+      `Savings contributions shortfall: $${dollars(allInBucketDeltas.savings).toLocaleString()} left to hit this month’s target (Overview reserves this; Budget does not).`,
     );
   }
 
@@ -312,7 +348,10 @@ export function buildBudgetInsight(input: {
       wants: dollars(unpaidRecurring.wants),
       savings: dollars(unpaidRecurring.savings),
     },
+    oneTimeBuckets,
     bucketTotals,
+    allInBuckets,
+    allInBucketDeltas,
     moneyIn,
     moneyOut,
     leftAfterOut,

@@ -533,6 +533,7 @@ export function BudgetBar({
   label,
   actual,
   recurringPlanned = 0,
+  oneTimePlanned = 0,
   target,
   targetPct,
   goal = "spend",
@@ -541,9 +542,12 @@ export function BudgetBar({
   onToggleExclude,
 }: {
   label: string;
+  /** All-in total: posted regular + posted one-time + upcoming recurring. */
   actual: number;
   /** Portion of `actual` that is planned recurring not yet seen in statements. */
   recurringPlanned?: number;
+  /** Portion of `actual` from posted one-time charges (still counted this month). */
+  oneTimePlanned?: number;
   target: number;
   targetPct: number;
   goal?: "spend" | "save";
@@ -552,12 +556,25 @@ export function BudgetBar({
   onToggleExclude?: (id: string, excluded: boolean) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const statementActual = Math.max(0, actual - recurringPlanned);
+  // Three segments that sum to `actual`: posted regular, posted one-time, upcoming recurring.
+  const oneTimeSeg = Math.max(0, oneTimePlanned);
+  const recurringSeg = Math.max(0, recurringPlanned);
+  const postedRegular = Math.max(0, actual - recurringSeg - oneTimeSeg);
   const ratio = target > 0 ? actual / target : 0;
   const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
-  const statementPct =
-    target > 0 ? Math.max(0, Math.min(100, Math.round((statementActual / target) * 100))) : 0;
-  const plannedPct = Math.max(0, pct - statementPct);
+  // Derive all three widths from a single capped composition so they never
+  // overdraw past the filled width and stay visible. When actual >= target the
+  // filled bar is 100% and segments show the regular/one-time/recurring mix;
+  // under target the segments use target-relative widths that sum to `pct`.
+  // Use non-rounded float widths so the three segments always sum to exactly
+  // `filledWidth`: regular and one-time take their exact proportional share and
+  // recurring is the exact remainder, so two independent rounds can never push
+  // the total past the filled width or drop a small recurring segment.
+  const filledWidth = target > 0 ? pct : 0;
+  const composed = postedRegular + oneTimeSeg + recurringSeg;
+  const regularPct = composed > 0 ? (postedRegular / composed) * filledWidth : filledWidth;
+  const plannedPct = composed > 0 ? (recurringSeg / composed) * filledWidth : 0;
+  const oneTimePct = Math.max(0, filledWidth - regularPct - plannedPct);
   const remaining = target - actual;
 
   // Three-state color tuned to the goal direction. For spend buckets (needs/
@@ -621,23 +638,41 @@ export function BudgetBar({
             {fmtMoney(actual)} / {fmtMoney(target)}
           </span>
         </div>
-        <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="relative h-3 w-full overflow-hidden rounded-full bg-muted"
+          role="img"
+          aria-label={`${fmtMoney(postedRegular)} posted regular${
+            oneTimePlanned > 0 ? `, ${fmtMoney(oneTimePlanned)} posted one-time` : ""
+          }${
+            recurringPlanned > 0 ? `, ${fmtMoney(recurringPlanned)} upcoming recurring` : ""
+          } of ${fmtMoney(target)} target`}
+        >
           <div
             className={`absolute inset-y-0 left-0 transition-[width] duration-300 ease-out ${barColor}`}
-            style={{ width: `${statementPct}%` }}
+            style={{ width: `${regularPct}%` }}
           />
+          {oneTimePct > 0 && (
+            <div
+              className={`absolute inset-y-0 opacity-70 transition-[left,width] duration-300 ease-out ${plannedBarColor} [background-image:repeating-linear-gradient(45deg,transparent,transparent_3px,rgba(255,255,255,0.35)_3px,rgba(255,255,255,0.35)_6px)]`}
+              style={{ left: `${regularPct}%`, width: `${oneTimePct}%` }}
+            />
+          )}
           {plannedPct > 0 && (
             <div
               className={`absolute inset-y-0 opacity-40 transition-[left,width] duration-300 ease-out ${plannedBarColor}`}
-              style={{ left: `${statementPct}%`, width: `${plannedPct}%` }}
+              style={{
+                left: `${regularPct + oneTimePct}%`,
+                width: `${plannedPct}%`,
+              }}
             />
           )}
           <span className="absolute inset-y-0 right-0 w-px bg-foreground/40" aria-hidden />
         </div>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs tabular-nums">
           <span className="text-muted-foreground">
-            {fmtMoney(statementActual)} from statements
-            {recurringPlanned > 0 ? ` + ${fmtMoney(recurringPlanned)} planned recurring` : ""}
+            {fmtMoney(postedRegular)} posted
+            {oneTimePlanned > 0 ? ` + ${fmtMoney(oneTimePlanned)} one-time` : ""}
+            {recurringPlanned > 0 ? ` + ${fmtMoney(recurringPlanned)} upcoming recurring` : ""}
           </span>
           <span className={noteColor}>{note}</span>
         </div>
@@ -702,9 +737,13 @@ export function BudgetBar({
                   size="sm"
                   onClick={() => onToggleExclude?.(t.id, !excluded)}
                   className="h-auto shrink-0 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                  title={excluded ? "Count this in the plan again" : "Mark as a one-time charge"}
+                  title={
+                    excluded
+                      ? "Classify as regular spending"
+                      : "Classify as one-time (still counted this month)"
+                  }
                 >
-                  {excluded ? "Include in plan" : "Mark one-time"}
+                  {excluded ? "Mark regular" : "Mark one-time"}
                 </Button>
               </li>
             );

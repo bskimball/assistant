@@ -1,7 +1,13 @@
 import { fmtMoney } from "@/components/finance/shared";
 import { Collapse } from "@/components/motion";
-import { useState } from "react";
-import { ArrowsClockwiseIcon, CaretDownIcon, LinkIcon } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import {
+  ArrowsClockwiseIcon,
+  CaretDownIcon,
+  CheckCircleIcon,
+  LinkIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +30,22 @@ import {
 } from "@/server/finance";
 import { CollapsibleCard, fmtDate } from "@/components/finance/shared";
 
+type SyncState =
+  | { phase: "idle" }
+  | { phase: "syncing" }
+  | { phase: "success"; message: string; transactionCount: number; at: number }
+  | { phase: "warning"; message: string; transactionCount: number; at: number }
+  | { phase: "error"; message: string };
+
+function fmtDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function SimplefinConnectionsCard({
   status,
   loading,
@@ -41,12 +63,22 @@ export function SimplefinConnectionsCard({
   const [setupToken, setSetupToken] = useState("");
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // Dedicated sync lifecycle so the button can narrate itself instead of just
+  // looking disabled. The success/error result stays visible after onChange()
+  // refreshes `status`, so it survives the query refresh long enough to read.
+  const [syncState, setSyncState] = useState<SyncState>({ phase: "idle" });
   // Management rows (aliases, loan links, history imports, disconnect) live
   // behind a disclosure — the summary row + Sync now cover the daily need.
   const [expanded, setExpanded] = useState(false);
   const connected = !!status?.connected;
   const nextSyncAt = status?.manualSyncAvailableAt;
   const manualSyncBlocked = !!nextSyncAt && nextSyncAt > Date.now();
+
+  // Disconnect/reconnect (or any authoritative loss of the connection) must not
+  // leave stale success/error narration from the previous connection on screen.
+  useEffect(() => {
+    if (!connected) setSyncState({ phase: "idle" });
+  }, [connected]);
 
   async function connect(e: React.SyntheticEvent) {
     e.preventDefault();
@@ -66,14 +98,53 @@ export function SimplefinConnectionsCard({
   }
 
   async function syncNow() {
+    if (syncState.phase === "syncing") return;
     setBusy(true);
+    setSyncState({ phase: "syncing" });
     try {
       const result = await syncSimplefinNow({ data: {} });
-      await onChange();
-      flash(result.message);
+      // Record the authoritative sync outcome BEFORE refreshing derived views,
+      // so a later refresh failure can't downgrade a real success to an error.
+      const persisted = result.status.lastSync;
+      const at = persisted?.at ?? Date.now();
+      if (result.ok) {
+        setSyncState({
+          phase: "success",
+          message: result.message,
+          transactionCount: result.transactionCount,
+          at,
+        });
+      } else if (
+        // ok:false with data persisted: the freshly written lastSync carries
+        // this run's message plus an ingested transactionCount, because Bridge
+        // warnings don't discard the accounts we did fetch. Hard failures
+        // (auth, fetch, rate limit) never reach ingestion, so transactionCount
+        // stays absent and the persisted message won't match this run.
+        persisted?.message === result.message &&
+        typeof persisted?.transactionCount === "number"
+      ) {
+        setSyncState({
+          phase: "warning",
+          message: result.message,
+          transactionCount: result.transactionCount,
+          at,
+        });
+      } else {
+        setSyncState({ phase: "error", message: result.message });
+      }
+      // Refresh status/derived views. A refresh failure must not clobber the
+      // sync outcome we just recorded, so swallow it independently.
+      try {
+        await onChange();
+      } catch (refreshErr) {
+        console.error(refreshErr);
+      }
     } catch (err: any) {
       console.error(err);
-      flash(err?.message || "Couldn’t sync SimpleFIN.");
+      setSyncState({
+        phase: "error",
+        message: err?.message || "Couldn’t sync SimpleFIN.",
+      });
     } finally {
       setBusy(false);
     }
@@ -169,12 +240,35 @@ export function SimplefinConnectionsCard({
             ? "Checking sync status"
             : "Not connected"
       }
-      forceOpen={!!status?.missingSealKey || status?.lastSync?.ok === false}
+      forceOpen={
+        !!status?.missingSealKey ||
+        (status?.lastSync?.ok === false && typeof status?.lastSync?.transactionCount !== "number")
+      }
     >
       <div className="space-y-3">
         {status?.missingSealKey && (
           <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
             SIMPLEFIN_SEAL_KEY is missing. Add a 32-byte base64 Workers secret before connecting.
+          </div>
+        )}
+
+        {status?.lastSync?.ok === false && typeof status.lastSync.transactionCount !== "number" && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">
+            {status.lastSync.message || "The last sync failed. Check your connection."}
+            {manualSyncBlocked && nextSyncAt ? (
+              <span className="mt-1 block text-muted-foreground/80">
+                Try again after {fmtDateTime(nextSyncAt)}.
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={syncNow}
+                disabled={busy || loading}
+                className="mt-1 block font-medium underline underline-offset-2 hover:text-destructive/80 disabled:opacity-50"
+              >
+                Retry sync
+              </button>
+            )}
           </div>
         )}
 
@@ -216,20 +310,144 @@ export function SimplefinConnectionsCard({
                 size="sm"
                 className="gap-1"
                 onClick={syncNow}
-                disabled={busy || loading || manualSyncBlocked}
+                disabled={busy || loading || manualSyncBlocked || syncState.phase === "syncing"}
+                aria-label={syncState.phase === "syncing" ? "Syncing accounts" : "Sync now"}
                 title={
                   manualSyncBlocked && nextSyncAt
-                    ? `Available ${fmtDate(nextSyncAt)}`
+                    ? `Available ${fmtDateTime(nextSyncAt)}`
                     : "Sync balances and transactions"
                 }
               >
-                <ArrowsClockwiseIcon className="size-4" weight="duotone" />
-                Sync now
+                <ArrowsClockwiseIcon
+                  className={`size-4${syncState.phase === "syncing" ? " animate-spin" : ""}`}
+                  weight="duotone"
+                />
+                {syncState.phase === "syncing" ? "Syncing…" : "Sync now"}
               </Button>
             </div>
-            {status?.lastSync?.message && (
-              <p className="text-xs text-muted-foreground">{status.lastSync.message}</p>
-            )}
+
+            {/* Live sync narration. aria-live=polite announces phase changes to
+                screen readers; the region stays mounted so success/error text
+                persists after the query refresh instead of vanishing. */}
+            <div aria-live="polite" className="min-h-0">
+              {syncState.phase === "syncing" && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <ArrowsClockwiseIcon className="size-3.5 animate-spin" weight="duotone" />
+                  Syncing accounts…
+                </p>
+              )}
+              {syncState.phase === "success" && (
+                <p className="flex items-center gap-1.5 text-xs text-foreground">
+                  <CheckCircleIcon className="size-3.5 shrink-0 text-success" weight="fill" />
+                  <span>
+                    {syncState.transactionCount > 0
+                      ? `Sync complete — ${syncState.transactionCount} new transaction${
+                          syncState.transactionCount === 1 ? "" : "s"
+                        }.`
+                      : "Sync complete — no new transactions."}{" "}
+                    <span className="text-muted-foreground">
+                      Last synced {fmtDateTime(syncState.at)}.
+                    </span>
+                  </span>
+                </p>
+              )}
+              {syncState.phase === "warning" && (
+                <p className="flex items-center gap-1.5 text-xs text-foreground">
+                  <WarningCircleIcon className="size-3.5 shrink-0 text-warning" weight="fill" />
+                  <span>
+                    {syncState.message}{" "}
+                    <span className="text-muted-foreground">
+                      {syncState.transactionCount === 0
+                        ? "No transactions imported."
+                        : `${syncState.transactionCount} transaction${
+                            syncState.transactionCount === 1 ? "" : "s"
+                          } imported.`}{" "}
+                      Last synced {fmtDateTime(syncState.at)}.
+                    </span>
+                  </span>
+                </p>
+              )}
+              {syncState.phase === "error" && (
+                <p className="flex items-center gap-1.5 text-xs text-destructive">
+                  <WarningCircleIcon className="size-3.5 shrink-0" weight="fill" />
+                  <span>
+                    {syncState.message}{" "}
+                    {manualSyncBlocked && nextSyncAt ? (
+                      // Retry would just bounce off the manual rate limit, so
+                      // explain when it becomes usable instead of offering a
+                      // dead control. The aria-live region announces this.
+                      <span className="text-muted-foreground">
+                        Try again after {fmtDateTime(nextSyncAt)}.
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={syncNow}
+                        disabled={busy || loading}
+                        className="font-medium underline underline-offset-2 hover:text-destructive/80 disabled:opacity-50"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </span>
+                </p>
+              )}
+              {syncState.phase === "idle" &&
+                status?.lastSync &&
+                (status.lastSync.ok ? (
+                  <p className="flex items-center gap-1.5 text-xs text-foreground">
+                    <CheckCircleIcon className="size-3.5 shrink-0 text-success" weight="fill" />
+                    <span>
+                      {status.lastSync.message ?? "Last sync completed."}{" "}
+                      <span className="text-muted-foreground">
+                        Last synced {fmtDateTime(status.lastSync.at)}.
+                      </span>
+                    </span>
+                  </p>
+                ) : typeof status.lastSync.transactionCount === "number" ? (
+                  // Partial warning: the run ingested accounts before a Bridge
+                  // warning, so surface the imported count (including zero) plus
+                  // the timestamp rather than framing it as a hard failure.
+                  <p className="flex items-center gap-1.5 text-xs text-foreground">
+                    <WarningCircleIcon className="size-3.5 shrink-0 text-warning" weight="fill" />
+                    <span>
+                      {status.lastSync.message ?? "Last sync had issues."}{" "}
+                      <span className="text-muted-foreground">
+                        {status.lastSync.transactionCount === 0
+                          ? "No transactions imported."
+                          : `${status.lastSync.transactionCount} transaction${
+                              status.lastSync.transactionCount === 1 ? "" : "s"
+                            } imported.`}{" "}
+                        Last synced {fmtDateTime(status.lastSync.at)}.
+                      </span>
+                    </span>
+                  </p>
+                ) : (
+                  // Hard failure (auth, fetch, rate limit): nothing ingested, so
+                  // render destructive and give a real next step — the rate-limit
+                  // time when a retry would bounce, otherwise a Retry control.
+                  <p className="flex items-center gap-1.5 text-xs text-destructive">
+                    <WarningCircleIcon className="size-3.5 shrink-0" weight="fill" />
+                    <span>
+                      {status.lastSync.message ?? "Last sync failed."}{" "}
+                      {manualSyncBlocked && nextSyncAt ? (
+                        <span className="text-muted-foreground">
+                          Try again after {fmtDateTime(nextSyncAt)}.
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={syncNow}
+                          disabled={busy || loading}
+                          className="font-medium underline underline-offset-2 hover:text-destructive/80 disabled:opacity-50"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </span>
+                  </p>
+                ))}
+            </div>
 
             <button
               type="button"
